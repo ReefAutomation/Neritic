@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>WiFi Setup - Aquarium LED Controller</title>
+	<style>
+		body {
+			font-family: 'Segoe UI', Arial, sans-serif;
+			background: #f0f4f8;
+			margin: 0;
+			padding: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			min-height: 100vh;
+		}
+		.card {
+			background: #fff;
+			border-radius: 12px;
+			box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+			padding: 2em 2em 1.5em 2em;
+			max-width: 350px;
+			width: 100%;
+		}
+		h2 {
+			margin-top: 0;
+			color: #2196f3;
+			font-weight: 600;
+			text-align: center;
+		}
+		.instructions {
+			color: #555;
+			font-size: 1em;
+			margin-bottom: 1.5em;
+			text-align: center;
+		}
+		label {
+			display: block;
+			margin-bottom: 0.5em;
+			font-weight: 500;
+		}
+		input[type="text"], input[type="password"] {
+			width: 100%;
+			padding: 0.7em;
+			margin-bottom: 1em;
+			border: 1px solid #ccc;
+			border-radius: 6px;
+			font-size: 1em;
+		}
+		.btn {
+			width: 100%;
+			background: #2196f3;
+			color: #fff;
+			border: none;
+			border-radius: 6px;
+			padding: 0.8em;
+			font-size: 1.1em;
+			font-weight: 600;
+			cursor: pointer;
+			margin-top: 0.5em;
+			transition: background 0.2s;
+		}
+		.btn:hover {
+			background: #1769aa;
+		}
+		.footer {
+			text-align: center;
+			color: #aaa;
+			font-size: 0.9em;
+			margin-top: 1.5em;
+		}
+	</style>
+</head>
+<body>
+	<div class="card">
+		<h2>WiFi Setup</h2>
+		<div class="instructions">
+			Please enter your WiFi network details to connect your Aquarium LED Controller.<br>
+			<span style="font-size:1.5em;">🐠</span>
+		</div>
+		<form id="wifiForm" method="POST" action="/wifi">
+			<label for="ssid">WiFi SSID</label>
+			<input name="ssid" id="ssid" type="text" required autocomplete="on" autofocus>
+			<label for="password">WiFi Password</label>
+			<input name="password" id="password" type="password" autocomplete="on">
+			<button class="btn" type="submit">Connect</button>
+		</form>
+		<div class="footer">Aquarium LED Controller &copy; 2026</div>
+	</div>
+	<script>
+	// Force form to submit as application/x-www-form-urlencoded for ESPAsyncWebServer compatibility
+	document.getElementById('wifiForm').addEventListener('submit', function(e) {
+		e.preventDefault();
+		var form = e.target;
+		var data = new URLSearchParams();
+		data.append('ssid', form.ssid.value);
+		data.append('password', form.password.value);
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', form.action, true);
+		xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+		xhr.onload = function() {
+			if (xhr.status === 200) {
+				document.body.innerHTML = xhr.responseText;
+			} else {
+				alert('WiFi setup failed. Please try again.');
+			}
+		};
+		xhr.send(data.toString());
+	});
+	</script>
+</body>

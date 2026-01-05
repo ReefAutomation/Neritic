@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aquarium LED Controller</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div id="toast" class="toast" style="display:none;"></div>
+        <!-- Header -->
+        <header class="header">
+            <h1>🐠 Aquarium Control</h1>
+            <div class="status-bar">
+                <span class="status-indicator" id="statusIndicator">●</span>
+                <span id="currentTime">--:--:--</span>
+            </div>
+        </header>
+
+        <!-- Quick Controls -->
+        <section class="card">
+            <h2>Quick Controls</h2>
+            <div class="control-grid">
+                <div class="control-item">
+                    <label class="switch-label">
+                        <span>Power</span>
+                        <label class="switch">
+                            <input type="checkbox" id="powerToggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </label>
+                </div>
+                
+                <div class="control-item full-width">
+                    <label>
+                        <span>Brightness</span>
+                        <span id="brightnessValue">128</span>
+                    </label>
+                    <input type="range" id="brightnessSlider" min="0" max="255" value="128" class="slider-input">
+                </div>
+                
+                <div class="control-item full-width">
+                    <label>
+                        <span>Transition Time (seconds)</span>
+                        <span id="transitionValue">5</span>
+                    </label>
+                    <input type="range" id="transitionSlider" min="0" max="3600" value="5" class="slider-input">
+                </div>
+                
+                <div class="control-item full-width">
+                    <label>Effect</label>
+                    <select id="effectSelect" class="select-input">
+                        <option value="0">Solid Color</option>
+                        <option value="1">Aquarium Ripple</option>
+                        <option value="2">Gentle Wave</option>
+                        <option value="3">Sunrise Simulation</option>
+                        <option value="4">Coral Shimmer</option>
+                        <option value="5">Deep Ocean</option>
+                        <option value="6">Moonlight</option>
+                    </select>
+                </div>
+                
+                <div class="control-item">
+                    <label>
+                        <span>Speed</span>
+                        <span id="speedValue">128</span>
+                    </label>
+                    <input type="range" id="speedSlider" min="0" max="255" value="128" class="slider-input">
+                </div>
+                
+                <div class="control-item">
+                    <label>
+                        <span>Intensity</span>
+                        <span id="intensityValue">128</span>
+                    </label>
+                    <input type="range" id="intensitySlider" min="0" max="255" value="128" class="slider-input">
+                </div>
+                
+                <div class="control-item">
+                    <label>Primary Color</label>
+                    <input type="color" id="color1Picker" value="#0000ff" class="color-input">
+                </div>
+                
+                <div class="control-item">
+                    <label>Secondary Color</label>
+                    <input type="color" id="color2Picker" value="#00ffff" class="color-input">
+                </div>
+            </div>
+        </section>
+
+        <!-- Presets -->
+        <section class="card">
+            <h2>Presets</h2>
+            <div class="preset-grid" id="presetGrid">
+                <!-- Presets will be loaded here dynamically -->
+            </div>
+        </section>
+
+        <!-- Schedule -->
+        <section class="card">
+            <h2>Schedule</h2>
+            <div class="sun-times">
+                <div class="sun-time">
+                    <span>🌅 Sunrise</span>
+                    <span id="sunriseTime">--:--</span>
+                </div>
+                <div class="sun-time">
+                    <span>🌇 Sunset</span>
+                    <span id="sunsetTime">--:--</span>
+                </div>
+            </div>
+            <div class="schedule-table" id="scheduleTable">
+                <!-- Schedule will be loaded here -->
+            </div>
+            <button class="btn btn-secondary" onclick="showTimerEditor()">Add Timer</button>
+        </section>
+
+        <!-- Configuration -->
+        <section class="card">
+            <h2>Configuration</h2>
+            <div class="config-grid">
+                <div class="config-item">
+                    <label>LED Count</label>
+                    <input type="number" id="ledCount" min="1" max="512" value="60" class="text-input">
+                </div>
+
+                <div class="config-item">
+                    <label>LED Type</label>
+                    <select id="ledType" class="select-input">
+                        <option value="WS2812B">WS2812B</option>
+                        <option value="SK6812">SK6812 (GRB)</option>
+                    </select>
+                </div>
+
+                <div class="config-item">
+                    <label>Relay Pin (GPIO)</label>
+                    <input type="number" id="relayPin" min="0" max="39" value="12" class="text-input">
+                </div>
+
+                <div class="config-item">
+                    <label>Relay Active Level</label>
+                    <select id="relayActiveHigh" class="select-input">
+                        <option value="true">HIGH = ON</option>
+                        <option value="false">LOW = ON</option>
+                    </select>
+                </div>
+
+                <div class="config-item">
+                    <label>Max Brightness (Fish Safety)</label>
+                    <input type="range" id="maxBrightness" min="50" max="255" value="200" class="slider-input">
+                    <span id="maxBrightnessValue">200</span>
+                </div>
+
+                <div class="config-item">
+                    <label>Min Transition Time (seconds)</label>
+                    <input type="range" id="minTransition" min="2" max="3600" value="5" class="slider-input">
+                    <span id="minTransitionValue">5</span>
+                </div>
+
+                <div class="config-item">
+                    <label>Timezone Offset (hours)</label>
+                    <input type="number" id="timezoneOffset" min="-12" max="12" value="0" class="text-input">
+                </div>
+
+                <div class="config-item">
+                    <label>Latitude</label>
+                    <input type="number" id="latitude" min="-90" max="90" step="0.01" value="0" class="text-input">
+                </div>
+
+                <div class="config-item">
+                    <label>Longitude</label>
+                    <input type="number" id="longitude" min="-180" max="180" step="0.01" value="0" class="text-input">
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="saveConfiguration()">Save Configuration</button>
+        </section>
+        <!-- OTA Firmware Update (moved to bottom) -->
+        <section class="card ota-card">
+            <h2>OTA Firmware Update</h2>
+            <form id="otaForm" class="ota-form">
+                <div class="ota-upload-row">
+                    <input type="file" id="otaFile" accept=".bin,.gz,.zip" required style="display:none;">
+                    <label for="otaFile" class="btn btn-primary ota-file-label">
+                        <span class="ota-file-label-icon">&#128194;</span> Choose File
+                    </label>
+                    <span id="otaFileName" class="ota-file-name">No file chosen</span>
+                    <button type="submit" class="btn btn-primary ota-upload-btn">Upload</button>
+                </div>
+                <div id="otaProgressBar" class="ota-progress-bar" style="display:none;">
+                    <div id="otaProgressFill" class="ota-progress-fill"></div>
+                </div>
+            </form>
+            <div id="otaStatus" class="ota-status"></div>
+        </section>
+    </div>
+
+    <script src="fflate.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
