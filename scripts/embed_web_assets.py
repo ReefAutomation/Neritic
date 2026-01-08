@@ -1,29 +1,41 @@
 #!/usr/bin/env python3
 
-# PlatformIO pre-build script: embed web assets as .inc files
-Import("env")
-import os
 
+# PlatformIO pre-build script: embed web assets as .inc files
+# Import("env")
+import os
 import subprocess
 import sys
-
-
+import urllib.request
 import tempfile
-
+import re
+import configparser
+import argparse
 
 # Skip script if PlatformIO target is erase, or clean
-import sys
 pio_targets = os.environ.get('PIOENV', '') + ' ' + ' '.join(sys.argv)
-if any(x in pio_targets for x in ['erase', 'clean']):
+if any(x in pio_targets for x in ['erase', 'clean', 'buildfs', 'uploadfs']):
 	print('embed_web_assets.py: Skipping script for erase/clean target.')
 	sys.exit(0)
 
 # Use project root as base (PlatformIO sets cwd to project root)
 ASSET_DIR = os.path.join(os.getcwd(), 'data')
 OUT_DIR = os.path.join(os.getcwd(), 'src/web_assets')
+
 # Ensure output directory exists
 os.makedirs(OUT_DIR, exist_ok=True)
 
+
+
+# Only delete and regenerate .inc files for assets that have changed, unless force is True
+def asset_needs_update(src_path, inc_path, force=False):
+	if force:
+		return True
+	if not os.path.exists(inc_path):
+		return True
+	src_mtime = os.path.getmtime(src_path)
+	inc_mtime = os.path.getmtime(inc_path)
+	return src_mtime > inc_mtime
 
 
 # Download fflate.min.js from CDN if not present
@@ -60,18 +72,24 @@ def ensure_terser():
 ensure_html_minifier()
 ensure_terser()
 
+
+# Add config.json as config_default.inc (no minification)
 ASSETS = [
 	('index.html', 'index_html.inc'),
 	('wifi.html', 'wifi_html.inc'),
 	('app.js', 'app_js.inc'),
 	('style.css', 'style_css.inc'),
 	('fflate.min.js', 'fflate_min_js.inc'),
+	('config.html', 'config_html.inc'),
+	('config.js', 'config_js.inc'),
+	('config.json', 'config_default.inc'),
+	('timezones.json', 'timezones_json.inc'),
+	('presets.json', 'presets_json.inc'),
 ]
 
 
 def minify_asset(infile, ext, do_minify=True):
 	def minify_with_html_minifier(infile, ext):
-		import tempfile
 		with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix=ext) as tmp_in:
 			with open(infile, 'r', encoding='utf-8') as f:
 				tmp_in.write(f.read())
@@ -97,7 +115,6 @@ def minify_asset(infile, ext, do_minify=True):
 			print(f"ERROR: html-minifier-terser failed for {infile}: {e}", file=sys.stderr)
 			sys.exit(1)
 	def minify_with_terser(infile):
-		import tempfile
 		with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix='.js') as tmp_in:
 			with open(infile, 'r', encoding='utf-8') as f:
 				tmp_in.write(f.read())
@@ -135,7 +152,6 @@ def to_inc(infile, outfile, do_minify=True):
 			return False
 		ext = os.path.splitext(infile)[1]
 		def minify_js_with_terser(infile):
-			import tempfile
 			with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix='.js') as tmp_in:
 				with open(infile, 'r', encoding='utf-8') as f:
 					tmp_in.write(f.read())
@@ -155,7 +171,6 @@ def to_inc(infile, outfile, do_minify=True):
 				print(f"ERROR: Terser minification failed for {infile}: {e}", file=sys.stderr)
 				sys.exit(1)
 		minified = minify_asset(infile_path, ext, do_minify)
-		import tempfile
 		with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix=ext) as tmp:
 			tmp.write(minified)
 			tmp.flush()
@@ -166,7 +181,6 @@ def to_inc(infile, outfile, do_minify=True):
 			xxd_tmp_path = xxd_tmp.name
 		with open(xxd_tmp_path, 'r', encoding='utf-8') as xxd_file:
 			xxd_content = xxd_file.read()
-		import re
 		array_decl_re = re.compile(r'^unsigned char\s+(\w+)\[\]\s*=\s*\{', re.MULTILINE)
 		match = array_decl_re.search(xxd_content)
 		if not match:
@@ -183,12 +197,18 @@ def to_inc(infile, outfile, do_minify=True):
 			return False
 		array_decl = array_match.group(1)
 		len_decl = len_match.group(1)
-		# Compose both branches with full declaration
-		branch_esp = f"#if defined(ESP8266) || defined(ARDUINO_ARCH_AVR)\nstatic const unsigned char {var_name}[] PROGMEM = {array_decl[array_decl.find('{'):array_decl.find('};')+2]}\n{len_decl}\n"
-		branch_else = f"#else\nstatic const unsigned char {var_name}[] = {array_decl[array_decl.find('{'):array_decl.find('};')+2]}\n{len_decl}\n#endif\n"
-		with open(outfile_path, 'w', encoding='utf-8') as out:
-			out.write(branch_esp)
-			out.write(branch_else)
+		# If the file is a .json, do not use PROGMEM even for ESP8266/AVR
+		is_json = ext == '.json'
+		if is_json:
+			branch = f"const unsigned char {var_name}[] = {array_decl[array_decl.find('{'):array_decl.find('};')+2]}\n{len_decl.replace('static ', '')}\n"
+			with open(outfile_path, 'w', encoding='utf-8') as out:
+				out.write(branch)
+		else:
+			branch_esp = f"#if defined(ESP8266) || defined(ARDUINO_ARCH_AVR)\nconst unsigned char {var_name}[] PROGMEM = {array_decl[array_decl.find('{'):array_decl.find('};')+2]}\n{len_decl.replace('static ', '')}\n"
+			branch_else = f"#else\nconst unsigned char {var_name}[] = {array_decl[array_decl.find('{'):array_decl.find('};')+2]}\n{len_decl.replace('static ', '')}\n#endif\n"
+			with open(outfile_path, 'w', encoding='utf-8') as out:
+				out.write(branch_esp)
+				out.write(branch_else)
 		os.remove(xxd_tmp_path)
 		os.remove(tmp_path)
 		print(f'Success: {outfile_path}')
@@ -198,20 +218,36 @@ def to_inc(infile, outfile, do_minify=True):
 		return False
 
 
-# Read minify option from PlatformIO env
 minify_opt = os.environ.get('PLATFORMIO_MINIFY')
 if minify_opt is None:
-	# Try to read from platformio.ini
-	import configparser
 	config = configparser.ConfigParser()
 	config.read(os.path.join(os.getcwd(), 'platformio.ini'))
 	minify_opt = config.get('common', 'minify', fallback='true')
 do_minify = minify_opt.lower() in ('1', 'true', 'yes', 'on')
 
+
+
+
+# Add force parameter via environment variable or command line
+parser = argparse.ArgumentParser()
+parser.add_argument('--force', action='store_true', help='Force regeneration of all .inc files')
+args, unknown = parser.parse_known_args()
+force = args.force or os.environ.get('EMBED_WEB_ASSETS_FORCE', '0') in ('1', 'true', 'yes', 'on')
+
 all_ok = True
 for src, dst in ASSETS:
-	ok = to_inc(src, dst, do_minify)
-	all_ok = all_ok and ok
+	src_path = os.path.join(ASSET_DIR, src)
+	inc_path = os.path.join(OUT_DIR, dst)
+	if asset_needs_update(src_path, inc_path, force=force):
+		if os.path.exists(inc_path):
+			try:
+				os.remove(inc_path)
+			except Exception as e:
+				print(f'WARNING: Could not delete {inc_path}: {e}')
+		ok = to_inc(src, dst, do_minify)
+		all_ok = all_ok and ok
+	else:
+		print(f'Skipping unchanged asset: {src}')
 if all_ok:
 	print('Web assets embedded as .inc files.')
 else:

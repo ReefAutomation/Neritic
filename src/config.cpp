@@ -1,16 +1,39 @@
+#include "web_assets/config_default.inc"
+#include "web_assets/timezones_json.inc"
 #include "config.h"
+
+#include <vector>
 #include <LittleFS.h>
 
 #define FILESYSTEM LittleFS
 
+// Ensure filesystem is mounted before any file operation
+static bool ensureFilesystemMounted() {
+    static bool mounted = false;
+    if (!mounted) {
+        if (!FILESYSTEM.begin()) {
+            if (!FILESYSTEM.format()) {
+                return false;
+            }
+            if (!FILESYSTEM.begin()) {
+                return false;
+            }
+        }
+        mounted = true;
+    }
+    return true;
+}
+
 // Utility to delete presets file
 void Configuration::resetPresetsFile() {
+    if (!ensureFilesystemMounted()) return;
     if (FILESYSTEM.exists(PRESET_FILE)) {
         FILESYSTEM.remove(PRESET_FILE);
     }
 }
 
 bool Configuration::loadFromFile(const char* path, JsonDocument& doc) {
+    if (!ensureFilesystemMounted()) return false;
     File file = FILESYSTEM.open(path, "r");
     if (!file) {
         return false;
@@ -27,75 +50,100 @@ bool Configuration::loadFromFile(const char* path, JsonDocument& doc) {
 }
 
 bool Configuration::saveToFile(const char* path, const JsonDocument& doc) {
+    if (!ensureFilesystemMounted()) return false;
     File file = FILESYSTEM.open(path, "w");
     if (!file) {
         return false;
     }
     size_t written = serializeJson(doc, file);
+    file.flush();
     file.close();
+    delay(10);
     return written > 0;
 }
 
 bool Configuration::load() {
+    // Load defaults from config_default.inc
     StaticJsonDocument<2048> doc;
-    
-    if (!loadFromFile(CONFIG_FILE, doc)) {
+    StaticJsonDocument<2048> defaultsDoc;
+    DeserializationError errDefault = deserializeJson(defaultsDoc, web_config_default, web_config_default_len);
+    if (errDefault) {
         setDefaults();
         return false;
     }
-    
+
+    bool updated = false;
+    if (!loadFromFile(CONFIG_FILE, doc)) {
+        doc = defaultsDoc;
+        updated = true;
+    } else {
+        // Merge missing fields from defaults
+        for (JsonPair kv : defaultsDoc.as<JsonObject>()) {
+            if (!doc.containsKey(kv.key())) {
+                doc[kv.key()] = kv.value();
+                updated = true;
+            }
+        }
+    }
+
+    // ...existing code to assign doc fields to struct members...
+    // (copy the field assignment logic from before, but now doc is always complete)
     // LED Configuration
     if (doc.containsKey("led")) {
         JsonObject ledObj = doc["led"];
-        led.pin = ledObj["pin"] | DEFAULT_LED_PIN;
-        led.count = ledObj["count"] | DEFAULT_LED_COUNT;
-        led.type = ledObj["type"] | DEFAULT_LED_TYPE;
-        led.colorOrder = ledObj["colorOrder"] | DEFAULT_COLOR_ORDER;
-        led.relayPin = ledObj.containsKey("relayPin") ? (int)ledObj["relayPin"] : DEFAULT_LED_RELAY_PIN;
-        led.relayActiveHigh = ledObj.containsKey("relayActiveHigh") ? (bool)ledObj["relayActiveHigh"] : true;
+        led.pin = ledObj["pin"];
+        led.count = ledObj["count"];
+        led.type = ledObj["type"].as<String>();
+        led.colorOrder = ledObj["colorOrder"].as<String>();
+        led.relayPin = ledObj["relayPin"];
+        led.relayActiveHigh = ledObj["relayActiveHigh"];
     }
-    
     // Safety Configuration
     if (doc.containsKey("safety")) {
         JsonObject safetyObj = doc["safety"];
-        safety.minTransitionTime = safetyObj["minTransitionTime"] | DEFAULT_MIN_TRANSITION_TIME;
-        safety.maxBrightness = safetyObj["maxBrightness"] | DEFAULT_MAX_BRIGHTNESS;
+        safety.minTransitionTime = safetyObj["minTransitionTime"];
+        int percent = safetyObj["maxBrightness"];
+        if (percent <= 0) safety.maxBrightness = 1;
+        else if (percent >= 100) safety.maxBrightness = 255;
+        else safety.maxBrightness = 1 + (254 * percent) / 100;
     }
-    
     // Network Configuration
     if (doc.containsKey("network")) {
         JsonObject netObj = doc["network"];
-        network.hostname = netObj["hostname"] | DEFAULT_HOSTNAME;
-        network.apPassword = netObj["apPassword"] | DEFAULT_AP_PASSWORD;
-        network.ssid = netObj["ssid"] | "";
-        network.password = netObj["password"] | "";
+        if (netObj.containsKey("hostname")) network.hostname = netObj["hostname"].as<String>();
+        if (netObj.containsKey("apPassword")) network.apPassword = netObj["apPassword"].as<String>();
+        if (netObj.containsKey("ssid")) network.ssid = netObj["ssid"].as<String>();
+        if (netObj.containsKey("password")) network.password = netObj["password"].as<String>();
     }
-    
     // Time Configuration
     if (doc.containsKey("time")) {
         JsonObject timeObj = doc["time"];
-        time.ntpServer = timeObj["ntpServer"] | DEFAULT_NTP_SERVER;
-        time.timezoneOffset = timeObj["timezoneOffset"] | DEFAULT_TIMEZONE_OFFSET;
-        time.latitude = timeObj["latitude"] | 0.0;
-        time.longitude = timeObj["longitude"] | 0.0;
-        time.dstEnabled = timeObj["dstEnabled"] | false;
+        time.ntpServer = timeObj["ntpServer"].as<String>();
+        time.timezone = timeObj["timezone"].as<String>();
+        time.latitude = timeObj["latitude"];
+        time.longitude = timeObj["longitude"];
+        time.dstEnabled = timeObj["dstEnabled"];
     }
-    
     // Timers
     if (doc.containsKey("timers")) {
         JsonArray timersArray = doc["timers"];
-        for (size_t i = 0; i < timersArray.size() && i < (MAX_TIMERS + MAX_SUN_TIMERS); i++) {
+        timers.clear();
+        for (size_t i = 0; i < timersArray.size(); i++) {
             JsonObject timerObj = timersArray[i];
-            timers[i].enabled = timerObj["enabled"] | false;
-            timers[i].type = (TimerType)(timerObj["type"] | 0);
-            timers[i].hour = timerObj["hour"] | 0;
-            timers[i].minute = timerObj["minute"] | 0;
-            timers[i].days = timerObj["days"] | 0b1111111;
-            timers[i].offset = timerObj["offset"] | 0;
-            timers[i].presetId = timerObj["presetId"] | 0;
+            Timer t;
+            t.enabled = timerObj["enabled"];
+            t.type = (TimerType)timerObj["type"];
+            t.hour = timerObj["hour"];
+            t.minute = timerObj["minute"];
+            t.presetId = timerObj["presetId"];
+            t.brightness = timerObj["brightness"] | 100;
+            timers.push_back(t);
         }
     }
-    
+
+    if (updated) {
+        saveToFile(CONFIG_FILE, doc);
+    }
     return true;
 }
 
@@ -114,7 +162,8 @@ bool Configuration::save() {
     // Safety Configuration
     JsonObject safetyObj = doc.createNestedObject("safety");
     safetyObj["minTransitionTime"] = safety.minTransitionTime;
-    safetyObj["maxBrightness"] = safety.maxBrightness;
+    // Convert hardware value (1–255) to percent (0–100) for API output
+    safetyObj["maxBrightness"] = (int)round(((safety.maxBrightness - 1) / 254.0) * 100);
     
     // Network Configuration
     JsonObject netObj = doc.createNestedObject("network");
@@ -126,25 +175,35 @@ bool Configuration::save() {
     // Time Configuration
     JsonObject timeObj = doc.createNestedObject("time");
     timeObj["ntpServer"] = time.ntpServer;
-    timeObj["timezoneOffset"] = time.timezoneOffset;
+    timeObj["timezone"] = time.timezone;
     timeObj["latitude"] = time.latitude;
     timeObj["longitude"] = time.longitude;
     timeObj["dstEnabled"] = time.dstEnabled;
     
     // Timers
     JsonArray timersArray = doc.createNestedArray("timers");
-    for (size_t i = 0; i < (MAX_TIMERS + MAX_SUN_TIMERS); i++) {
+    for (size_t i = 0; i < timers.size(); i++) {
         JsonObject timerObj = timersArray.createNestedObject();
         timerObj["enabled"] = timers[i].enabled;
         timerObj["type"] = timers[i].type;
         timerObj["hour"] = timers[i].hour;
         timerObj["minute"] = timers[i].minute;
-        timerObj["days"] = timers[i].days;
-        timerObj["offset"] = timers[i].offset;
         timerObj["presetId"] = timers[i].presetId;
+        timerObj["brightness"] = timers[i].brightness;
     }
     
     return saveToFile(CONFIG_FILE, doc);
+}
+
+// Factory reset: delete config file and restore defaults
+bool Configuration::factoryReset() {
+    bool ok = true;
+    if (FILESYSTEM.exists(CONFIG_FILE)) {
+        ok = FILESYSTEM.remove(CONFIG_FILE);
+    }
+    setDefaults();
+    save();
+    return ok;
 }
 
 bool Configuration::loadPresets() {
@@ -154,24 +213,24 @@ bool Configuration::loadPresets() {
     size_t capacity = 8192;
     DynamicJsonDocument doc(capacity);
 
-    if (!loadFromFile(PRESET_FILE, doc)) {
-        setDefaultPresets();
-        return false;
+    bool loaded = false;
+    if (loadFromFile(PRESET_FILE, doc) && doc.containsKey("presets")) {
+        loaded = true;
+    } else {
+        // Load from embedded asset if file missing or invalid
+        #include "web_assets/presets_json.inc"
+        DeserializationError err = deserializeJson(doc, web_presets_json, web_presets_json_len);
+        if (!err && doc.containsKey("presets")) {
+            loaded = true;
+        }
     }
-
-    if (!doc.containsKey("presets")) {
-        setDefaultPresets();
-        return false;
-    }
-
+    if (!loaded) return false;
     JsonArray presetsArray = doc["presets"];
     for (size_t i = 0; i < presetsArray.size() && i < MAX_PRESETS; i++) {
         JsonObject presetObj = presetsArray[i];
         presets[i].name = presetObj["name"] | "";
-        presets[i].brightness = presetObj["brightness"] | 128;
         presets[i].effect = presetObj["effect"] | 0;
         presets[i].enabled = presetObj["enabled"] | true;
-
         if (presetObj.containsKey("params")) {
             JsonObject paramsObj = presetObj["params"];
             presets[i].params.speed = paramsObj["speed"] | 128;
@@ -194,7 +253,6 @@ bool Configuration::savePresets() {
 
         JsonObject presetObj = presetsArray.createNestedObject();
         presetObj["name"] = presets[i].name;
-        presetObj["brightness"] = presets[i].brightness;
         presetObj["effect"] = presets[i].effect;
         presetObj["enabled"] = presets[i].enabled;
 
@@ -208,6 +266,12 @@ bool Configuration::savePresets() {
     return saveToFile(PRESET_FILE, doc);
 }
 
+// Helper function to map percent (0-100) to hardware brightness (1-255)
+uint8_t percentToBrightness(uint8_t percent) {
+    if (percent <= 0) return 1;
+    if (percent >= 100) return 255;
+    return (uint8_t)(1 + ((254 * percent) / 100));
+}
 
 void Configuration::setDefaults() {
     led = LEDConfig();
@@ -215,80 +279,51 @@ void Configuration::setDefaults() {
     network = NetworkConfig();
     time = TimeConfig();
     state = SystemState();
-    
-    for (int i = 0; i < MAX_TIMERS + MAX_SUN_TIMERS; i++) {
+    // Zero-initialize timers; actual schedule will be loaded from config.json or default config
+    for (size_t i = 0; i < timers.size(); i++) {
         timers[i] = Timer();
     }
-    
-    setDefaultPresets();
     savePresets();
 }
 
-void Configuration::setDefaultPresets() {
-    // Preset 0: Morning Sun (Sunrise)
-    presets[0].name = "Morning Sun";
-    presets[0].brightness = 180;
-    presets[0].effect = 15; // FX_MODE_FADE
-    presets[0].params.speed = 80;
-    presets[0].params.intensity = 200;
-    presets[0].params.color1 = 0xFF8800;  // Orange
-    presets[0].params.color2 = 0xFFFF00;  // Yellow
 
-    // Preset 1: Daylight
-    presets[1].name = "Daylight";
-    presets[1].brightness = 200;
-    presets[1].effect = 0; // FX_MODE_STATIC
-    presets[1].params.color1 = 0xFFFFFF;  // White
 
-    // Preset 2: Afternoon Ripple
-    presets[2].name = "Afternoon Ripple";
-    presets[2].brightness = 180;
-    presets[2].effect = 12; // FX_MODE_RAINBOW_CYCLE
-    presets[2].params.speed = 100;
-    presets[2].params.intensity = 150;
-    presets[2].params.color1 = 0x0088FF;  // Blue
-    presets[2].params.color2 = 0x00FFFF;  // Cyan
+// Update location from GPS data
+void Configuration::updateLocationFromGPS(float lat, float lon, bool valid) {
+    time.latitude = lat;
+    time.longitude = lon;
+}
 
-    // Preset 3: Gentle Wave
-    presets[3].name = "Gentle Wave";
-    presets[3].brightness = 120;
-    presets[3].effect = 3; // FX_MODE_COLOR_WIPE
-    presets[3].params.speed = 60;
-    presets[3].params.intensity = 100;
-    presets[3].params.color1 = 0x00BFFF;  // Light Blue
-    presets[3].params.color2 = 0xFFFFFF;  // White
-
-    // Preset 4: Coral Shimmer
-    presets[4].name = "Coral Shimmer";
-    presets[4].brightness = 150;
-    presets[4].effect = 21; // FX_MODE_TWINKLE_FADE
-    presets[4].params.speed = 120;
-    presets[4].params.intensity = 180;
-    presets[4].params.color1 = 0xFF4500;  // Coral
-    presets[4].params.color2 = 0xFF69B4;  // Pink
-    // Add third color for shimmer
-    // (If you want to support 3 colors, extend EffectParams and preset saving logic)
-
-    // Preset 5: Deep Ocean
-    presets[5].name = "Deep Ocean";
-    presets[5].brightness = 80;
-    presets[5].effect = 37; // FX_MODE_CHASE_BLUE
-    presets[5].params.speed = 40;
-    presets[5].params.intensity = 60;
-    presets[5].params.color1 = 0x000080;  // Navy
-    presets[5].params.color2 = 0x0000CD;  // Medium Blue
-
-    // Preset 6: Moonlight
-    presets[6].name = "Moonlight";
-    presets[6].brightness = 30;
-    presets[6].effect = 2; // FX_MODE_BREATH
-    presets[6].params.speed = 50;
-    presets[6].params.intensity = 40;
-    presets[6].params.color1 = 0x0A0A20;  // Dark Blue
-    
-    // Mark remaining presets as disabled
-    for (int i = 7; i < MAX_PRESETS; i++) {
-        presets[i].name = "";
-        presets[i].enabled = false;
+// Get timezone offset in seconds (stub, needs library for real implementation)
+int Configuration::getTimezoneOffsetSeconds() {
+    // Use embedded timezone JSON asset for lookup, and add DST if enabled
+    StaticJsonDocument<4096> tzDoc;
+    DeserializationError err = deserializeJson(tzDoc, web_timezones_json, web_timezones_json_len);
+    if (err) return 0;
+    for (JsonObject tz : tzDoc.as<JsonArray>()) {
+        if (tz["name"] == time.timezone) {
+            double offset = tz["offset"];
+            int offsetSeconds = (int)(offset * 3600);
+            // Add 1 hour if DST is enabled
+            if (time.dstEnabled) {
+                offsetSeconds += 3600;
+            }
+            return offsetSeconds;
+        }
     }
+    return 0;
+}
+
+// Return a vector of all timezone names from the embedded asset
+std::vector<String> Configuration::getSupportedTimezones() {
+    std::vector<String> timezones;
+    StaticJsonDocument<4096> tzDoc;
+    DeserializationError err = deserializeJson(tzDoc, web_timezones_json, web_timezones_json_len);
+    if (err) return timezones;
+    for (JsonObject tz : tzDoc.as<JsonArray>()) {
+        if (tz.containsKey("name")) {
+            timezones.push_back(tz["name"].as<String>());
+        }
+    }
+    return timezones;
 }

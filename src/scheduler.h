@@ -17,7 +17,6 @@ public:
     String getCurrentTime();
     uint8_t getCurrentHour();
     uint8_t getCurrentMinute();
-    uint8_t getCurrentDayOfWeek();  // 0 = Sunday, 6 = Saturday
     
     void calculateSunTimes();
     String getSunriseTime();

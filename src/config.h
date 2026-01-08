@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <vector>
 
 // Version
 #define FIRMWARE_VERSION "1.0.0"
@@ -39,9 +40,6 @@
 
 // Limits
 #define MAX_PRESETS 16
-#define MAX_TIMERS 8
-#define MAX_SUN_TIMERS 2
-#define STATE_SAVE_INTERVAL 60000  // Save every 60 seconds
 
 
 // Presets now use WS2812FX native effect index directly (uint8_t)
@@ -77,7 +75,7 @@ struct NetworkConfig {
 
 struct TimeConfig {
     String ntpServer = DEFAULT_NTP_SERVER;
-    int timezoneOffset = DEFAULT_TIMEZONE_OFFSET;
+    String timezone = "Etc/UTC"; // IANA timezone string, e.g. "America/Los_Angeles"
     float latitude = 0.0;
     float longitude = 0.0;
     bool dstEnabled = false;
@@ -95,14 +93,20 @@ struct Timer {
     TimerType type = TIMER_REGULAR;
     uint8_t hour = 0;
     uint8_t minute = 0;
-    uint8_t days = 0b1111111;  // All days
-    int16_t offset = 0;        // For sunrise/sunset offset in minutes
     uint8_t presetId = 0;
+    uint8_t brightness = 100; // percent (0-100)
+    bool operator==(const Timer& other) const {
+        return enabled == other.enabled &&
+                type == other.type &&
+                hour == other.hour &&
+                minute == other.minute &&
+                presetId == other.presetId &&
+                brightness == other.brightness;
+    }
 };
 
 struct Preset {
     String name = "";
-    uint8_t brightness = 128;
     uint8_t effect = 0; // WS2812FX native effect index
     EffectParams params;
     bool enabled = true;
@@ -127,19 +131,23 @@ public:
     TimeConfig time;
     SystemState state;
     Preset presets[MAX_PRESETS];
-    Timer timers[MAX_TIMERS + MAX_SUN_TIMERS];
+    std::vector<Timer> timers;
 
     bool load();
     void resetPresetsFile();
     bool save();
+    bool factoryReset();
     bool loadPresets();
     bool savePresets();
     void setDefaults();
-    void setDefaultPresets();
 
-private:
-    bool loadFromFile(const char* path, JsonDocument& doc);
+    // GPS and timezone helpers
+    void updateLocationFromGPS(float lat, float lon, bool valid);
+    int getTimezoneOffsetSeconds(); // Returns offset in seconds for current timezone
+    std::vector<String> getSupportedTimezones();
+
     bool saveToFile(const char* path, const JsonDocument& doc);
+    bool loadFromFile(const char* path, JsonDocument& doc); // <-- move to public
 };
 
 #endif

@@ -31,6 +31,9 @@
 #include "debug.h"
 #include "ota.h"
 
+// Track last configuration for change detection
+Configuration lastConfiguration;
+
 // Global objects
 Configuration config;
 Scheduler scheduler(&config);
@@ -47,8 +50,18 @@ WS2812FX* strip = nullptr;
 uint32_t lastStateSave = 0;
 uint32_t lastUpdate = 0;
 
+// Track last timers for schedule update
+std::vector<Timer> lastTimers;
+
 // Function declarations
 void setupWiFi();
+void printHeap(const char* tag) {
+    #if defined(ESP32)
+    debugPrint(tag);
+    debugPrint(F(" Heap: "));
+    debugPrintln(ESP.getFreeHeap());
+    #endif
+}
 void setupLEDs();
 void applyPreset(uint8_t presetId);
 void setPower(bool power);
@@ -56,6 +69,7 @@ void setBrightness(uint8_t brightness);
 void setEffect(uint8_t effect, const EffectParams& params);
 void updateLEDs();
 void checkSchedule();
+void checkAndApplyScheduleAfterBoot();
 
 void setup() {
     // Initialize relay pin from config
@@ -65,46 +79,42 @@ void setup() {
     #ifdef DEBUG_SERIAL
     Serial.begin(115200);
     delay(1000);
+    #endif
     debugPrintln();
     debugPrintln("=================================");
     debugPrintln("  Aquarium LED Controller v1.0  ");
     debugPrintln("=================================");
-    #endif
     
     // List files in LittleFS for debugging
     LittleFS.begin();
 
     // Load configuration
-    debugPrintln("[DEBUG] Attempting to load config...");
     if (!config.load()) {
-        debugPrintln("[DEBUG] Config load failed, creating default configuration");
         config.setDefaults();
         config.save();
-    } else {
-        debugPrintln("[DEBUG] Config loaded successfully");
-        debugPrint("[DEBUG] Loaded SSID: ");
-        debugPrintln(config.network.ssid.c_str());
-        debugPrint("[DEBUG] Loaded Password: ");
-        debugPrintln(config.network.password.c_str());
     }
+    // Ensure lastConfiguration matches loaded config at boot
+    lastConfiguration = config;
 
     // Load presets
-    debugPrintln("[DEBUG] About to load presets");
     if (!config.loadPresets()) {
-        debugPrintln("Creating default presets");
-        config.setDefaultPresets();
+        debugPrintln("Failed to load presets");
         config.savePresets();
     }
-    debugPrintln("[DEBUG] Presets loaded");
-
 
     // Initialize LEDs
     setupLEDs();
-    debugPrintln("[DEBUG] LEDs initialized");
+
+    // Initialize transition engine brightness to default
+    extern TransitionEngine transition;
+    transition.forceCurrentBrightness(config.state.brightness); // Set current
+    transition.startTransition(config.state.brightness, 1);     // Set target
 
     // Connect to WiFi
+
     setupWiFi();
-    debugPrintln("[DEBUG] WiFi setup complete");
+    printHeap("[DEBUG] After WiFi connect");
+    delay(500); // Give network stack time to settle
 
     // Setup web server callbacks (moved up)
     webServer.onPowerChange(setPower);
@@ -112,28 +122,56 @@ void setup() {
     webServer.onEffectChange(setEffect);
     webServer.onPresetApply(applyPreset);
     webServer.onConfigChange([]() {
-        debugPrintln("Configuration updated, recalculating sun times and reinitializing LEDs");
         // Immediately apply relay pin and logic changes
         pinMode(config.led.relayPin, OUTPUT);
-        // Set relay to current state with new logic
         digitalWrite(config.led.relayPin, config.state.power ? (config.led.relayActiveHigh ? HIGH : LOW) : (config.led.relayActiveHigh ? LOW : HIGH));
-        scheduler.calculateSunTimes();
-        // Save current transition state
-        uint8_t prevBrightness = transition.getCurrentBrightness();
-        uint32_t prevColor1 = transition.getCurrentColor1();
-        uint32_t prevColor2 = transition.getCurrentColor2();
-        setupLEDs();
-        transition = TransitionEngine();
-        // Restore previous state to new transition engine
-        transition.startTransition(prevBrightness, 0);
-        transition.startColorTransition(prevColor1, prevColor2, 0);
-        // If you have custom effect objects, re-create them here as well
-        updateLEDs();
+        // Only recalculate sun times if location changed
+        bool locationChanged = config.time.latitude != lastConfiguration.time.latitude || config.time.longitude != lastConfiguration.time.longitude;
+        if (locationChanged) {
+            scheduler.calculateSunTimes();
+            lastConfiguration.time.latitude = config.time.latitude;
+            lastConfiguration.time.longitude = config.time.longitude;
+        }
+        // Only update schedule if timers changed
+        bool timersChanged = config.timers != lastConfiguration.timers;
+        if (timersChanged) {
+            scheduler.begin(); // or scheduler.update() if begin is too heavy
+            lastConfiguration.timers = config.timers;
+        }
+        // Only reinitialize LEDs if hardware config changed
+        bool ledChanged = config.led.pin != lastConfiguration.led.pin ||
+                          config.led.count != lastConfiguration.led.count ||
+                          config.led.type != lastConfiguration.led.type ||
+                          config.led.colorOrder != lastConfiguration.led.colorOrder;
+        if (ledChanged) {
+            setupLEDs();
+            lastConfiguration.led.pin = config.led.pin;
+            lastConfiguration.led.count = config.led.count;
+            lastConfiguration.led.type = config.led.type;
+            lastConfiguration.led.colorOrder = config.led.colorOrder;
+        }
+        // Only reset transition engine and update LEDs if LED config changed
+        if (ledChanged) {
+            uint8_t prevBrightness = transition.getCurrentBrightness();
+            uint32_t prevColor1 = transition.getCurrentColor1();
+            uint32_t prevColor2 = transition.getCurrentColor2();
+            transition = TransitionEngine();
+            transition.startTransition(prevBrightness, 0);
+            transition.startColorTransition(prevColor1, prevColor2, 0);
+            updateLEDs();
+            // Restore effect, brightness, and power after reinitializing LEDs
+            setEffect(config.state.effect, config.state.params);
+            setBrightness(config.state.brightness);
+            setPower(config.state.power);
+        }
     });
 
     // Start web server (moved up)
+    debugPrintln("[DEBUG] Starting web server...");
+    printHeap("[DEBUG] Before webServer.begin");
     webServer.begin();
     debugPrintln("[DEBUG] Web server started");
+    printHeap("[DEBUG] After webServer.begin");
 
     // Initialize scheduler
     scheduler.begin();
@@ -152,44 +190,30 @@ void setup() {
         }
         delay(1000);
     }
-    debugPrintln("[DEBUG] NTP sync done");
 
     // Check if we should apply a scheduled preset on boot
     int8_t bootPreset = scheduler.getBootPreset();
     if (bootPreset >= 0 && bootPreset < MAX_PRESETS) {
-        #ifdef DEBUG_SERIAL
-        debugPrint("Applying boot preset: ");
-        debugPrintln(bootPreset);
-        #endif
         applyPreset(bootPreset);
-        #ifdef DEBUG_SERIAL
-        debugPrintln("[DEBUG] Boot preset applied");
-        #endif
     } else {
-        // Apply last saved state
-        #ifdef DEBUG_SERIAL
-        debugPrintln("Restoring last state");
-        #endif
         // Ensure transition starts from the actual brightness, not 0
         transition.forceCurrentBrightness(config.state.brightness);
         setEffect(config.state.effect, config.state.params);
         setBrightness(config.state.brightness);
         setPower(config.state.power);
-        #ifdef DEBUG_SERIAL
-        debugPrintln("[DEBUG] Last state restored");
-        #endif
     }
 
-    #ifdef DEBUG_SERIAL
+    // Mark that we have not yet applied a schedule after time becomes valid
+    // (Handled in loop by checkAndApplyScheduleAfterBoot)
     debugPrintln();
     debugPrintln("System ready!");
     debugPrint("IP Address: ");
     debugPrintln(WiFi.localIP());
     debugPrintln("=================================");
-    #endif
 }
 
 void loop() {
+    checkAndApplyScheduleAfterBoot();
     // Handle ArduinoOTA (ESP32 only)
     handleArduinoOTA();
     // Update all systems
@@ -207,13 +231,6 @@ void loop() {
         lastFrame = now;
         updateLEDs();
     }
-    
-    // Save state periodically
-    // State saving to file removed; only update lastStateSave timestamp
-    if (millis() - lastStateSave > STATE_SAVE_INTERVAL) {
-        lastStateSave = millis();
-        transition.forceCurrentBrightness(config.state.brightness);
-    }
 
     // Captive portal DNS handler (if in AP mode)
     if (WiFi.getMode() == WIFI_AP) {
@@ -229,15 +246,29 @@ void setupWiFi() {
     #else
         WiFi.setHostname(config.network.hostname.c_str());
     #endif
-    
     // Connect to WiFi
     if (config.network.ssid.length() > 0) {
         WiFi.begin(config.network.ssid.c_str(), config.network.password.c_str());
         int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+        int maxAttempts = 60; // 60 x 500ms = 30s (double previous)
+        while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
             delay(500);
             debugPrint(".");
             attempts++;
+        }
+        // If not connected, try a second round of retries (total up to 60s)
+        if (WiFi.status() != WL_CONNECTED) {
+            debugPrintln();
+            debugPrintln("First WiFi attempt failed, retrying...");
+            WiFi.disconnect();
+            delay(1000);
+            WiFi.begin(config.network.ssid.c_str(), config.network.password.c_str());
+            attempts = 0;
+            while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+                delay(500);
+                debugPrint(".");
+                attempts++;
+            }
         }
         if (WiFi.status() == WL_CONNECTED) {
             debugPrintln();
@@ -283,14 +314,12 @@ void setupLEDs() {
     }
     strip = new WS2812FX(count, pin, wsType);
     strip->init();
-    strip->setBrightness(config.state.brightness);
+    // Set default effect: solid black (STATIC, color 0x000000)
+    strip->setMode(0); // 0 = STATIC
+    strip->setColor(0x000000); // black
+    strip->setBrightness(0); // off
+    strip->show();
     strip->start();
-    debugPrint("LEDs initialized (WS2812FX): ");
-    debugPrint(count);
-    debugPrint(" type: ");
-    debugPrint(type);
-    debugPrint(" order: ");
-    debugPrintln(order);
 }
 
 void applyPreset(uint8_t presetId) {
@@ -298,20 +327,26 @@ void applyPreset(uint8_t presetId) {
         debugPrintln("Invalid preset ID");
         return;
     }
-    debugPrint("Applying preset: ");
-    debugPrintln(config.presets[presetId].name);
     Preset& preset = config.presets[presetId];
+    // Get timer brightness percent if available
+    uint8_t timerBrightnessPercent = 100;
+    // Find active timer for this preset
+    for (size_t i = 0; i < config.timers.size(); i++) {
+        if (config.timers[i].presetId == presetId && config.timers[i].enabled) {
+            timerBrightnessPercent = config.timers[i].brightness;
+            break;
+        }
+    }
+    // Convert percent to 0-255
+    uint8_t brightnessValue = (uint8_t)((timerBrightnessPercent / 100.0) * 255);
+    // Apply safety limits
+    uint8_t safeBrightness = min(brightnessValue, config.safety.maxBrightness);
     // Start transitions
     uint32_t transTime = config.state.transitionTime;
-    // Ensure minimum transition time
     if (transTime < config.safety.minTransitionTime) {
         transTime = config.safety.minTransitionTime;
     }
-    // Apply safety limits to brightness
-    uint8_t safeBrightness = min(preset.brightness, config.safety.maxBrightness);
-    // Start transitions
     transition.startTransition(safeBrightness, transTime);
-    // No color transition, just set effect and color directly
     setEffect(preset.effect, preset.params);
     config.state.currentPreset = presetId;
     config.state.power = true;
@@ -337,8 +372,6 @@ void setPower(bool power) {
     if (transition.getCurrentBrightness() != targetBrightness || !transition.isTransitioning()) {
         transition.startTransition(targetBrightness, transTime);
     }
-    debugPrint("Power: ");
-    debugPrintln(power ? "ON" : "OFF");
     webServer.broadcastState();
 }
 
@@ -354,8 +387,6 @@ void setBrightness(uint8_t brightness) {
             transition.forceCurrentBrightness(config.state.brightness);
         }
         transition.startTransition(brightness, transTime);
-        debugPrint("Brightness: ");
-        debugPrintln(brightness);
         webServer.broadcastState();
     }
 }
@@ -368,8 +399,6 @@ void setEffect(uint8_t effect, const EffectParams& params) {
         strip->setMode(effect);
         strip->setColor(params.color1);
     }
-    debugPrint("Effect changed to: ");
-    debugPrintln(effect);
     webServer.broadcastState();
 }
 
@@ -380,21 +409,41 @@ void updateLEDs() {
         strip->service();
         config.state.inTransition = false;
         config.state.brightness = 0;
+        // Power off relay when LEDs are off
+        digitalWrite(config.led.relayPin, config.led.relayActiveHigh ? LOW : HIGH); // Relay off
         return;
     }
-    uint8_t currentBrightness = config.state.brightness;
+    extern TransitionEngine transition;
+    uint8_t currentBrightness = transition.getCurrentBrightness();
+    uint8_t prevBrightness = config.state.brightness;
     strip->setBrightness(currentBrightness);
     strip->service();
     config.state.inTransition = false;
     config.state.brightness = currentBrightness;
+    // Power on relay when brightness is above 0
+    digitalWrite(config.led.relayPin, config.led.relayActiveHigh ? HIGH : LOW); // Relay on
 }
 
 void checkSchedule() {
-    int8_t presetId = scheduler.checkTimers();
-    
+    int8_t presetId = scheduler.getBootPreset();
     if (presetId >= 0 && presetId < MAX_PRESETS) {
-        debugPrint("Timer triggered, applying preset: ");
-        debugPrintln(presetId);
-        applyPreset(presetId);
+        if (presetId != config.state.currentPreset) {
+            applyPreset(presetId);
+        }
+    }
+}
+
+
+// Apply the correct schedule as soon as time becomes valid after boot (only once)
+void checkAndApplyScheduleAfterBoot() {
+    static bool scheduleApplied = false;
+    if (!scheduleApplied) {
+        if (scheduler.isTimeValid()) {
+            int8_t bootPreset2 = scheduler.getBootPreset();
+            if (bootPreset2 >= 0 && bootPreset2 < MAX_PRESETS) {
+                applyPreset(bootPreset2);
+            }
+            scheduleApplied = true; 
+        }
     }
 }

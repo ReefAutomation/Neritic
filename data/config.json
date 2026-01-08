@@ -1,0 +1,34 @@
+{
+	"network": {
+		"ssid": "",
+		"password": "",
+		"hostname": "AquariumLED",
+		"apPassword": ""
+	},
+	"led": {
+		"pin": 2,
+		"count": 34,
+		"type": "SK6812",
+		"colorOrder": "GRB",
+		"relayPin": 12,
+		"relayActiveHigh": true
+	},
+	"safety": {
+		"maxBrightness": 100,
+		"minTransitionTime": 5000
+	},
+	"time": {
+		"ntpServer": "pool.ntp.org",
+		"timezone": "Etc/UTC",
+		"latitude": 0.0,
+		"longitude": 0.0,
+		"dstEnabled": true
+	},
+	"timers": [
+		{ "enabled": true, "type": 0, "hour": 6,  "minute": 0,  "presetId": 0, "brightness": 70 },
+		{ "enabled": true, "type": 0, "hour": 9,  "minute": 0,  "presetId": 1, "brightness": 100 },
+		{ "enabled": true, "type": 0, "hour": 17, "minute": 0,  "presetId": 2, "brightness": 70 },
+		{ "enabled": true, "type": 0, "hour": 19, "minute": 0,  "presetId": 3, "brightness": 47 },
+		{ "enabled": true, "type": 0, "hour": 0,  "minute": 0,  "presetId": 4, "brightness": 59 }
+	]
+}

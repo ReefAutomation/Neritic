@@ -46,9 +46,7 @@ node_modules/
 .data_upload_cache/
 
 # Configuration/state (if generated)
-config.json
 state.json
-presets.json
 
 # Credentials (never commit!)
 secrets.h

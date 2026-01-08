@@ -23,12 +23,12 @@ if (location.protocol === 'file:' || location.hostname === 'localhost' || locati
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     // Hide Quick Controls until first WebSocket message
-    document.querySelector('.card').style.display = 'none';
+    const quickControls = document.querySelector('.card');
+    if (quickControls && quickControls.style) quickControls.style.display = 'none';
     initializeWebSocket();
     setupEventListeners();
     loadPresets();
     loadTimers();
-    loadConfig();
 
     // OTA upload form handler
     const otaForm = document.getElementById('otaForm');
@@ -36,11 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
         otaForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const otaFileInput = document.getElementById('otaFile');
-            const otaFile = otaFileInput.files[0];
+            const otaFile = otaFileInput ? otaFileInput.files[0] : null;
             if (!otaFile) {
                 showToast('Please select a firmware file.');
                 return;
             }
+            const otaProgressBar = document.getElementById('otaProgressBar');
+            const otaProgressFill = document.getElementById('otaProgressFill');
             if (otaProgressBar && otaProgressFill) {
                 otaProgressBar.style.display = '';
                 otaProgressFill.style.width = '0%';
@@ -90,8 +92,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // OTA file input filename display and progress bar
     const otaFileInput = document.getElementById('otaFile');
     const otaFileName = document.getElementById('otaFileName');
-    const otaProgressBar = document.getElementById('otaProgressBar');
-    const otaProgressFill = document.getElementById('otaProgressFill');
     if (otaFileInput && otaFileName) {
         otaFileInput.addEventListener('change', function() {
             otaFileName.textContent = this.files && this.files.length > 0 ? this.files[0].name : 'No file chosen';
@@ -113,7 +113,8 @@ function initializeWebSocket() {
 
     ws.onopen = () => {
         console.log('[WS] Connected');
-        document.getElementById('statusIndicator').style.color = '#00cc88';
+        const statusIndicator = document.getElementById('statusIndicator');
+        if (statusIndicator && statusIndicator.style) statusIndicator.style.color = '#00cc88';
         if (reconnectInterval) {
             clearInterval(reconnectInterval);
             reconnectInterval = null;
@@ -132,8 +133,8 @@ function initializeWebSocket() {
 
     ws.onclose = () => {
         console.log('[WS] Disconnected');
-        document.getElementById('statusIndicator').style.color = '#ff4466';
-
+        const statusIndicator = document.getElementById('statusIndicator');
+        if (statusIndicator && statusIndicator.style) statusIndicator.style.color = '#ff4466';
         // Attempt to reconnect
         if (!reconnectInterval) {
             reconnectInterval = setInterval(() => {
@@ -149,28 +150,53 @@ function initializeWebSocket() {
 }
 
 // Update UI with state from server
+// Stepped transform for transition time slider (even-distribution, decisecond/second/minute/hour)
+function steppedTransitionValue(val) {
+    // 0-9: 0-9s (1s step)
+    if (val <= 9) return val;
+    // 10-59: 10-59s (5s step)
+    if (val <= 59) return Math.round(val / 5) * 5;
+    // 60-599: 1-9m59s (10s step)
+    if (val <= 599) return Math.round(val / 10) * 10;
+    // 600-3599: 10m-59m59s (1m step)
+    if (val <= 3599) return Math.round(val / 60) * 60;
+    // 3600-28800: 1h-8h (5m step)
+    return Math.round(val / 300) * 300;
+}
+
+// Format transition time for display
+function formatTransitionTime(val) {
+    if (val < 60) return val + 's';
+    if (val < 3600) return (val / 60).toFixed(val % 60 === 0 ? 0 : 1) + 'm';
+    return (val / 3600).toFixed(val % 3600 === 0 ? 0 : 1) + 'h';
+}
+
+// Update UI with state from server
 function updateState(state) {
     currentState = state;
     // Show Quick Controls on first WebSocket message
     const quickControls = document.querySelector('.card');
-    if (quickControls && quickControls.style.display === 'none') {
+    if (quickControls && quickControls.style && quickControls.style.display === 'none') {
         quickControls.style.display = '';
     }
-    
+
     // Update controls without triggering events
     const powerToggle = document.getElementById('powerToggle');
-    if (powerToggle.checked !== state.power) {
+    if (powerToggle && powerToggle.checked !== state.power) {
         powerToggle.checked = state.power;
     }
-    
+
     const brightnessSlider = document.getElementById('brightnessSlider');
-    if (brightnessSlider.value != state.brightness) {
-        brightnessSlider.value = state.brightness;
-        document.getElementById('brightnessValue').textContent = state.brightness;
+    if (brightnessSlider) {
+        // Convert hardware value (1–255) to percent
+        const percent = Math.round(((state.brightness - 1) / 2.54));
+        if (brightnessSlider.value != percent) brightnessSlider.value = percent;
+        const brightnessValue = document.getElementById('brightnessValue');
+        if (brightnessValue) brightnessValue.textContent = percent + '%';
     }
-    
+
     const effectSelect = document.getElementById('effectSelect');
-    if (effectSelect.value != state.effect) {
+    if (effectSelect && effectSelect.value != state.effect) {
         effectSelect.value = state.effect;
     }
 
@@ -178,27 +204,45 @@ function updateState(state) {
     if (typeof state.transitionTime !== 'undefined') {
         const transitionSlider = document.getElementById('transitionSlider');
         const transitionSeconds = Math.round(Number(state.transitionTime) / 1000);
-        if (transitionSlider.value != transitionSeconds) {
-            transitionSlider.value = transitionSeconds;
+        if (transitionSlider) {
+            const sliderVal = (function secondsToSlider(seconds) {
+                seconds = parseInt(seconds);
+                if (seconds <= 59) return seconds - 1;
+                if (seconds <= 59 * 60) return 58 + Math.round((seconds - 60) / 60);
+                return 117 + Math.round((seconds - 3600) / 3600);
+            })(transitionSeconds);
+            if (transitionSlider.value != sliderVal) transitionSlider.value = sliderVal;
+            if (typeof updateExpoSlider === 'function') {
+                updateExpoSlider(sliderVal);
+            } else {
+                const transitionValue = document.getElementById('transitionValue');
+                if (transitionValue) transitionValue.textContent = formatTransitionTime(transitionSeconds);
+            }
         }
-        document.getElementById('transitionValue').textContent = transitionSeconds;
     }
 
     if (state.params) {
-        document.getElementById('speedSlider').value = state.params.speed;
-        document.getElementById('speedValue').textContent = state.params.speed;
-        
-        document.getElementById('intensitySlider').value = state.params.intensity;
-        document.getElementById('intensityValue').textContent = state.params.intensity;
-        
-        document.getElementById('color1Picker').value = '#' + state.params.color1.toString(16).padStart(6, '0');
-        document.getElementById('color2Picker').value = '#' + state.params.color2.toString(16).padStart(6, '0');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        if (speedSlider) speedSlider.value = state.params.speed;
+        if (speedValue) speedValue.textContent = state.params.speed;
+
+        const intensitySlider = document.getElementById('intensitySlider');
+        const intensityValue = document.getElementById('intensityValue');
+        if (intensitySlider) intensitySlider.value = state.params.intensity;
+        if (intensityValue) intensityValue.textContent = state.params.intensity;
+
+        const color1Picker = document.getElementById('color1Picker');
+        if (color1Picker) color1Picker.value = '#' + state.params.color1.toString(16).padStart(6, '0');
+        const color2Picker = document.getElementById('color2Picker');
+        if (color2Picker) color2Picker.value = '#' + state.params.color2.toString(16).padStart(6, '0');
     }
 
     // Synchronize clock with backend on first WS message, then advance locally
     if (state.time) {
         if (!clockSynced) {
-            document.getElementById('currentTime').textContent = state.time;
+            const currentTime = document.getElementById('currentTime');
+            if (currentTime) currentTime.textContent = state.time;
             // Parse time as HH:MM:SS
             const [h, m, s] = state.time.split(':').map(Number);
             const now = new Date();
@@ -209,18 +253,21 @@ function updateState(state) {
                 const hh = localClock.getHours().toString().padStart(2, '0');
                 const mm = localClock.getMinutes().toString().padStart(2, '0');
                 const ss = localClock.getSeconds().toString().padStart(2, '0');
-                document.getElementById('currentTime').textContent = `${hh}:${mm}:${ss}`;
+                const currentTime = document.getElementById('currentTime');
+                if (currentTime) currentTime.textContent = `${hh}:${mm}:${ss}`;
             }, 1000);
             clockSynced = true;
         }
     }
 
     if (state.sunrise) {
-        document.getElementById('sunriseTime').textContent = state.sunrise;
+        const sunriseTime = document.getElementById('sunriseTime');
+        if (sunriseTime) sunriseTime.textContent = state.sunrise;
     }
 
     if (state.sunset) {
-        document.getElementById('sunsetTime').textContent = state.sunset;
+        const sunsetTime = document.getElementById('sunsetTime');
+        if (sunsetTime) sunsetTime.textContent = state.sunset;
     }
 
     // Highlight active preset
@@ -238,94 +285,192 @@ function updateState(state) {
 // Setup event listeners
 function setupEventListeners() {
     // Power toggle
-    document.getElementById('powerToggle').addEventListener('change', (e) => {
-        sendState({ power: e.target.checked });
-    });
-    
-    // Brightness slider
-    document.getElementById('brightnessSlider').addEventListener('input', (e) => {
-        document.getElementById('brightnessValue').textContent = e.target.value;
-    });
-    document.getElementById('brightnessSlider').addEventListener('change', (e) => {
-        sendState({ brightness: parseInt(e.target.value) });
-    });
-    
-    // Transition time slider
-    // Only update label on input
-    document.getElementById('transitionSlider').addEventListener('input', (e) => {
-        const seconds = parseInt(e.target.value);
-        document.getElementById('transitionValue').textContent = seconds;
-    });
-    // Only send to backend on release
-    document.getElementById('transitionSlider').addEventListener('change', (e) => {
-        const seconds = parseInt(e.target.value);
-        sendState({ transitionTime: Number(seconds) * 1000 });
-    });
-    
+    const powerToggle = document.getElementById('powerToggle');
+    // Transition time slider (expo-step)
+    const transitionSlider = document.getElementById('transitionSlider');
+    if (powerToggle) {
+        powerToggle.addEventListener('change', (e) => {
+            sendState({ power: e.target.checked });
+        });
+    }
+    // Brightness slider (percent 0–100%)
+    const brightnessSlider = document.getElementById('brightnessSlider');
+    if (brightnessSlider) {
+        brightnessSlider.min = 0;
+        brightnessSlider.max = 100;
+        brightnessSlider.step = 1;
+        brightnessSlider.addEventListener('input', (e) => {
+            const percent = parseInt(e.target.value);
+            const hwValue = Math.round(percent * 2.54) + 1; // 1–255
+            const brightnessValue = document.getElementById('brightnessValue');
+            if (brightnessValue) brightnessValue.textContent = percent + '%';
+        });
+        brightnessSlider.addEventListener('change', (e) => {
+            const percent = parseInt(e.target.value);
+            const hwValue = Math.round(percent * 2.54) + 1; // 1–255
+            sendState({ brightness: hwValue });
+        });
+    }
+        if (transitionSlider) {
+            // Even distribution: seconds (1–59), minutes (1–59), hours (1–8)
+            // Slider range: 0–(59+59+8-1) = 0–125
+            // 0–58: seconds (1–59)
+            // 59–117: minutes (1–59)
+            // 118–125: hours (1–8)
+            function sliderToTime(val) {
+                val = parseInt(val);
+                if (val <= 58) return val + 1; // 1–59s
+                if (val <= 117) return (val - 58); // 1–59m
+                return (val - 117); // 1–8h
+            }
+            function timeToSeconds(time, segment) {
+                if (segment === 's') return time;
+                if (segment === 'm') return time * 60;
+                return time * 3600;
+            }
+            // Ensure max slider value (125) always maps to 8h (28800s)
+            function sliderToSeconds(val) {
+                val = parseInt(val);
+                if (val <= 58) return val + 1; // 1–59s
+                if (val <= 117) return (val - 58) * 60 + 60; // 1–59m
+                return (val - 117) * 3600 + 3600; // 1–8h
+            }
+            function secondsToSlider(seconds) {
+                seconds = parseInt(seconds);
+                if (seconds <= 59) return seconds - 1;
+                if (seconds <= 59 * 60) return 58 + Math.round((seconds - 60) / 60);
+                return 117 + Math.round((seconds - 3600) / 3600);
+            }
+            function formatExpoTime(val) {
+                if (val < 60) return val + 's';
+                if (val < 3600) return (val / 60) + 'm';
+                return (val / 3600) + 'h';
+            }
+            function updateExpoSlider(val) {
+                val = parseInt(val);
+                // Clamp value to slider range
+                if (val < 0) val = 0;
+                if (val > 125) val = 125;
+                const seconds = sliderToSeconds(val);
+
+                // Only update value if not already set
+                if (transitionSlider.value != val) transitionSlider.value = val;
+                const transitionValue = document.getElementById('transitionValue');
+                if (transitionValue) transitionValue.textContent = formatExpoTime(seconds);
+                return seconds;
+            }
+            transitionSlider.max = 125;
+            transitionSlider.min = 0;
+            transitionSlider.step = 1;
+            transitionSlider.addEventListener('input', (e) => {
+                updateExpoSlider(e.target.value);
+            });
+            transitionSlider.addEventListener('change', (e) => {
+                const seconds = updateExpoSlider(e.target.value);
+                sendState({ transitionTime: seconds * 1000 });
+            });
+            // On load, set slider to match state
+            if (typeof currentState.transitionTime !== 'undefined') {
+                const seconds = Math.round(Number(currentState.transitionTime) / 1000);
+                transitionSlider.value = secondsToSlider(seconds);
+                updateExpoSlider(transitionSlider.value);
+            }
+        // On load, set slider to match state
+        if (typeof currentState.transitionTime !== 'undefined') {
+            const t = Math.round(Number(currentState.transitionTime) / 1000);
+            transitionSlider.value = snapToStep(t);
+            updateExpoSlider(transitionSlider.value);
+        }
+    }
+
+    // Stepped transform for transition time slider (even-distribution, decisecond/second/minute/hour)
+    function steppedTransitionValue(val) {
+        // 0-9: 0-9s (1s step)
+        if (val <= 9) return val;
+        // 10-59: 10-59s (5s step)
+        if (val <= 59) return Math.round(val / 5) * 5;
+        // 60-599: 1-9m59s (10s step)
+        if (val <= 599) return Math.round(val / 10) * 10;
+        // 600-3599: 10m-59m59s (1m step)
+        if (val <= 3599) return Math.round(val / 60) * 60;
+        // 3600-28800: 1h-8h (5m step)
+        return Math.round(val / 300) * 300;
+    }
+
+    // Format transition time for display
+    function formatTransitionTime(val) {
+        if (val < 60) return val + 's';
+        if (val < 3600) return (val / 60).toFixed(val % 60 === 0 ? 0 : 1) + 'm';
+        return (val / 3600).toFixed(val % 3600 === 0 ? 0 : 1) + 'h';
+    }
     // Effect selector
-    document.getElementById('effectSelect').addEventListener('change', (e) => {
-        sendState({ effect: parseInt(e.target.value) });
-    });
-    
+    const effectSelect = document.getElementById('effectSelect');
+    if (effectSelect) {
+        effectSelect.addEventListener('change', (e) => {
+            sendState({ effect: parseInt(e.target.value) });
+        });
+    }
     // Speed slider
-    let speedTimeout;
-    document.getElementById('speedSlider').addEventListener('input', (e) => {
-        document.getElementById('speedValue').textContent = e.target.value;
-        clearTimeout(speedTimeout);
-        speedTimeout = setTimeout(() => {
-            sendState({ 
-                params: {
-                    ...currentState.params,
-                    speed: parseInt(e.target.value)
-                }
-            });
-        }, 300);
-    });
-    
+    const speedSlider = document.getElementById('speedSlider');
+    if (speedSlider) {
+        let speedTimeout;
+        speedSlider.addEventListener('input', (e) => {
+            const speedValue = document.getElementById('speedValue');
+            if (speedValue) speedValue.textContent = e.target.value;
+            clearTimeout(speedTimeout);
+            speedTimeout = setTimeout(() => {
+                sendState({ 
+                    params: {
+                        ...currentState.params,
+                        speed: parseInt(e.target.value)
+                    }
+                });
+            }, 300);
+        });
+    }
     // Intensity slider
-    let intensityTimeout;
-    document.getElementById('intensitySlider').addEventListener('input', (e) => {
-        document.getElementById('intensityValue').textContent = e.target.value;
-        clearTimeout(intensityTimeout);
-        intensityTimeout = setTimeout(() => {
+    const intensitySlider = document.getElementById('intensitySlider');
+    if (intensitySlider) {
+        let intensityTimeout;
+        intensitySlider.addEventListener('input', (e) => {
+            const intensityValue = document.getElementById('intensityValue');
+            if (intensityValue) intensityValue.textContent = e.target.value;
+            clearTimeout(intensityTimeout);
+            intensityTimeout = setTimeout(() => {
+                sendState({ 
+                    params: {
+                        ...currentState.params,
+                        intensity: parseInt(e.target.value)
+                    }
+                });
+            }, 300);
+        });
+    }
+    // Color pickers
+    const color1Picker = document.getElementById('color1Picker');
+    if (color1Picker) {
+        color1Picker.addEventListener('change', (e) => {
+            const color = parseInt(e.target.value.substring(1), 16);
             sendState({ 
                 params: {
                     ...currentState.params,
-                    intensity: parseInt(e.target.value)
+                    color1: color
                 }
             });
-        }, 300);
-    });
-    
-    // Color pickers
-    document.getElementById('color1Picker').addEventListener('change', (e) => {
-        const color = parseInt(e.target.value.substring(1), 16);
-        sendState({ 
-            params: {
-                ...currentState.params,
-                color1: color
-            }
         });
-    });
-    
-    document.getElementById('color2Picker').addEventListener('change', (e) => {
-        const color = parseInt(e.target.value.substring(1), 16);
-        sendState({ 
-            params: {
-                ...currentState.params,
-                color2: color
-            }
+    }
+    const color2Picker = document.getElementById('color2Picker');
+    if (color2Picker) {
+        color2Picker.addEventListener('change', (e) => {
+            const color = parseInt(e.target.value.substring(1), 16);
+            sendState({ 
+                params: {
+                    ...currentState.params,
+                    color2: color
+                }
+            });
         });
-    });
-    
-    // Configuration sliders
-    document.getElementById('maxBrightness').addEventListener('input', (e) => {
-        document.getElementById('maxBrightnessValue').textContent = e.target.value;
-    });
-    
-    document.getElementById('minTransition').addEventListener('input', (e) => {
-        document.getElementById('minTransitionValue').textContent = e.target.value;
-    });
+    }
 }
 
 // Send state update to server
@@ -362,12 +507,14 @@ function loadPresets() {
         .then(data => {
             presets = data.presets || [];
             displayPresets();
+            renderBrightnessGraph();
         })
         .catch(error => console.error('Error loading presets:', error));
 }
 
 function displayPresets() {
     const grid = document.getElementById('presetGrid');
+    if (!grid) return;
     grid.innerHTML = '';
     
     const effectNames = ['Solid', 'Ripple', 'Wave', 'Sunrise', 'Shimmer', 'Deep Ocean', 'Moonlight'];
@@ -384,7 +531,6 @@ function displayPresets() {
         card.innerHTML = `
             <div class="preset-name">${preset.name}</div>
             <div class="preset-info">Effect: ${effectNames[preset.effect]}</div>
-            <div class="preset-info">Brightness: ${preset.brightness}</div>
             <div class="preset-color-preview" style="background: linear-gradient(135deg, #${preset.params.color1.toString(16).padStart(6, '0')}, #${preset.params.color2.toString(16).padStart(6, '0')})"></div>
         `;
         
@@ -428,193 +574,289 @@ function loadTimers() {
         .then(data => {
             timers = data.timers || [];
             displayTimers();
+            renderBrightnessGraph();
         })
         .catch(error => console.error('Error loading timers:', error));
 }
+// Render a 24h brightness graph reflecting scheduled preset brightness
+function renderBrightnessGraph() {
+    const ctx = document.getElementById('brightnessGraph');
+    if (!ctx || !Array.isArray(timers) || !Array.isArray(presets) || presets.length === 0) return;
 
-function displayTimers() {
-    const container = document.getElementById('scheduleTable');
-    
-    const timerTypes = ['Regular', 'Sunrise', 'Sunset'];
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    
-    let html = '<table><thead><tr><th>Time</th><th>Type</th><th>Days</th><th>Preset</th><th>Status</th></tr></thead><tbody>';
-    
-    timers.forEach(timer => {
-        if (!timer.enabled) return;
-        
-        let timeStr = '';
-        if (timer.type === 0) {
-            timeStr = `${timer.hour.toString().padStart(2, '0')}:${timer.minute.toString().padStart(2, '0')}`;
-        } else if (timer.type === 1) {
-            timeStr = `Sunrise ${timer.offset >= 0 ? '+' : ''}${timer.offset}m`;
-        } else {
-            timeStr = `Sunset ${timer.offset >= 0 ? '+' : ''}${timer.offset}m`;
+    // Prepare 24h data, 1 point per 10 minutes (144 points)
+    const pointsPerHour = 6;
+    const totalPoints = 24 * pointsPerHour;
+    const labels = [];
+    const data = new Array(totalPoints).fill(null);
+
+    // Build a list of timer events sorted by time
+    const events = timers
+        .filter(timer => timer.enabled && typeof timer.hour === 'number' && typeof timer.minute === 'number' && typeof timer.brightness === 'number')
+        .map((timer, idx) => ({
+            time: timer.hour * 60 + timer.minute,
+            brightness: timer.brightness,
+            index: idx
+        }))
+        .sort((a, b) => a.time - b.time);
+
+    // If no events, clear chart
+    if (events.length === 0) {
+        if (window.brightnessChart) {
+            window.brightnessChart.destroy();
+            window.brightnessChart = null;
         }
-        
-        let daysStr = '';
-        for (let i = 0; i < 7; i++) {
-            if (timer.days & (1 << i)) {
-                daysStr += dayNames[i] + ' ';
-            }
-        }
-        
-        const statusClass = timer.enabled ? 'timer-enabled' : 'timer-disabled';
-        
-        html += `
-            <tr class="${statusClass}">
-                <td>${timeStr}</td>
-                <td>${timerTypes[timer.type]}</td>
-                <td>${daysStr}</td>
-                <td>${presets[timer.presetId]?.name || 'N/A'}</td>
-                <td>${timer.enabled ? '✓ Active' : '✗ Disabled'}</td>
-            </tr>
-        `;
-    });
-    
-    html += '</tbody></table>';
-    container.innerHTML = html;
-}
-
-function showTimerEditor() {
-    showToast('Timer editor UI - To be implemented in full version');
-}
-
-// Load configuration
-function loadConfig() {
-    fetch(BASE_URL + '/api/config')
-        .then(async response => {
-            const text = await response.text();
-            if (!text) return {};
-            try { return JSON.parse(text); } catch { return {}; }
-        })
-        .then(data => {
-            config = data;
-
-            // Update config UI
-            if (data.led) {
-                document.getElementById('ledCount').value = data.led.count;
-                if (data.led.type) {
-                    document.getElementById('ledType').value = data.led.type;
-                }
-                if (typeof data.led.relayPin !== 'undefined') {
-                    document.getElementById('relayPin').value = data.led.relayPin;
-                }
-                if (typeof data.led.relayActiveHigh !== 'undefined') {
-                    document.getElementById('relayActiveHigh').value = String(data.led.relayActiveHigh);
-                }
-            }
-
-            if (data.safety) {
-                document.getElementById('maxBrightness').value = data.safety.maxBrightness;
-                document.getElementById('maxBrightnessValue').textContent = data.safety.maxBrightness;
-
-                const minTransSeconds = Math.floor(Number(data.safety.minTransitionTime) / 1000);
-                document.getElementById('minTransition').value = minTransSeconds;
-                document.getElementById('minTransitionValue').textContent = minTransSeconds;
-            }
-
-            if (data.time) {
-                document.getElementById('timezoneOffset').value = data.time.timezoneOffset;
-                document.getElementById('latitude').value = data.time.latitude;
-                document.getElementById('longitude').value = data.time.longitude;
-            }
-        })
-        .catch(error => console.error('Error loading config:', error));
-}
-
-function saveConfiguration() {
-    // Build configUpdate with only changed values
-    const configUpdate = {};
-    // LED
-    const ledUpdate = {};
-    const ledCount = parseInt(document.getElementById('ledCount').value);
-    if (!config.led || config.led.count !== ledCount) ledUpdate.count = ledCount;
-    const ledType = document.getElementById('ledType').value;
-    if (!config.led || config.led.type !== ledType) ledUpdate.type = ledType;
-    const relayPin = parseInt(document.getElementById('relayPin').value);
-    if (!config.led || config.led.relayPin !== relayPin) ledUpdate.relayPin = relayPin;
-    const relayActiveHigh = document.getElementById('relayActiveHigh').value === 'true';
-    if (!config.led || config.led.relayActiveHigh !== relayActiveHigh) ledUpdate.relayActiveHigh = relayActiveHigh;
-    if (Object.keys(ledUpdate).length > 0) configUpdate.led = ledUpdate;
-    // Safety
-    const safetyUpdate = {};
-    const maxBrightness = parseInt(document.getElementById('maxBrightness').value);
-    if (!config.safety || config.safety.maxBrightness !== maxBrightness) safetyUpdate.maxBrightness = maxBrightness;
-    const minTransitionTime = Number(document.getElementById('minTransition').value) * 1000;
-    if (!config.safety || config.safety.minTransitionTime !== minTransitionTime) safetyUpdate.minTransitionTime = minTransitionTime;
-    if (Object.keys(safetyUpdate).length > 0) configUpdate.safety = safetyUpdate;
-    // Time
-    const timeUpdate = {};
-    const timezoneOffset = parseInt(document.getElementById('timezoneOffset').value);
-    if (!config.time || config.time.timezoneOffset !== timezoneOffset) timeUpdate.timezoneOffset = timezoneOffset;
-    const latitude = parseFloat(document.getElementById('latitude').value);
-    if (!config.time || config.time.latitude !== latitude) timeUpdate.latitude = latitude;
-    const longitude = parseFloat(document.getElementById('longitude').value);
-    if (!config.time || config.time.longitude !== longitude) timeUpdate.longitude = longitude;
-    if (Object.keys(timeUpdate).length > 0) configUpdate.time = timeUpdate;
-    // Only send if something changed
-    if (Object.keys(configUpdate).length === 0) {
-        showToast('No changes to save.');
         return;
     }
-    fetch(BASE_URL + '/api/config', {
+
+    // For each 10-min interval, determine active timer and its brightness
+    let currentEventIdx = 0;
+    for (let i = 0; i < totalPoints; i++) {
+        const minutes = i * 10;
+        // Advance to next event if time passed
+        while (currentEventIdx < events.length - 1 && minutes >= events[currentEventIdx + 1].time) {
+            currentEventIdx++;
+        }
+        // Get brightness for current timer
+        let brightness = events[currentEventIdx].brightness;
+        data[i] = brightness;
+        // Label every hour
+        labels.push(i % pointsPerHour === 0 ? (i / pointsPerHour).toString().padStart(2, '0') + ':00' : '');
+    }
+
+    // Calculate current time index using server time if available
+    let minutesNow = 0;
+    if (currentState && typeof currentState.time === 'string' && /^\d{2}:\d{2}:\d{2}$/.test(currentState.time)) {
+        const [h, m, s] = currentState.time.split(':').map(Number);
+        minutesNow = h * 60 + m;
+    } else {
+        const now = new Date();
+        minutesNow = now.getHours() * 60 + now.getMinutes();
+    }
+    const currentIndex = Math.floor(minutesNow / 10);
+
+    // Draw chart with vertical line for current time
+    const annotationPlugin = {
+        id: 'currentTimeLine',
+        afterDraw: chart => {
+            if (typeof currentIndex !== 'number' || currentIndex < 0 || currentIndex >= totalPoints) return;
+            const ctx = chart.ctx;
+            const xAxis = chart.scales.x;
+            const yAxis = chart.scales.y;
+            const x = xAxis.getPixelForValue(currentIndex);
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, yAxis.top);
+            ctx.lineTo(x, yAxis.bottom);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#FF4136';
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+    };
+
+    if (window.brightnessChart) {
+        window.brightnessChart.data.labels = labels;
+        window.brightnessChart.data.datasets[0].data = data;
+        window.brightnessChart.options.plugins.currentTimeLine = annotationPlugin;
+        window.brightnessChart.update();
+    } else {
+        window.brightnessChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Brightness (%)',
+                    data: data,
+                    borderColor: '#0074D9',
+                    backgroundColor: 'rgba(0,116,217,0.1)',
+                    fill: true,
+                    pointRadius: 0,
+                    borderWidth: 2,
+                    tension: 0.2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    title: { display: false },
+                    currentTimeLine: annotationPlugin
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Time (24h)' },
+                        ticks: { autoSkip: false, maxTicksLimit: 25 }
+                    },
+                    y: {
+                        title: { display: true, text: 'Brightness (%)' },
+                        min: 0, max: 100
+                    }
+                }
+            },
+            plugins: [annotationPlugin]
+        });
+    }
+}
+
+function displayTimers() {
+    const tableContainer = document.getElementById('scheduleTable');
+    if (!tableContainer) return;
+    tableContainer.innerHTML = '';
+
+    // Elegant table markup
+    const table = document.createElement('table');
+    table.className = 'schedule-table-inner';
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Time</th>
+            <th>Preset</th>
+            <th>Brightness</th>
+            <th>Status</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+
+    const effectNames = ['Solid', 'Ripple', 'Wave', 'Sunrise', 'Shimmer', 'Deep Ocean', 'Moonlight'];
+
+    // Use server time for schedule highlight
+    let activePresetId = null;
+    let nowMinutes = 0;
+    if (currentState && typeof currentState.time === 'string' && /^\d{2}:\d{2}:\d{2}$/.test(currentState.time)) {
+        const [h, m, s] = currentState.time.split(':').map(Number);
+        nowMinutes = h * 60 + m;
+    } else {
+        let now = new Date();
+        nowMinutes = now.getHours() * 60 + now.getMinutes();
+    }
+    let lastTimerIdx = -1;
+    let lastTimerTime = -1;
+    timers.forEach((timer, idx) => {
+        if (!timer.enabled || typeof timer.hour !== 'number' || typeof timer.minute !== 'number') return;
+        let timerTime = timer.hour * 60 + timer.minute;
+        if (timerTime <= nowMinutes && timerTime > lastTimerTime) {
+            lastTimerTime = timerTime;
+            lastTimerIdx = idx;
+        }
+    });
+    if (lastTimerIdx >= 0 && timers[lastTimerIdx] && typeof timers[lastTimerIdx].presetId === 'number') {
+        activePresetId = timers[lastTimerIdx].presetId;
+    }
+
+    timers.forEach((timer, index) => {
+        if (!timer.enabled && !timer.name && (!timer.hour && !timer.minute)) return;
+        const name = timer.name || `Timer ${index+1}`;
+        let timeStr = '--:--';
+        if (typeof timer.hour === 'number' && typeof timer.minute === 'number') {
+            timeStr = `${timer.hour.toString().padStart(2, '0')}:${timer.minute.toString().padStart(2, '0')}`;
+        } else if (timer.time) {
+            const d = new Date(timer.time);
+            if (!isNaN(d.getTime())) {
+                timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+        }
+        let presetStr = '--';
+        if (typeof timer.presetId === 'number' && Array.isArray(presets) && presets.length > 0) {
+            if (presets[timer.presetId] && presets[timer.presetId].name) {
+                presetStr = presets[timer.presetId].name;
+            } else {
+                const found = presets.find(p => p.id === timer.presetId || p.presetId === timer.presetId);
+                if (found && found.name) {
+                    presetStr = found.name;
+                } else {
+                    presetStr = `Preset ${timer.presetId}`;
+                }
+            }
+        }
+        const statusStr = timer.enabled ? '<span class="timer-enabled">Enabled</span>' : '<span class="timer-disabled">Disabled</span>';
+        const brightStr = typeof timer.brightness === 'number' ? `${timer.brightness}%` : '--';
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${timeStr}</td>
+            <td>${presetStr}</td>
+            <td>${brightStr}</td>
+            <td>${statusStr}</td>
+        `;
+        // Highlight if this timer is the currently running preset
+        if (timer.presetId === activePresetId) {
+            row.classList.add('active-timer-row');
+        }
+        // Timer editing disabled: no editTimer UI present
+        tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    tableContainer.appendChild(table);
+}
+
+function editTimer(timerIndex) {
+    const timer = timers[timerIndex];
+    if (!timer) return;
+    
+    document.getElementById('timerName').value = timer.name;
+    document.getElementById('timerTime').value = new Date(timer.time).toISOString().substring(11, 16);
+    const days = timer.days || [];
+    ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].forEach((day, index) => {
+        const checkbox = document.getElementById(`day-${day}`);
+        if (checkbox) checkbox.checked = days.includes(day);
+    });
+    
+    document.getElementById('saveTimerButton').onclick = () => {
+        const name = document.getElementById('timerName').value;
+        const time = new Date(`1970-01-01T${document.getElementById('timerTime').value}:00Z`).getTime();
+        const days = [];
+        ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].forEach((day) => {
+            const checkbox = document.getElementById(`day-${day}`);
+            if (checkbox && checkbox.checked) {
+                days.push(day);
+            }
+        });
+        
+        saveTimer({ name, time, days });
+    };
+}
+
+function saveTimer(timer) {
+    fetch(BASE_URL + '/api/timer', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(configUpdate)
+        body: JSON.stringify(timer)
     })
     .then(async response => {
-        const statusOk = response.ok;
-        let data = {};
-        try {
-            const text = await response.text();
-            if (text) data = JSON.parse(text);
-        } catch (e) {
-            // Ignore JSON parse error, treat as success if HTTP 200
-        }
-        return { statusOk, data };
+        const text = await response.text();
+        if (!text) return {};
+        try { return JSON.parse(text); } catch { return {}; }
     })
-    .then(({ statusOk, data }) => {
-        if (statusOk && (data.success === undefined || data.success === true)) {
-            showToast('Configuration saved! Changes take effect immediately.');
-            sendDebugWS('Config saved successfully');
+    .then(data => {
+        if (data.success) {
+            console.log('Timer saved');
+            loadTimers();
         } else {
-            showToast('Failed to save configuration');
-            sendDebugWS('Config save failed');
+            console.error('Failed to save timer');
         }
     })
-    .catch(error => {
-        console.error('Error:', error);
-        showToast('Error saving configuration');
-        sendDebugWS('Config save error: ' + error);
-    });
+    .catch(error => console.error('Error saving timer:', error));
 }
 
-// Toast notification (moved to top level)
+// Toast notifications
 function showToast(message, duration = 3000) {
-    const toast = document.getElementById('toast');
-    console.log('[TOAST]', message); // DEBUG: log to console
+    const toast = document.createElement('div');
+    toast.className = 'toast';
     toast.textContent = message;
-    toast.style.display = 'block';
-    toast.style.opacity = '0.95';
-    if (window._toastTimeout) {
-        clearTimeout(window._toastTimeout);
-    }
-    if (message === 'Uploading...') {
-        // Don't auto-hide, will be hidden by next toast
-        return;
-    }
-    window._toastTimeout = setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => { toast.style.display = 'none'; }, 300);
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 100);
+    
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            document.body.removeChild(toast);
+        }, 300);
     }, duration);
-}
-
-// Send debug message through WebSocket (moved to top level)
-function sendDebugWS(msg) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ debug: msg }));
-    }
 }

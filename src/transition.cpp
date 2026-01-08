@@ -3,27 +3,12 @@
 #include "transition.h"
 
 void TransitionEngine::forceCurrentBrightness(uint8_t value) {
-    if (value == 0) {
-        debugPrintln("[DEBUG] forceCurrentBrightness: Forcing _currentBrightness to 0");
-    }
     _currentBrightness = value;
 }
 
 TransitionEngine::TransitionEngine() {}
 
 void TransitionEngine::startTransition(uint8_t targetBrightness, uint32_t duration) {
-    debugPrint("[DEBUG] startTransition: start=");
-    debugPrintln((int)_currentBrightness);
-    debugPrint("[DEBUG] startTransition: target=");
-    debugPrintln((int)targetBrightness);
-    debugPrint("[DEBUG] startTransition: duration=");
-    debugPrintln((int)duration);
-    if (_currentBrightness == 0) {
-        debugPrintln("[DEBUG] startTransition: _currentBrightness is 0 at start");
-    }
-    if (targetBrightness == 0) {
-        debugPrintln("[DEBUG] startTransition: targetBrightness is 0");
-    }
     _startBrightness = _currentBrightness;
     _targetBrightness = targetBrightness;
     _startTime = millis();
@@ -47,6 +32,7 @@ void TransitionEngine::update() {
     uint32_t elapsed = millis() - _startTime;
     if (elapsed >= _duration) {
         // Transition complete
+        
         _currentBrightness = _targetBrightness;
         _currentColor1 = _targetColor1;
         _currentColor2 = _targetColor2;
@@ -60,6 +46,7 @@ void TransitionEngine::update() {
     // Smooth easing (ease-in-out)
     progress = progress * progress * (3.0 - 2.0 * progress);
 
+    uint8_t prevBrightness = _currentBrightness;
     // Interpolate values
     _currentBrightness = interpolate(_startBrightness, _targetBrightness, progress);
     _currentColor1 = interpolateColor(_startColor1, _targetColor1, progress);
