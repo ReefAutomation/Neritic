@@ -263,7 +263,7 @@ int8_t Scheduler::checkTimers() {
     return -1;
 }
 
-int8_t Scheduler::getBootPreset() {
+int8_t Scheduler::getCurrentScheduledPreset() {
     if (!isTimeValid()) return -1;
     
     int currentMinutes = timeToMinutes(getCurrentHour(), getCurrentMinute());
@@ -274,6 +274,7 @@ int8_t Scheduler::getBootPreset() {
         if (!isTimerActive(_config->timers[i], 0)) continue;
         int timerMinutes = getTimerMinutes(_config->timers[i]);
         if (timerMinutes == -1) continue;
+        if (_config->timers[i].presetId >= _config->getPresetCount()) continue;
         if (timerMinutes <= currentMinutes) {
             if (timerMinutes > mostRecentMinutes) {
                 mostRecentMinutes = timerMinutes;

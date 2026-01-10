@@ -23,7 +23,7 @@ public:
     String getSunsetTime();
     
     int8_t checkTimers();  // Returns preset ID to apply, -1 if none
-    int8_t getBootPreset();  // Returns preset that should be active on boot
+    int8_t getCurrentScheduledPreset();  // Returns preset that should be active on boot
     
 private:
     Configuration* _config;

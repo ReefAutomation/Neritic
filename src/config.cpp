@@ -1,9 +1,13 @@
+#include "presets.h"
+using std::vector;
+
 #include "web_assets/config_default.inc"
 #include "web_assets/timezones_json.inc"
 #include "config.h"
 
 #include <vector>
 #include <LittleFS.h>
+#include <ArduinoJson.h>
 
 #define FILESYSTEM LittleFS
 
@@ -24,13 +28,21 @@ static bool ensureFilesystemMounted() {
     return true;
 }
 
-// Utility to delete presets file
-void Configuration::resetPresetsFile() {
-    if (!ensureFilesystemMounted()) return;
-    if (FILESYSTEM.exists(PRESET_FILE)) {
-        FILESYSTEM.remove(PRESET_FILE);
+// Recursively merge src into dst, filling missing/null fields from src
+void mergeJson(JsonVariant dst, JsonVariantConst src) {
+    JsonObject dstObj = dst.as<JsonObject>();
+    JsonObjectConst srcObj = src.as<JsonObjectConst>();
+    if (srcObj.isNull() || dstObj.isNull()) return;
+    for (JsonPairConst kv : srcObj) {
+        const char* key = kv.key().c_str();
+        if (!dstObj.containsKey(key) || dstObj[key].isNull()) {
+            dstObj[key] = kv.value();
+        } else if (kv.value().is<JsonObjectConst>() && dstObj[key].is<JsonObject>()) {
+            mergeJson(dstObj[key], kv.value());
+        }
     }
 }
+
 
 bool Configuration::loadFromFile(const char* path, JsonDocument& doc) {
     if (!ensureFilesystemMounted()) return false;
@@ -77,16 +89,20 @@ bool Configuration::load() {
         doc = defaultsDoc;
         updated = true;
     } else {
-        // Merge missing fields from defaults
-        for (JsonPair kv : defaultsDoc.as<JsonObject>()) {
-            if (!doc.containsKey(kv.key())) {
-                doc[kv.key()] = kv.value();
-                updated = true;
-            }
-        }
+        // Deep merge: fill missing/null fields from defaults
+        mergeJson(doc, defaultsDoc);
+        updated = true; // always update to ensure defaults are saved
     }
 
-    // ...existing code to assign doc fields to struct members...
+    // Debug: Log loaded SSID and password
+    if (doc.containsKey("network")) {
+        JsonObject netObj = doc["network"];
+        Serial.print("[CONFIG] Loaded SSID: ");
+        Serial.println(netObj["ssid"].as<String>());
+        Serial.print("[CONFIG] Loaded Password: ");
+        Serial.println(netObj["password"].as<String>());
+    }
+
     // (copy the field assignment logic from before, but now doc is always complete)
     // LED Configuration
     if (doc.containsKey("led")) {
@@ -103,9 +119,9 @@ bool Configuration::load() {
         JsonObject safetyObj = doc["safety"];
         safety.minTransitionTime = safetyObj["minTransitionTime"];
         int percent = safetyObj["maxBrightness"];
-        if (percent <= 0) safety.maxBrightness = 1;
-        else if (percent >= 100) safety.maxBrightness = 255;
-        else safety.maxBrightness = 1 + (254 * percent) / 100;
+        if (percent < 1) percent = 1;
+        if (percent > 100) percent = 100;
+        safety.maxBrightness = percent;
     }
     // Network Configuration
     if (doc.containsKey("network")) {
@@ -127,6 +143,110 @@ bool Configuration::load() {
     // Timers
     if (doc.containsKey("timers")) {
         JsonArray timersArray = doc["timers"];
+        loadTimersFromJson(timersArray);
+    }
+
+    if (updated) {
+        saveToFile(CONFIG_FILE, doc);
+    }
+    return true;
+}
+
+bool Configuration::save() {
+    StaticJsonDocument<2048> doc;
+
+    // LED Configuration
+    JsonObject ledObj = doc.createNestedObject("led");
+    ledObj["pin"] = led.pin;
+    ledObj["count"] = led.count;
+    ledObj["type"] = led.type;
+    ledObj["colorOrder"] = led.colorOrder;
+    ledObj["relayPin"] = led.relayPin;
+    ledObj["relayActiveHigh"] = led.relayActiveHigh;
+
+    // Safety Configuration
+    JsonObject safetyObj = doc.createNestedObject("safety");
+    safetyObj["minTransitionTime"] = safety.minTransitionTime;
+    safetyObj["maxBrightness"] = safety.maxBrightness;
+
+    // Network Configuration
+    JsonObject netObj = doc.createNestedObject("network");
+    netObj["hostname"] = network.hostname;
+    netObj["apPassword"] = network.apPassword;
+    netObj["ssid"] = network.ssid;
+    // DO NOT return password in API response (omit in API, but save to file)
+    netObj["password"] = network.password;
+    Serial.print("[CONFIG] Saving SSID: ");
+    Serial.println(network.ssid);
+    Serial.print("[CONFIG] Saving Password: ");
+    Serial.println(network.password);
+
+    // Time Configuration
+    JsonObject timeObj = doc.createNestedObject("time");
+    timeObj["ntpServer"] = time.ntpServer;
+    timeObj["timezone"] = time.timezone;
+    timeObj["latitude"] = time.latitude;
+    timeObj["longitude"] = time.longitude;
+    timeObj["dstEnabled"] = time.dstEnabled;
+
+    // Timers
+    JsonArray timersArray = doc.createNestedArray("timers");
+    for (size_t i = 0; i < timers.size(); i++) {
+        JsonObject timerObj = timersArray.createNestedObject();
+        timerObj["enabled"] = timers[i].enabled;
+        timerObj["type"] = timers[i].type;
+        timerObj["hour"] = timers[i].hour;
+        timerObj["minute"] = timers[i].minute;
+        timerObj["presetId"] = timers[i].presetId;
+        timerObj["brightness"] = timers[i].brightness;
+    }
+
+    return saveToFile(CONFIG_FILE, doc);
+}
+
+// Update only fields present in the received JSON (partial update)
+// Example usage: config.partialUpdate(docFromFrontend);
+void Configuration::partialUpdate(const JsonObject& update) {
+    if (update.containsKey("led")) {
+        JsonObject ledObj = update["led"];
+        if (ledObj.containsKey("pin")) led.pin = ledObj["pin"];
+        if (ledObj.containsKey("count")) led.count = ledObj["count"];
+        if (ledObj.containsKey("type")) led.type = ledObj["type"].as<String>();
+        if (ledObj.containsKey("colorOrder")) led.colorOrder = ledObj["colorOrder"].as<String>();
+        if (ledObj.containsKey("relayPin")) led.relayPin = ledObj["relayPin"];
+        if (ledObj.containsKey("relayActiveHigh")) led.relayActiveHigh = ledObj["relayActiveHigh"];
+    }
+    if (update.containsKey("safety")) {
+        JsonObject safetyObj = update["safety"];
+        if (safetyObj.containsKey("minTransitionTime")) safety.minTransitionTime = safetyObj["minTransitionTime"];
+        if (safetyObj.containsKey("maxBrightness")) {
+            int percent = safetyObj["maxBrightness"];
+            if (percent < 1) percent = 1;
+            if (percent > 100) percent = 100;
+            safety.maxBrightness = percent;
+        }
+    }
+    if (update.containsKey("network")) {
+        JsonObject netObj = update["network"];
+        if (netObj.containsKey("hostname")) network.hostname = netObj["hostname"].as<String>();
+        if (netObj.containsKey("apPassword")) network.apPassword = netObj["apPassword"].as<String>();
+        if (netObj.containsKey("ssid")) network.ssid = netObj["ssid"].as<String>();
+        // Only update password if present and non-empty
+        if (netObj.containsKey("password")) {
+            String newPass = netObj["password"].as<String>();
+            if (!newPass.isEmpty()) network.password = newPass;
+        }
+    }
+    if (update.containsKey("time")) {
+        JsonObject timeObj = update["time"];
+        if (timeObj.containsKey("ntpServer")) time.ntpServer = timeObj["ntpServer"].as<String>();
+        if (timeObj.containsKey("timezone")) time.timezone = timeObj["timezone"].as<String>();
+        if (timeObj.containsKey("latitude")) time.latitude = timeObj["latitude"];
+        if (timeObj.containsKey("longitude")) time.longitude = timeObj["longitude"];
+        if (timeObj.containsKey("dstEnabled")) time.dstEnabled = timeObj["dstEnabled"];
+    }
+    if (update.containsKey("timers")) {
+        JsonArray timersArray = update["timers"];
         timers.clear();
         for (size_t i = 0; i < timersArray.size(); i++) {
             JsonObject timerObj = timersArray[i];
@@ -140,59 +260,6 @@ bool Configuration::load() {
             timers.push_back(t);
         }
     }
-
-    if (updated) {
-        saveToFile(CONFIG_FILE, doc);
-    }
-    return true;
-}
-
-bool Configuration::save() {
-    StaticJsonDocument<2048> doc;
-    
-    // LED Configuration
-    JsonObject ledObj = doc.createNestedObject("led");
-    ledObj["pin"] = led.pin;
-    ledObj["count"] = led.count;
-    ledObj["type"] = led.type;
-    ledObj["colorOrder"] = led.colorOrder;
-    ledObj["relayPin"] = led.relayPin;
-    ledObj["relayActiveHigh"] = led.relayActiveHigh;
-    
-    // Safety Configuration
-    JsonObject safetyObj = doc.createNestedObject("safety");
-    safetyObj["minTransitionTime"] = safety.minTransitionTime;
-    // Convert hardware value (1–255) to percent (0–100) for API output
-    safetyObj["maxBrightness"] = (int)round(((safety.maxBrightness - 1) / 254.0) * 100);
-    
-    // Network Configuration
-    JsonObject netObj = doc.createNestedObject("network");
-    netObj["hostname"] = network.hostname;
-    netObj["apPassword"] = network.apPassword;
-    netObj["ssid"] = network.ssid;
-    netObj["password"] = network.password;
-    
-    // Time Configuration
-    JsonObject timeObj = doc.createNestedObject("time");
-    timeObj["ntpServer"] = time.ntpServer;
-    timeObj["timezone"] = time.timezone;
-    timeObj["latitude"] = time.latitude;
-    timeObj["longitude"] = time.longitude;
-    timeObj["dstEnabled"] = time.dstEnabled;
-    
-    // Timers
-    JsonArray timersArray = doc.createNestedArray("timers");
-    for (size_t i = 0; i < timers.size(); i++) {
-        JsonObject timerObj = timersArray.createNestedObject();
-        timerObj["enabled"] = timers[i].enabled;
-        timerObj["type"] = timers[i].type;
-        timerObj["hour"] = timers[i].hour;
-        timerObj["minute"] = timers[i].minute;
-        timerObj["presetId"] = timers[i].presetId;
-        timerObj["brightness"] = timers[i].brightness;
-    }
-    
-    return saveToFile(CONFIG_FILE, doc);
 }
 
 // Factory reset: delete config file and restore defaults
@@ -206,65 +273,7 @@ bool Configuration::factoryReset() {
     return ok;
 }
 
-bool Configuration::loadPresets() {
-    // Delete presets file before loading (force regeneration)
-    resetPresetsFile();
-
-    size_t capacity = 8192;
-    DynamicJsonDocument doc(capacity);
-
-    bool loaded = false;
-    if (loadFromFile(PRESET_FILE, doc) && doc.containsKey("presets")) {
-        loaded = true;
-    } else {
-        // Load from embedded asset if file missing or invalid
-        #include "web_assets/presets_json.inc"
-        DeserializationError err = deserializeJson(doc, web_presets_json, web_presets_json_len);
-        if (!err && doc.containsKey("presets")) {
-            loaded = true;
-        }
-    }
-    if (!loaded) return false;
-    JsonArray presetsArray = doc["presets"];
-    for (size_t i = 0; i < presetsArray.size() && i < MAX_PRESETS; i++) {
-        JsonObject presetObj = presetsArray[i];
-        presets[i].name = presetObj["name"] | "";
-        presets[i].effect = presetObj["effect"] | 0;
-        presets[i].enabled = presetObj["enabled"] | true;
-        if (presetObj.containsKey("params")) {
-            JsonObject paramsObj = presetObj["params"];
-            presets[i].params.speed = paramsObj["speed"] | 128;
-            presets[i].params.intensity = paramsObj["intensity"] | 128;
-            presets[i].params.color1 = paramsObj["color1"] | 0x0000FF;
-            presets[i].params.color2 = paramsObj["color2"] | 0x00FFFF;
-        }
-    }
-    return true;
-}
-
-bool Configuration::savePresets() {
-    // Use DynamicJsonDocument for heap allocation
-    size_t capacity = 8192;
-    DynamicJsonDocument doc(capacity);
-    JsonArray presetsArray = doc.createNestedArray("presets");
-
-    for (size_t i = 0; i < MAX_PRESETS; i++) {
-        if (presets[i].name.length() == 0 && i > 0) continue;
-
-        JsonObject presetObj = presetsArray.createNestedObject();
-        presetObj["name"] = presets[i].name;
-        presetObj["effect"] = presets[i].effect;
-        presetObj["enabled"] = presets[i].enabled;
-
-        JsonObject paramsObj = presetObj.createNestedObject("params");
-        paramsObj["speed"] = presets[i].params.speed;
-        paramsObj["intensity"] = presets[i].params.intensity;
-        paramsObj["color1"] = presets[i].params.color1;
-        paramsObj["color2"] = presets[i].params.color2;
-    }
-
-    return saveToFile(PRESET_FILE, doc);
-}
+// ...existing code...
 
 // Helper function to map percent (0-100) to hardware brightness (1-255)
 uint8_t percentToBrightness(uint8_t percent) {
@@ -273,17 +282,36 @@ uint8_t percentToBrightness(uint8_t percent) {
     return (uint8_t)(1 + ((254 * percent) / 100));
 }
 
+// Helper to load timers from a JsonArray
+void Configuration::loadTimersFromJson(JsonArray timersArray) {
+    timers.clear();
+    for (size_t i = 0; i < timersArray.size(); i++) {
+        JsonObject timerObj = timersArray[i];
+        Timer t;
+        t.enabled = timerObj["enabled"];
+        t.type = (TimerType)timerObj["type"];
+        t.hour = timerObj["hour"];
+        t.minute = timerObj["minute"];
+        t.presetId = timerObj["presetId"];
+        t.brightness = timerObj["brightness"] | 100;
+        timers.push_back(t);
+    }
+}
+
 void Configuration::setDefaults() {
     led = LEDConfig();
     safety = SafetyConfig();
     network = NetworkConfig();
     time = TimeConfig();
-    state = SystemState();
-    // Zero-initialize timers; actual schedule will be loaded from config.json or default config
-    for (size_t i = 0; i < timers.size(); i++) {
-        timers[i] = Timer();
+
+    // Initialize timers from web_config_default
+    StaticJsonDocument<2048> defaultsDoc;
+    DeserializationError errDefault = deserializeJson(defaultsDoc, web_config_default, web_config_default_len);
+    if (!errDefault && defaultsDoc.containsKey("timers")) {
+        JsonArray timersArray = defaultsDoc["timers"];
+        loadTimersFromJson(timersArray);
     }
-    savePresets();
+    savePresets(presets);
 }
 
 

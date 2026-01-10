@@ -5,7 +5,7 @@
       "effect": 15,
       "enabled": true,
       "params": {
-        "speed": 80,
+        "speed": 90,
         "intensity": 200,
         "color1": 16744192,
         "color2": 16776960
@@ -24,7 +24,7 @@
       "effect": 12,
       "enabled": true,
       "params": {
-        "speed": 100,
+        "speed": 80,
         "intensity": 150,
         "color1": 22527,
         "color2": 65535
@@ -35,7 +35,7 @@
       "effect": 3,
       "enabled": true,
       "params": {
-        "speed": 60,
+        "speed": 80,
         "intensity": 100,
         "color1": 49151,
         "color2": 16777215
@@ -46,7 +46,7 @@
       "effect": 2,
       "enabled": true,
       "params": {
-        "speed": 50,
+        "speed": 80,
         "intensity": 40,
         "color1": 657056
       }
@@ -56,7 +56,7 @@
       "effect": 21,
       "enabled": true,
       "params": {
-        "speed": 120,
+        "speed": 5,
         "intensity": 180,
         "color1": 16729344,
         "color2": 16761024
@@ -67,10 +67,32 @@
       "effect": 37,
       "enabled": true,
       "params": {
-        "speed": 40,
+        "speed": 80,
         "intensity": 60,
         "color1": 128,
         "color2": 205
+      }
+    },
+    {
+      "name": "Sunrise",
+      "effect": 18,
+      "enabled": true,
+      "params": {
+        "speed": 5,
+        "intensity": 120,
+        "color1": 16724736,
+        "color2": 16776960
+      }
+    },
+    {
+      "name": "Sunset",
+      "effect": 19,
+      "enabled": true,
+      "params": {
+        "speed": 90,
+        "intensity": 100,
+        "color1": 16776960,
+        "color2": 16711680
       }
     }
   ]

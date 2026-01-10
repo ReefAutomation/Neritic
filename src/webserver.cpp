@@ -1,3 +1,4 @@
+#include <WS2812FX.h>
 #if defined(ESP8266) || defined(ARDUINO_ARCH_AVR)
 #include <pgmspace.h>
 #endif
@@ -17,9 +18,29 @@
 #endif
 #include "debug.h"
 #include "transition.h"
+#include "presets.h"
+#include "state.h"
 
+extern WS2812FX* strip;
 
+// Cached effect list JSON
+static String cachedEffectsJson;
+static bool effectsCacheReady = false;
 
+void buildEffectsCache() {
+    if (!strip) return;
+    StaticJsonDocument<4096> doc;
+    JsonArray effects = doc.createNestedArray("effects");
+    uint8_t count = strip->getModeCount();
+    for (uint8_t i = 0; i < count; i++) {
+        JsonObject eff = effects.createNestedObject();
+        eff["id"] = i;
+        eff["name"] = String(strip->getModeName(i));
+    }
+    cachedEffectsJson.clear();
+    serializeJson(doc, cachedEffectsJson);
+    effectsCacheReady = true;
+}
 // Helper: CORS headers for API responses
 static const char* CORS_HEADERS[][2] = {
     {"Access-Control-Allow-Origin", "*"},
@@ -29,6 +50,7 @@ static const char* CORS_HEADERS[][2] = {
 static const size_t CORS_HEADER_COUNT = sizeof(CORS_HEADERS) / sizeof(CORS_HEADERS[0]);
 
 extern TransitionEngine transition;
+extern SystemState state;
 
 // Helper: URL decode for form fields (declaration)
 static String urlDecode(const String& input);
@@ -36,25 +58,42 @@ static String urlDecode(const String& input);
 // Place at the very end of the file, after all other code
 void WebServerManager::handleOTAUpdate(AsyncWebServerRequest* request, unsigned char* data, unsigned int len, unsigned int index, unsigned int total) {
     // Actual OTA update logic
+    static unsigned int lastDot = 0;
     if (index == 0) {
     #if defined(ESP32)
+        debugPrintln("[OTA API] Begin OTA update");
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
     #elif defined(ESP8266)
+        debugPrintln("[OTA API] Begin OTA update");
         if (!Update.begin(total)) {
     #endif
             Update.printError(Serial);
+            debugPrintln("[OTA API] Update.begin() failed");
         }
     }
     if (Update.write(data, len) != len) {
         Update.printError(Serial);
+        debugPrintln("[OTA API] Update.write() failed");
+    }
+    // Print progress dots every 10%
+    if (total > 0) {
+        unsigned int dot = ((index + len) * 100) / total;
+        while (lastDot < dot) {
+            debugPrint(".");
+            lastDot++;
+        }
     }
     if (index + len == total) {
+        lastDot = 0; // reset for next OTA
         bool ok = Update.end(true);
         AsyncWebServerResponse *resp = nullptr;
+        debugPrintln();
         if (ok) {
+            debugPrintln("[OTA API] OTA update finished, rebooting");
             resp = request->beginResponse(200, "application/json", "{\"success\":true,\"message\":\"Rebooting\"}");
         } else {
             Update.printError(Serial);
+            debugPrintln("[OTA API] OTA update failed at end");
             resp = request->beginResponse(500, "application/json", "{\"error\":\"OTA Update Failed\"}");
         }
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
@@ -97,6 +136,7 @@ WebServerManager::WebServerManager(Configuration* config, Scheduler* scheduler) 
 void WebServerManager::begin() {
     setupWebSocket();
     setupRoutes();
+    buildEffectsCache();
     _server->begin();
     debugPrintln("Web server started");
 }
@@ -250,6 +290,10 @@ void WebServerManager::setupRoutes() {
             if (request->hasParam("ssid", true)) {
                 String ssid = urlDecode(request->getParam("ssid", true)->value());
                 String password = request->hasParam("password", true) ? urlDecode(request->getParam("password", true)->value()) : "";
+                debugPrint("[WIFI POST] Received SSID: ");
+                debugPrintln(ssid);
+                debugPrint("[WIFI POST] Received Password: ");
+                debugPrintln(password);
                 if (ssid.length() > 0) {
                     _config->network.ssid = ssid;
                     _config->network.password = password;
@@ -340,7 +384,15 @@ void WebServerManager::setupRoutes() {
         NULL, [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
         handleSetState(request, data, len);
     });
-    
+
+    // Effects API: serve cached JSON for all available WS2812FX effect names and indices
+    _server->on("/api/effects", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!effectsCacheReady) buildEffectsCache();
+        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", cachedEffectsJson);
+        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+        request->send(resp);
+    });
+
     // Presets API
     _server->on("/api/presets", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
         AsyncWebServerResponse *resp = request->beginResponse(204);
@@ -458,12 +510,12 @@ void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* d
         return;
     }
     // Merge incoming state with current state
-    uint8_t brightness = _config->state.brightness;
-    uint8_t old_brightness = _config->state.brightness;
-    uint32_t transitionTime = _config->state.transitionTime;
-    bool power = _config->state.power;
-    uint8_t effect = _config->state.effect;
-    EffectParams params = _config->state.params;
+    uint8_t brightness = state.brightness;
+    uint8_t old_brightness = state.brightness;
+    uint32_t transitionTime = state.transitionTime;
+    bool power = state.power;
+    uint8_t effect = state.effect;
+    EffectParams params = state.params;
 
     if (doc.containsKey("brightness")) {
         brightness = doc["brightness"];
@@ -479,7 +531,8 @@ void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* d
     }
     if (doc.containsKey("params")) {
         JsonObject paramsObj = doc["params"];
-        params.speed = paramsObj["speed"] | params.speed;
+        // Speed is now percent (0–100)
+        params.speed = paramsObj["speed"].isNull() ? params.speed : (uint8_t)paramsObj["speed"];
         params.intensity = paramsObj["intensity"] | params.intensity;
         params.color1 = paramsObj["color1"] | params.color1;
         params.color2 = paramsObj["color2"] | params.color2;
@@ -492,7 +545,7 @@ void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* d
     if (_powerCallback) _powerCallback(power);
     if (_brightnessCallback) _brightnessCallback(brightness);
     if (_effectCallback) _effectCallback(effect, params);
-    _config->state.transitionTime = transitionTime;
+    state.transitionTime = transitionTime;
 
     // Only respond and broadcast after state is updated
     broadcastState();
@@ -526,7 +579,7 @@ void WebServerManager::handleSetPreset(AsyncWebServerRequest* request, uint8_t* 
     
     uint8_t presetId = doc["id"] | 0;
     
-    if (presetId >= MAX_PRESETS) {
+    if (presetId >= _config->getPresetCount()) {
         {
             AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid preset ID\"}");
             for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
@@ -538,6 +591,11 @@ void WebServerManager::handleSetPreset(AsyncWebServerRequest* request, uint8_t* 
     // Apply or save preset
     if (doc.containsKey("apply") && doc["apply"]) {
         if (_presetCallback) _presetCallback(presetId);
+        {
+            AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+            request->send(resp);
+        }
     } else {
         // Save preset data
         _config->presets[presetId].name = doc["name"] | "";
@@ -546,21 +604,18 @@ void WebServerManager::handleSetPreset(AsyncWebServerRequest* request, uint8_t* 
         
         if (doc.containsKey("params")) {
             JsonObject paramsObj = doc["params"];
-            _config->presets[presetId].params.speed = paramsObj["speed"] | 128;
+            _config->presets[presetId].params.speed = paramsObj["speed"].isNull() ? 100 : (uint8_t)paramsObj["speed"];
             _config->presets[presetId].params.intensity = paramsObj["intensity"] | 128;
             _config->presets[presetId].params.color1 = paramsObj["color1"] | 0x0000FF;
             _config->presets[presetId].params.color2 = paramsObj["color2"] | 0x00FFFF;
         }
-        
-        _config->savePresets();
+        savePresets(_config->presets);
+        {
+            AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+            request->send(resp);
+        }
     }
-    
-    {
-        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-    }
-    broadcastState();
 }
 
 void WebServerManager::handleGetConfig(AsyncWebServerRequest* request) {
@@ -589,6 +644,10 @@ void WebServerManager::handleSetConfig(AsyncWebServerRequest* request, uint8_t* 
         String incoming, stored;
         serializeJson(doc, incoming);
         serializeJson(currentDoc, stored);
+        Serial.println("[DEBUG] Incoming config JSON:");
+        Serial.println(incoming);
+        Serial.println("[DEBUG] Current config JSON:");
+        Serial.println(stored);
         isDifferent = (incoming != stored);
     }
     if (!isDifferent) {
@@ -600,13 +659,25 @@ void WebServerManager::handleSetConfig(AsyncWebServerRequest* request, uint8_t* 
     // Accept and persist SSID/password if present in network object
     if (doc.containsKey("network")) {
         JsonObject netObj = doc["network"];
-        if (netObj.containsKey("ssid")) _config->network.ssid = netObj["ssid"].as<String>();
-        if (netObj.containsKey("password")) _config->network.password = netObj["password"].as<String>();
+        if (netObj.containsKey("ssid")) {
+            Serial.print("[DEBUG] Changing SSID from: ");
+            Serial.print(_config->network.ssid);
+            Serial.print(" to: ");
+            Serial.println(netObj["ssid"].as<String>());
+            _config->network.ssid = netObj["ssid"].as<String>();
+        }
+        if (netObj.containsKey("password")) {
+            Serial.print("[DEBUG] Changing password from: ");
+            Serial.print(_config->network.password);
+            Serial.print(" to: ");
+            Serial.println(netObj["password"].as<String>());
+            _config->network.password = netObj["password"].as<String>();
+        }
     }
-    // Save the uploaded config as the new config.json
-    bool saveResult = _config->saveToFile(CONFIG_FILE, doc);
+    // Only update fields present in the uploaded JSON
+    _config->partialUpdate(doc.as<JsonObject>());
+    bool saveResult = _config->save();
     if (saveResult) {
-        _config->load();
         if (_configCallback) _configCallback();
         AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
@@ -669,42 +740,27 @@ void WebServerManager::handleSetTimer(AsyncWebServerRequest* request, uint8_t* d
 String WebServerManager::getStateJSON() {
     StaticJsonDocument<512> doc;
     
-    doc["power"] = _config->state.power;
+    doc["power"] = state.power;
     // Send target brightness as 'brightness' in state
     extern TransitionEngine transition;
     doc["brightness"] = transition.getTargetBrightness();
-    doc["effect"] = _config->state.effect;
-    doc["transitionTime"] = _config->state.transitionTime;
-    doc["currentPreset"] = _config->state.currentPreset;
+    doc["effect"] = state.effect;
+    doc["transitionTime"] = state.transitionTime;
+    doc["currentPreset"] = state.currentPreset;
     if (_scheduler->isTimeValid()) {
         doc["time"] = _scheduler->getCurrentTime();
-        doc["timeValid"] = true;
     } else {
-        doc["time"] = "syncing";
-        doc["timeValid"] = false;
+        doc["time"] = "--:--";
     }
     doc["sunrise"] = _scheduler->getSunriseTime();
     doc["sunset"] = _scheduler->getSunsetTime();
 
     JsonObject paramsObj = doc.createNestedObject("params");
-    paramsObj["speed"] = _config->state.params.speed;
-    paramsObj["intensity"] = _config->state.params.intensity;
-    paramsObj["color1"] = _config->state.params.color1;
-    paramsObj["color2"] = _config->state.params.color2;
+    paramsObj["speed"] = state.params.speed;
+    paramsObj["intensity"] = state.params.intensity;
+    paramsObj["color1"] = state.params.color1;
+    paramsObj["color2"] = state.params.color2;
 
-    // Add schedule table (example: array of objects with time and action)
-    JsonArray scheduleArray = doc.createNestedArray("schedule");
-    // Example: populate with current timers as schedule (customize as needed)
-    for (size_t i = 0; i < _config->timers.size(); i++) {
-        JsonObject schedObj = scheduleArray.createNestedObject();
-        schedObj["id"] = i;
-        schedObj["enabled"] = _config->timers[i].enabled;
-        schedObj["type"] = _config->timers[i].type;
-        schedObj["hour"] = _config->timers[i].hour;
-        schedObj["minute"] = _config->timers[i].minute;
-        schedObj["presetId"] = _config->timers[i].presetId;
-        schedObj["brightness"] = _config->timers[i].brightness;
-    }
     String output;
     serializeJson(doc, output);
     return output;
@@ -714,7 +770,7 @@ String WebServerManager::getPresetsJSON() {
     StaticJsonDocument<4096> doc;
     JsonArray presetsArray = doc.createNestedArray("presets");
     
-    for (int i = 0; i < MAX_PRESETS; i++) {
+        for (size_t i = 0; i < _config->getPresetCount(); i++) {
         if (_config->presets[i].name.length() == 0 && i > 0) continue;
         
         JsonObject presetObj = presetsArray.createNestedObject();
@@ -741,12 +797,25 @@ String WebServerManager::getConfigJSON() {
     ledObj["pin"] = _config->led.pin;
     ledObj["count"] = _config->led.count;
     ledObj["type"] = _config->led.type;
+    ledObj["colorOrder"] = _config->led.colorOrder;
     ledObj["relayPin"] = _config->led.relayPin;
     ledObj["relayActiveHigh"] = _config->led.relayActiveHigh;
 
     JsonObject safetyObj = doc.createNestedObject("safety");
     safetyObj["minTransitionTime"] = _config->safety.minTransitionTime;
+    // maxBrightness is now always stored as percent
     safetyObj["maxBrightness"] = _config->safety.maxBrightness;
+    // Store maxBrightness as percent everywhere
+    if (doc.containsKey("safety")) {
+        JsonObject safetyObj = doc["safety"];
+        if (safetyObj.containsKey("maxBrightness")) {
+            int percent = safetyObj["maxBrightness"].as<int>();
+            if (percent < 1) percent = 1;
+            if (percent > 100) percent = 100;
+            _config->safety.maxBrightness = percent;
+            safetyObj["maxBrightness"] = percent; // update doc for file save
+        }
+    }
 
     JsonObject timeObj = doc.createNestedObject("time");
     timeObj["ntpServer"] = _config->time.ntpServer;
@@ -760,7 +829,6 @@ String WebServerManager::getConfigJSON() {
     netObj["hostname"] = _config->network.hostname;
     netObj["apPassword"] = _config->network.apPassword;
     netObj["ssid"] = _config->network.ssid;
-    netObj["password"] = _config->network.password;
 
     // Add timers array to config JSON (not as 'schedule', but as 'timers' for consistency with upload)
     JsonArray timersArray = doc.createNestedArray("timers");
@@ -818,6 +886,7 @@ String WebServerManager::getTimersJSON() {
 bool WebServerManager::applySafetyLimits(uint8_t& brightness, uint32_t& transitionTime) {
     bool modified = false;
 
+    // maxBrightness is now percent, and brightness is 0-100, so clamp directly
     if (brightness > _config->safety.maxBrightness) {
         brightness = _config->safety.maxBrightness;
         modified = true;
@@ -833,7 +902,7 @@ bool WebServerManager::applySafetyLimits(uint8_t& brightness, uint32_t& transiti
 void WebServerManager::broadcastState() {
     // Sync config.state.brightness with transition engine before broadcasting
     extern TransitionEngine transition;
-    _config->state.brightness = transition.getCurrentBrightness();
+    state.brightness = transition.getCurrentBrightness();
     String stateJSON = getStateJSON();
     _ws->textAll(stateJSON);
 }

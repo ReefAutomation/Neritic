@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
+    <div id="loadingIndicator" style="text-align:center;margin-top:3em;font-size:1.3em;">Loading configuration...</div>
+    <div class="container" id="mainContainer" style="display:none;">
         <header class="header">
             <h1>Configuration</h1>
             <a href="index.html" class="btn btn-secondary" title="Back to Main" style="padding:0.3em 0.6em;line-height:1;display:inline-flex;align-items:center;">
@@ -24,16 +25,18 @@
                         <!-- WiFi Settings -->
                         <section class="card">
                             <h2>WiFi Settings</h2>
-                            <div class="config-grid">
-                                <div class="config-item">
-                                    <label>WiFi SSID</label>
-                                    <input type="text" id="wifiSsid" class="text-input" autocomplete="on">
+                            <form id="wifiForm" autocomplete="on">
+                                <div class="config-grid">
+                                    <div class="config-item">
+                                        <label>WiFi SSID</label>
+                                        <input type="text" id="wifiSsid" class="text-input" autocomplete="on">
+                                    </div>
+                                    <div class="config-item">
+                                        <label>WiFi Password</label>
+                                        <input type="password" id="wifiPassword" class="text-input" autocomplete="on">
+                                    </div>
                                 </div>
-                                <div class="config-item">
-                                    <label>WiFi Password</label>
-                                    <input type="password" id="wifiPassword" class="text-input" autocomplete="on">
-                                </div>
-                            </div>
+                            </form>
                         </section>
             <!-- LED Settings -->
             <section class="card">

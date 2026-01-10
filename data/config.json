@@ -14,7 +14,7 @@
 		"relayActiveHigh": true
 	},
 	"safety": {
-		"maxBrightness": 100,
+		"maxBrightness": 80,
 		"minTransitionTime": 5000
 	},
 	"time": {

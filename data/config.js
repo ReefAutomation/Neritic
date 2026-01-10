@@ -6,10 +6,20 @@ window.config = window.config || {};
 
 // Load timezones from API and populate combo
 let TIMEZONES = [];
+    let _loaded = { timezones: false, presets: false, config: false };
+
+function showMainContainerWhenReady() {
+    if (_loaded.timezones && _loaded.presets && _loaded.config) {
+        document.getElementById('loadingIndicator').style.display = 'none';
+        document.getElementById('mainContainer').style.display = '';
+        displayConfig();
+    }
+}
+
 fetch(BASE_URL + '/api/timezones')
     .then(resp => resp.json())
-    .then(zones => { TIMEZONES = zones; })
-    .catch(() => { TIMEZONES = []; });
+    .then(zones => { TIMEZONES = zones; _loaded.timezones = true; showMainContainerWhenReady(); })
+    .catch(() => { TIMEZONES = []; _loaded.timezones = true; showMainContainerWhenReady(); });
 
 // Helper to compare objects shallowly
 function shallowEqual(obj1, obj2) {
@@ -38,7 +48,7 @@ function displayConfig() {
     // Safety
     if (window.config.safety) {
         if (window.config.safety.maxBrightness !== undefined) {
-            const percent = Math.round(((window.config.safety.maxBrightness - 1) / 254) * 100);
+            const percent = window.config.safety.maxBrightness;
             document.getElementById('maxBrightness').value = percent;
             document.getElementById('maxBrightnessValue').textContent = percent + '%';
         }
@@ -71,12 +81,15 @@ function displayConfig() {
     // Network (WiFi)
     if (window.config.network) {
         if (window.config.network.ssid !== undefined) document.getElementById('wifiSsid').value = window.config.network.ssid;
-        if (window.config.network.password !== undefined) document.getElementById('wifiPassword').value = window.config.network.password;
+        // Always show password as asterisks, even if empty
+        const pwElem = document.getElementById('wifiPassword');
+        if (pwElem) {
+            pwElem.value = '********';
+        }
     }
     // Only update schedule table if timers changed
     if (!shallowEqual(window.config.timers, lastTimers)) {
         lastTimers = JSON.parse(JSON.stringify(window.config.timers));
-        // ...existing table update code...
         const table = document.getElementById('scheduleTableConfig');
         if (table) {
             const tbody = table.querySelector('tbody');
@@ -195,7 +208,6 @@ function displayConfig() {
                 tr.appendChild(actionsTd);
                 tbody.appendChild(tr);
             });
-            // ...existing Add Timer button logic...
         }
         // Re-evaluate schedule if timers changed
         if (typeof reevaluateSchedule === 'function') reevaluateSchedule();
@@ -222,9 +234,12 @@ function loadConfig() {
         })
         .then(data => {
             window.config = data;
-            displayConfig();
+            // Store a deep copy of the original config for change detection
+            window._originalConfig = JSON.parse(JSON.stringify(data));
+            _loaded.config = true;
+            showMainContainerWhenReady();
         })
-        .catch(error => console.error('Error loading config:', error));
+        .catch(error => { _loaded.config = true; showMainContainerWhenReady(); console.error('Error loading config:', error); });
 }
 
 function loadPresetsAndConfig() {
@@ -239,31 +254,13 @@ function loadPresetsAndConfig() {
             } else {
                 window.presets = [];
             }
-            fetch(BASE_URL + '/api/config')
-                .then(async response => {
-                    const text = await response.text();
-                    if (!text) return {};
-                    try { return JSON.parse(text); } catch { return {}; }
-                })
-                .then(data => {
-                    window.config = data;
-                    displayConfig();
-                })
-                .catch(error => console.error('Error loading config:', error));
+            _loaded.presets = true;
+            loadConfig();
         })
         .catch(() => {
             window.presets = [];
-            fetch(BASE_URL + '/api/config')
-                .then(async response => {
-                    const text = await response.text();
-                    if (!text) return {};
-                    try { return JSON.parse(text); } catch { return {}; }
-                })
-                .then(data => {
-                    window.config = data;
-                    displayConfig();
-                })
-                .catch(error => console.error('Error loading config:', error));
+            _loaded.presets = true;
+            loadConfig();
         });
 }
 
@@ -271,14 +268,19 @@ function loadPresetsAndConfig() {
 window.addEventListener('DOMContentLoaded', loadPresetsAndConfig);
 
 // Update display values for sliders
-['maxBrightness', 'minTransition'].forEach(id => {
-    const input = document.getElementById(id);
-    if (input) {
-        input.addEventListener('input', e => {
-            document.getElementById(id + 'Value').textContent = e.target.value;
-        });
-    }
-});
+// Show % for maxBrightness slider, plain value for minTransition
+const maxBrightnessInput = document.getElementById('maxBrightness');
+if (maxBrightnessInput) {
+    maxBrightnessInput.addEventListener('input', e => {
+        document.getElementById('maxBrightnessValue').textContent = e.target.value + '%';
+    });
+}
+const minTransitionInput = document.getElementById('minTransition');
+if (minTransitionInput) {
+    minTransitionInput.addEventListener('input', e => {
+        document.getElementById('minTransitionValue').textContent = e.target.value;
+    });
+}
 
 
 async function sendCommandWithStatus(command) {
@@ -300,59 +302,96 @@ async function sendCommandWithStatus(command) {
     }
 }
 
+function deepEqual(a, b) {
+    if (a === b) return true;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== 'object' || a === null || b === null) return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) {
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            if (!deepEqual(a[i], b[i])) return false;
+        }
+        return true;
+    }
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    for (let k of keysA) {
+        if (!deepEqual(a[k], b[k])) return false;
+    }
+    return true;
+}
+
 function saveConfig() {
-    // Collect latest values from inputs before sending
+    // Build a partial update object with only changed fields
+    const update = {};
+    const orig = window._originalConfig || {};
     // LED
     if (window.config.led) {
-        window.config.led.pin = parseInt(document.getElementById('ledPin').value) || window.config.led.pin;
-        window.config.led.count = parseInt(document.getElementById('ledCount').value) || window.config.led.count;
-        window.config.led.type = document.getElementById('ledType').value || window.config.led.type;
-        window.config.led.colorOrder = document.getElementById('ledColorOrder').value || window.config.led.colorOrder;
-        window.config.led.relayPin = parseInt(document.getElementById('relayPin').value) || window.config.led.relayPin;
-        window.config.led.relayActiveHigh = document.getElementById('relayActiveHigh').value === 'true';
+        const ledUpdate = {};
+        const ledPin = parseInt(document.getElementById('ledPin').value);
+        if (!orig.led || ledPin !== orig.led.pin) ledUpdate.pin = ledPin;
+        const ledCount = parseInt(document.getElementById('ledCount').value);
+        if (!orig.led || ledCount !== orig.led.count) ledUpdate.count = ledCount;
+        const ledType = document.getElementById('ledType').value;
+        if (!orig.led || ledType !== orig.led.type) ledUpdate.type = ledType;
+        const ledColorOrder = document.getElementById('ledColorOrder').value;
+        if (!orig.led || ledColorOrder !== orig.led.colorOrder) ledUpdate.colorOrder = ledColorOrder;
+        const relayPin = parseInt(document.getElementById('relayPin').value);
+        if (!orig.led || relayPin !== orig.led.relayPin) ledUpdate.relayPin = relayPin;
+        const relayActiveHigh = document.getElementById('relayActiveHigh').value === 'true';
+        if (!orig.led || relayActiveHigh !== orig.led.relayActiveHigh) ledUpdate.relayActiveHigh = relayActiveHigh;
+        if (Object.keys(ledUpdate).length > 0) update.led = ledUpdate;
     }
     // Safety
     if (window.config.safety) {
-        window.config.safety.maxBrightness = Math.max(1, Math.min(100, parseInt(document.getElementById('maxBrightness').value) || window.config.safety.maxBrightness));
-        window.config.safety.minTransitionTime = Math.max(2, parseInt(document.getElementById('minTransition').value) || window.config.safety.minTransitionTime) * 1000;
+        const safetyUpdate = {};
+        const maxBrightness = Math.max(1, Math.min(100, parseInt(document.getElementById('maxBrightness').value)));
+        if (!orig.safety || maxBrightness !== orig.safety.maxBrightness) safetyUpdate.maxBrightness = maxBrightness;
+        const minTransitionTime = Math.max(2, parseInt(document.getElementById('minTransition').value)) * 1000;
+        if (!orig.safety || minTransitionTime !== orig.safety.minTransitionTime) safetyUpdate.minTransitionTime = minTransitionTime;
+        if (Object.keys(safetyUpdate).length > 0) update.safety = safetyUpdate;
     }
     // Time
     if (window.config.time) {
-        window.config.time.ntpServer = document.getElementById('ntpServer').value || window.config.time.ntpServer;
-        window.config.time.timezone = document.getElementById('timezone').value || window.config.time.timezone;
-        window.config.time.latitude = parseFloat(document.getElementById('latitude').value) || window.config.time.latitude;
-        window.config.time.longitude = parseFloat(document.getElementById('longitude').value) || window.config.time.longitude;
-        window.config.time.dstEnabled = document.getElementById('dstEnabled').checked;
+        const timeUpdate = {};
+        const ntpServer = document.getElementById('ntpServer').value;
+        if (!orig.time || ntpServer !== orig.time.ntpServer) timeUpdate.ntpServer = ntpServer;
+        const timezone = document.getElementById('timezone').value;
+        if (!orig.time || timezone !== orig.time.timezone) timeUpdate.timezone = timezone;
+        const latitude = parseFloat(document.getElementById('latitude').value);
+        if (!orig.time || latitude !== orig.time.latitude) timeUpdate.latitude = latitude;
+        const longitude = parseFloat(document.getElementById('longitude').value);
+        if (!orig.time || longitude !== orig.time.longitude) timeUpdate.longitude = longitude;
+        const dstEnabled = document.getElementById('dstEnabled').checked;
+        if (!orig.time || dstEnabled !== orig.time.dstEnabled) timeUpdate.dstEnabled = dstEnabled;
+        if (Object.keys(timeUpdate).length > 0) update.time = timeUpdate;
     }
     // Network
     if (window.config.network) {
-        window.config.network.ssid = document.getElementById('wifiSsid').value || window.config.network.ssid;
-        window.config.network.password = document.getElementById('wifiPassword').value || window.config.network.password;
+        const netUpdate = {};
+        const ssid = document.getElementById('wifiSsid').value;
+        if (!orig.network || ssid !== orig.network.ssid) netUpdate.ssid = ssid;
+        const passwordElem = document.getElementById('wifiPassword');
+        const password = passwordElem.value;
+        // Only send password if user explicitly changed it (not asterisks placeholder)
+        if (password && password !== '********' && (!orig.network || password !== orig.network.password)) {
+            netUpdate.password = password;
+        }
+        if (Object.keys(netUpdate).length > 0) update.network = netUpdate;
     }
-    // Timers: already updated live via event listeners
-    // Sort timers: regular by time, 00:00 last, sun types very last
-    if (Array.isArray(window.config.timers)) {
-        window.config.timers.sort((a, b) => {
-            const isSunA = a.type === 1 || a.type === 2;
-            const isSunB = b.type === 1 || b.type === 2;
-            if (isSunA && !isSunB) return 1;
-            if (!isSunA && isSunB) return -1;
-            if (isSunA && isSunB) return 0;
-            const isZeroA = (a.hour === 0 && a.minute === 0);
-            const isZeroB = (b.hour === 0 && b.minute === 0);
-            if (isZeroA && !isZeroB) return 1;
-            if (!isZeroA && isZeroB) return -1;
-            if (isZeroA && isZeroB) return 0;
-            const ta = (a.hour || 0) * 60 + (a.minute || 0);
-            const tb = (b.hour || 0) * 60 + (b.minute || 0);
-            return ta - tb;
-        });
+    // Timers: only send if changed compared to original config
+    if (Array.isArray(window.config.timers) && Array.isArray(orig.timers)) {
+        if (!deepEqual(window.config.timers, orig.timers)) {
+            update.timers = window.config.timers;
+        }
     }
-    // Send config to backend
+    // Send only changed fields to backend
     fetch(BASE_URL + '/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(window.config)
+        body: JSON.stringify(update)
     })
     .then(async response => {
         if (!response.ok) throw new Error('Save failed');
@@ -391,9 +430,69 @@ function saveConfig() {
         console.error('Error saving config:', err);
     });
 }
+
 // Attach Save button handler if not already
 const saveBtn = document.getElementById('saveConfigButton');
 if (saveBtn && !saveBtn._handlerSet) {
     saveBtn.onclick = saveConfig;
     saveBtn._handlerSet = true;
+}
+
+// --- Upload Config Handler ---
+const uploadInput = document.getElementById('uploadConfigInput');
+if (uploadInput && !uploadInput._handlerSet) {
+    uploadInput.addEventListener('change', function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (evt) {
+            try {
+                const json = JSON.parse(evt.target.result);
+                // POST the uploaded config to /api/config
+                fetch(BASE_URL + '/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(json)
+                })
+                .then(async response => {
+                    if (!response.ok) throw new Error('Upload failed');
+                    const text = await response.text();
+                    try { JSON.parse(text); } catch {}
+                })
+                .then(() => {
+                    // Feedback: show success on upload button label
+                    const label = document.querySelector('label[for="uploadConfigInput"]');
+                    if (label) {
+                        const original = label.textContent;
+                        label.textContent = '✓ Uploaded!';
+                        label.style.backgroundColor = '#4CAF50';
+                        setTimeout(() => {
+                            label.textContent = original;
+                            label.style.backgroundColor = '';
+                        }, 2000);
+                    }
+                    loadConfig();
+                })
+                .catch(err => {
+                    const label = document.querySelector('label[for="uploadConfigInput"]');
+                    if (label) {
+                        const original = label.textContent;
+                        label.textContent = '✗ Error';
+                        label.style.backgroundColor = '#f44336';
+                        setTimeout(() => {
+                            label.textContent = original;
+                            label.style.backgroundColor = '';
+                        }, 2000);
+                    }
+                    console.error('Error uploading config:', err);
+                });
+            } catch (err) {
+                alert('Invalid config file: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+        // Reset input so same file can be uploaded again if needed
+        uploadInput.value = '';
+    });
+    uploadInput._handlerSet = true;
 }

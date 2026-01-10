@@ -111,6 +111,56 @@ flowchart LR
 - Add 1000µF capacitor across LED power supply
 - Ensure sufficient power supply (60mA per LED at full white)
 
+### 80x160 RGB IPS Display (ST7735S) Wiring
+
+| Display Pin | ESP32 GPIO |
+|-------------|------------|
+| SCL (CLK)   | 14         |
+| SDA (MOSI)  | 12         |
+| RES (Reset) | 27         |
+| DC          | 26         |
+| CS          | 25         |
+| BLK (Backlight) | 33     |
+| VCC         | 3.3V/5V    |
+| GND         | GND        |
+
+```mermaid
+flowchart LR
+  subgraph ESP32
+    SCL14[GPIO14 (SCL/CLK)]
+    SDA12[GPIO12 (SDA/MOSI)]
+    RES27[GPIO27 (RES)]
+    DC26[GPIO26 (DC)]
+    CS25[GPIO25 (CS)]
+    BLK33[GPIO33 (BLK)]
+    VCC[VCC 3.3V/5V]
+    GND[GND]
+  end
+  subgraph Display["80x160 RGB IPS Display (ST7735S)"]
+    DISP_SCL[SCL]
+    DISP_SDA[SDA]
+    DISP_RES[RES]
+    DISP_DC[DC]
+    DISP_CS[CS]
+    DISP_BLK[BLK]
+    DISP_VCC[VCC]
+    DISP_GND[GND]
+  end
+  SCL14 -- SCL --> DISP_SCL
+  SDA12 -- SDA --> DISP_SDA
+  RES27 -- RES --> DISP_RES
+  DC26 -- DC --> DISP_DC
+  CS25 -- CS --> DISP_CS
+  BLK33 -- BLK --> DISP_BLK
+  VCC -- VCC --> DISP_VCC
+  GND -- GND --> DISP_GND
+```
+
+**Note:**
+- Connect VCC to 3.3V or 5V as supported by your display module.
+- BLK (backlight) can be controlled via GPIO33 or tied to VCC for always-on.
+- Use the same GND for ESP32 and display.
+
 ## 🚀 Quick Start
 
 ### 1. Install PlatformIO

@@ -7,14 +7,19 @@
 #include "transition.h"
 #include "webserver.h"
 
+// OTA progress flag
+volatile bool otaInProgress = false;
 void setupArduinoOTA(const char* hostname) {
 #ifdef ESP32
     ArduinoOTA.setHostname(hostname);
     ArduinoOTA.onStart([]() {
+        otaInProgress = true;
     });
     ArduinoOTA.onEnd([]() {
+        otaInProgress = false;
     });
     ArduinoOTA.onError([](ota_error_t error) {
+        otaInProgress = false;
     });
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     });
