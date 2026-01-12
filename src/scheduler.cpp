@@ -265,11 +265,12 @@ int8_t Scheduler::checkTimers() {
 
 int8_t Scheduler::getCurrentScheduledPreset() {
     if (!isTimeValid()) return -1;
-    
+
     int currentMinutes = timeToMinutes(getCurrentHour(), getCurrentMinute());
     int8_t mostRecentPreset = -1;
     int mostRecentMinutes = -1;
-    // Find the most recent timer that should have triggered
+    int minutesInDay = 24 * 60;
+    // Find the most recent timer that should have triggered (today)
     for (size_t i = 0; i < _config->timers.size(); i++) {
         if (!isTimerActive(_config->timers[i], 0)) continue;
         int timerMinutes = getTimerMinutes(_config->timers[i]);
@@ -281,6 +282,22 @@ int8_t Scheduler::getCurrentScheduledPreset() {
                 mostRecentPreset = _config->timers[i].presetId;
             }
         }
+    }
+    // If no timer has triggered today, select the last timer of the previous day (highest timerMinutes overall)
+    if (mostRecentPreset == -1) {
+        int latestMinutes = -1;
+        int8_t latestPreset = -1;
+        for (size_t i = 0; i < _config->timers.size(); i++) {
+            if (!isTimerActive(_config->timers[i], 0)) continue;
+            int timerMinutes = getTimerMinutes(_config->timers[i]);
+            if (timerMinutes == -1) continue;
+            if (_config->timers[i].presetId >= _config->getPresetCount()) continue;
+            if (timerMinutes > latestMinutes) {
+                latestMinutes = timerMinutes;
+                latestPreset = _config->timers[i].presetId;
+            }
+        }
+        mostRecentPreset = latestPreset;
     }
     return mostRecentPreset;
 }

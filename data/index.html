@@ -61,9 +61,8 @@
                         <span>Speed</span>
                         <span id="speedValue"></span>
                     </label>
-                    <input type="range" id="speedSlider" min="0" max="100" value="100" class="slider-input">
+                    <input type="range" id="speedSlider" min="1" max="100" value="100" class="slider-input">
                 </div>
-                
                 <div class="control-item">
                     <label>
                         <span>Intensity</span>
@@ -71,16 +70,7 @@
                     </label>
                     <input type="range" id="intensitySlider" min="0" max="255" value="128" class="slider-input">
                 </div>
-                
-                <div class="control-item">
-                    <label>Primary Color</label>
-                    <input type="color" id="color1Picker" value="#0000ff" class="color-input">
-                </div>
-                
-                <div class="control-item">
-                    <label>Secondary Color</label>
-                    <input type="color" id="color2Picker" value="#00ffff" class="color-input">
-                </div>
+                <div id="colorPickersRow" class="color-pickers-row"></div>
             </div>
         </section>
 

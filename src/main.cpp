@@ -12,7 +12,7 @@
  */
 
 #include <Arduino.h>
-#include <WS2812FX.h>
+#include <memory>
 #ifdef ESP8266
 #include <ESP8266WiFi.h>
 #else
@@ -20,11 +20,13 @@
 #endif
 #include <LittleFS.h>
 #define FILESYSTEM LittleFS
+#include <type_traits>
 
 #include "config.h"
 #include "presets.h"
-// #include "effects.h" // Custom effects disabled, using WS2812FX native effects only
+#include "effects.h"
 #include "scheduler.h"
+#include "bus_manager.h"
 #include "transition.h"
 #include "webserver.h"
 #include "captive_portal.h"
@@ -36,6 +38,10 @@
 
 #include "display.h"
 
+
+// Global BusManager instance
+BusManager busManager;
+
 // Track last configuration for change detection
 Configuration lastConfiguration;
 
@@ -45,11 +51,8 @@ Scheduler scheduler(&config);
 TransitionEngine transition;
 WebServerManager webServer(&config, &scheduler);
 
-// LED array
-#include <type_traits>
-
-// WS2812FX LED object
-WS2812FX* strip = nullptr;
+// Use void* for runtime type switching
+void* strip = nullptr;
 
 // Timing
 uint32_t lastStateSave = 0;
@@ -71,6 +74,7 @@ void printHeap(const char* tag) {
     #endif
 }
 void setupLEDs();
+void addBusToManager();
 void checkSchedule();
 void checkAndApplyScheduleAfterBoot();
 
@@ -108,8 +112,10 @@ void setup() {
         savePresets(config.presets);
     }
 
-    // Initialize LEDs
+
+    // Initialize LEDs and BusManager
     setupLEDs();
+    updatePixelCount();
 
     // Initialize transition engine brightness to default
     extern TransitionEngine transition;
@@ -151,6 +157,7 @@ void setup() {
                           config.led.colorOrder != lastConfiguration.led.colorOrder;
         if (ledChanged) {
             setupLEDs();
+            updatePixelCount();
             lastConfiguration.led.pin = config.led.pin;
             lastConfiguration.led.count = config.led.count;
             lastConfiguration.led.type = config.led.type;
@@ -283,8 +290,6 @@ void setupWiFi() {
             while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
                 delay(500);
                 debugPrint(".");
-                Serial.print("[DEBUG] WiFi.status(): ");
-                Serial.println(WiFi.status());
                 attempts++;
             }
         }
@@ -308,43 +313,15 @@ void setupWiFi() {
 }
 
 void setupLEDs() {
-    if (strip) {
-        delete strip;
-        strip = nullptr;
-    }
-    uint8_t pin = config.led.pin;
-    uint16_t count = config.led.count;
-    String type = config.led.type;
-    String order = config.led.colorOrder;
-    type.toUpperCase();
-    order.toUpperCase();
-    uint8_t wsType = NEO_GRB + NEO_KHZ800; // default
-    if (type.indexOf("SK6812") >= 0) {
-        if (order == "RGBW") wsType = NEO_RGBW + NEO_KHZ800;
-        else if (order == "GRBW") wsType = NEO_GRBW + NEO_KHZ800;
-        else wsType = NEO_GRBW + NEO_KHZ800; // default for SK6812
-    } else if (type.indexOf("WS2812") >= 0) {
-        if (order == "RGB") wsType = NEO_RGB + NEO_KHZ800;
-        else if (order == "GRB") wsType = NEO_GRB + NEO_KHZ800;
-        else wsType = NEO_GRB + NEO_KHZ800; // default for WS2812
-    } else if (type.indexOf("APA106") >= 0) {
-        wsType = NEO_RGB + NEO_KHZ800;
-    }
-    strip = new WS2812FX(count, pin, wsType);
-    strip->init();
-    // Set default effect: solid black (STATIC, color 0x000000)
-    strip->setMode(0); // 0 = STATIC
-    strip->setColor(0x000000); // black
-    strip->setBrightness(0); // off
-    strip->show();
-    strip->start();
+    busManager.setupStrip(config.led.type, config.led.colorOrder, config.led.pin, config.led.count);
 }
 
 
 void checkSchedule() {
     // Always apply the most recent valid scheduled preset for the current time
     int8_t scheduledPresetId = scheduler.getCurrentScheduledPreset();
-    if (scheduledPresetId >= 0 && scheduledPresetId < config.getPresetCount()) {
+    auto it = std::find_if(config.presets.begin(), config.presets.end(), [scheduledPresetId](const Preset& p) { return p.id == scheduledPresetId; });
+    if (it != config.presets.end()) {
         if (scheduledPresetId != lastScheduledPreset) {
             applyPreset(scheduledPresetId, false);
             lastScheduledPreset = scheduledPresetId;
@@ -359,7 +336,8 @@ void checkAndApplyScheduleAfterBoot() {
     if (!scheduleApplied) {
         if (scheduler.isTimeValid()) {
             int8_t bootPreset2 = scheduler.getCurrentScheduledPreset();
-            if (bootPreset2 >= 0 && bootPreset2 < config.getPresetCount()) {
+            auto it = std::find_if(config.presets.begin(), config.presets.end(), [bootPreset2](const Preset& p) { return p.id == bootPreset2; });
+            if (it != config.presets.end()) {
                 applyPreset(bootPreset2, false);
                 lastScheduledPreset = bootPreset2;
             }

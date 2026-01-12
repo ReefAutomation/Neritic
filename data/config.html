@@ -22,22 +22,22 @@
             <button id="saveConfigButton" class="btn btn-primary">Save Configuration</button>
         </div>
         <div class="card-grid">
-                        <!-- WiFi Settings -->
-                        <section class="card">
-                            <h2>WiFi Settings</h2>
-                            <form id="wifiForm" autocomplete="on">
-                                <div class="config-grid">
-                                    <div class="config-item">
-                                        <label>WiFi SSID</label>
-                                        <input type="text" id="wifiSsid" class="text-input" autocomplete="on">
-                                    </div>
-                                    <div class="config-item">
-                                        <label>WiFi Password</label>
-                                        <input type="password" id="wifiPassword" class="text-input" autocomplete="on">
-                                    </div>
-                                </div>
-                            </form>
-                        </section>
+            <!-- WiFi Settings -->
+            <section class="card">
+                <h2>WiFi Settings</h2>
+                <form id="wifiForm" autocomplete="on">
+                    <div class="config-grid">
+                        <div class="config-item">
+                            <label>WiFi SSID</label>
+                            <input type="text" id="wifiSsid" class="text-input" autocomplete="on">
+                        </div>
+                        <div class="config-item">
+                            <label>WiFi Password</label>
+                            <input type="password" id="wifiPassword" class="text-input" autocomplete="on">
+                        </div>
+                    </div>
+                </form>
+            </section>
             <!-- LED Settings -->
             <section class="card">
                 <h2>LED Settings</h2>
@@ -136,7 +136,29 @@
             </section>
         </div>
 
-        <!-- Save button moved to top -->
+        <!-- Schedule Table -->
+        <section class="card">
+            <h2>Schedule</h2>
+            <div class="schedule-table">
+                <table id="scheduleTableConfig">
+                    <thead>
+                        <tr>
+                            <th>Enabled</th>
+                            <th>Type</th>
+                            <th>Time</th>
+                            <th>Preset</th>
+                            <th>Brightness (%)</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Timer rows will be rendered by config.js -->
+                    </tbody>
+                </table>
+                <button id="addTimerButton" class="btn btn-secondary" style="margin-top:1em;">Add Timer</button>
+            </div>
+        </section>
+
         <!-- Unified System Actions Card -->
         <section class="card system-card">
             <h2>System Actions</h2>
@@ -159,28 +181,6 @@
                 <button id="updateButton" class="btn btn-info">Check for Updates</button>
                 <button id="factoryResetButton" class="btn btn-danger" style="margin-left:0.5em;">Factory Reset</button>
                 <span id="systemStatus" class="system-status"></span>
-            </div>
-        </section>
-        <!-- Schedule Table -->
-        <section class="card">
-            <h2>Schedule</h2>
-            <div class="schedule-table">
-                <table id="scheduleTableConfig">
-                    <thead>
-                        <tr>
-                            <th>Enabled</th>
-                            <th>Type</th>
-                            <th>Time</th>
-                            <th>Preset</th>
-                            <th>Brightness (%)</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Timer rows will be rendered by config.js -->
-                    </tbody>
-                </table>
-                <button id="addTimerButton" class="btn btn-secondary" style="margin-top:1em;">Add Timer</button>
             </div>
         </section>
     </div>

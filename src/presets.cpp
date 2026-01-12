@@ -55,16 +55,23 @@ bool loadPresets(std::vector<Preset>& presets) {
     for (size_t i = 0; i < presetsArray.size(); i++) {
         JsonObject presetObj = presetsArray[i];
         Preset p;
+        p.id = presetObj["id"] | i;
         p.name = presetObj["name"] | "";
         p.effect = presetObj["effect"] | 0;
         p.enabled = presetObj["enabled"] | true;
         if (presetObj.containsKey("params")) {
             JsonObject paramsObj = presetObj["params"];
-            // Speed is now percent (0–100)
             p.params.speed = paramsObj["speed"].isNull() ? 100 : (uint8_t)paramsObj["speed"];
             p.params.intensity = paramsObj["intensity"] | 128;
-            p.params.color1 = paramsObj["color1"] | 0x0000FF;
-            p.params.color2 = paramsObj["color2"] | 0x00FFFF;
+            p.params.colors.clear();
+            if (paramsObj.containsKey("colors")) {
+                JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
+                for (JsonVariant v : colorsArr) {
+                    if (v.is<const char*>()) {
+                        p.params.colors.push_back(String(v.as<const char*>()));
+                    }
+                }
+            }
         }
         presets.push_back(p);
     }
@@ -86,8 +93,10 @@ bool savePresets(const std::vector<Preset>& presets) {
         JsonObject paramsObj = presetObj.createNestedObject("params");
         paramsObj["speed"] = presets[i].params.speed;
         paramsObj["intensity"] = presets[i].params.intensity;
-        paramsObj["color1"] = presets[i].params.color1;
-        paramsObj["color2"] = presets[i].params.color2;
+        JsonArray colorsArr = paramsObj.createNestedArray("colors");
+        for (const auto& c : presets[i].params.colors) {
+            colorsArr.add(c);
+        }
     }
 
     if (!ensureFilesystemMounted()) return false;

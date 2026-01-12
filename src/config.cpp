@@ -94,15 +94,6 @@ bool Configuration::load() {
         updated = true; // always update to ensure defaults are saved
     }
 
-    // Debug: Log loaded SSID and password
-    if (doc.containsKey("network")) {
-        JsonObject netObj = doc["network"];
-        Serial.print("[CONFIG] Loaded SSID: ");
-        Serial.println(netObj["ssid"].as<String>());
-        Serial.print("[CONFIG] Loaded Password: ");
-        Serial.println(netObj["password"].as<String>());
-    }
-
     // (copy the field assignment logic from before, but now doc is always complete)
     // LED Configuration
     if (doc.containsKey("led")) {
@@ -176,10 +167,6 @@ bool Configuration::save() {
     netObj["ssid"] = network.ssid;
     // DO NOT return password in API response (omit in API, but save to file)
     netObj["password"] = network.password;
-    Serial.print("[CONFIG] Saving SSID: ");
-    Serial.println(network.ssid);
-    Serial.print("[CONFIG] Saving Password: ");
-    Serial.println(network.password);
 
     // Time Configuration
     JsonObject timeObj = doc.createNestedObject("time");

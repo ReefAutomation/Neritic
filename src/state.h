@@ -18,6 +18,7 @@ void applyPreset(uint8_t presetId, bool setManualOverride = false);
 void setPower(bool power);
 void setBrightness(uint8_t brightness);
 void setEffect(uint8_t effect, const EffectParams& params);
+void setUserColor(const uint32_t* color, size_t count);
 void updateLEDs();
 
 #endif // STATE_H

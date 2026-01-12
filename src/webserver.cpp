@@ -1,4 +1,3 @@
-#include <WS2812FX.h>
 #if defined(ESP8266) || defined(ARDUINO_ARCH_AVR)
 #include <pgmspace.h>
 #endif
@@ -16,26 +15,27 @@
 #elif defined(ESP8266)
 #include <Updater.h>
 #endif
+#include "effects.h"
 #include "debug.h"
 #include "transition.h"
 #include "presets.h"
 #include "state.h"
 
-extern WS2812FX* strip;
+
 
 // Cached effect list JSON
 static String cachedEffectsJson;
 static bool effectsCacheReady = false;
 
 void buildEffectsCache() {
-    if (!strip) return;
+    // Populate effects array from the effect registry (portable vector-based)
     StaticJsonDocument<4096> doc;
     JsonArray effects = doc.createNestedArray("effects");
-    uint8_t count = strip->getModeCount();
-    for (uint8_t i = 0; i < count; i++) {
+    const auto& reg = getEffectRegistry();
+    for (size_t i = 0; i < reg.size(); ++i) {
         JsonObject eff = effects.createNestedObject();
         eff["id"] = i;
-        eff["name"] = String(strip->getModeName(i));
+        eff["name"] = reg[i].name;
     }
     cachedEffectsJson.clear();
     serializeJson(doc, cachedEffectsJson);
@@ -61,25 +61,20 @@ void WebServerManager::handleOTAUpdate(AsyncWebServerRequest* request, unsigned 
     static unsigned int lastDot = 0;
     if (index == 0) {
     #if defined(ESP32)
-        debugPrintln("[OTA API] Begin OTA update");
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
     #elif defined(ESP8266)
-        debugPrintln("[OTA API] Begin OTA update");
         if (!Update.begin(total)) {
     #endif
             Update.printError(Serial);
-            debugPrintln("[OTA API] Update.begin() failed");
         }
     }
     if (Update.write(data, len) != len) {
         Update.printError(Serial);
-        debugPrintln("[OTA API] Update.write() failed");
     }
     // Print progress dots every 10%
     if (total > 0) {
         unsigned int dot = ((index + len) * 100) / total;
         while (lastDot < dot) {
-            debugPrint(".");
             lastDot++;
         }
     }
@@ -87,13 +82,10 @@ void WebServerManager::handleOTAUpdate(AsyncWebServerRequest* request, unsigned 
         lastDot = 0; // reset for next OTA
         bool ok = Update.end(true);
         AsyncWebServerResponse *resp = nullptr;
-        debugPrintln();
         if (ok) {
-            debugPrintln("[OTA API] OTA update finished, rebooting");
             resp = request->beginResponse(200, "application/json", "{\"success\":true,\"message\":\"Rebooting\"}");
         } else {
             Update.printError(Serial);
-            debugPrintln("[OTA API] OTA update failed at end");
             resp = request->beginResponse(500, "application/json", "{\"error\":\"OTA Update Failed\"}");
         }
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
@@ -138,7 +130,6 @@ void WebServerManager::begin() {
     setupRoutes();
     buildEffectsCache();
     _server->begin();
-    debugPrintln("Web server started");
 }
 
 void WebServerManager::update() {
@@ -150,11 +141,9 @@ void WebServerManager::setupWebSocket() {
     _ws->onEvent([this](AsyncWebSocket* server, AsyncWebSocketClient* client, 
                      AwsEventType type, void* arg, uint8_t* data, size_t len) {
         if (type == WS_EVT_CONNECT) {
-            debugPrintln("WebSocket client connected");
             // Send current state immediately to the new client
             client->text(getStateJSON());
         } else if (type == WS_EVT_DISCONNECT) {
-            debugPrintln("WebSocket client disconnected");
         }
     });
     _server->addHandler(_ws);
@@ -236,11 +225,6 @@ void WebServerManager::setupRoutes() {
 
     // Captive portal triggers for auto-popup on phones/laptops
     auto logRequest = [](AsyncWebServerRequest* request, const char* tag = "[DEBUG] HTTP") {
-        debugPrint(tag);
-        debugPrint(": ");
-        debugPrint(request->method());
-        debugPrint(" ");
-        debugPrintln(request->url());
     };
     _server->on("/generate_204", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
         logRequest(request, "[DEBUG] /generate_204");
@@ -281,19 +265,11 @@ void WebServerManager::setupRoutes() {
     _server->on("/wifi", HTTP_POST, 
         [this, logRequest](AsyncWebServerRequest* request) {
             for (size_t i = 0; i < request->params(); i++) {
-                debugPrint("    ");
-                debugPrint(request->getParam(i)->name());
-                debugPrint(": ");
-                debugPrintln(request->getParam(i)->value());
             }
             // Fallback: If body handler is not called, parse POST params here
             if (request->hasParam("ssid", true)) {
                 String ssid = urlDecode(request->getParam("ssid", true)->value());
                 String password = request->hasParam("password", true) ? urlDecode(request->getParam("password", true)->value()) : "";
-                debugPrint("[WIFI POST] Received SSID: ");
-                debugPrintln(ssid);
-                debugPrint("[WIFI POST] Received Password: ");
-                debugPrintln(password);
                 if (ssid.length() > 0) {
                     _config->network.ssid = ssid;
                     _config->network.password = password;
@@ -385,7 +361,7 @@ void WebServerManager::setupRoutes() {
         handleSetState(request, data, len);
     });
 
-    // Effects API: serve cached JSON for all available WS2812FX effect names and indices
+    // Effects API: serve cached JSON for all available predefined effect names and indices
     _server->on("/api/effects", HTTP_GET, [](AsyncWebServerRequest* request) {
         if (!effectsCacheReady) buildEffectsCache();
         AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", cachedEffectsJson);
@@ -499,61 +475,78 @@ void WebServerManager::handleGetState(AsyncWebServerRequest* request) {
 }
 
 void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* data, size_t len) {
+        debugPrintln("[API] handleSetState called");
+        debugPrint("[API] Raw data: ");
+        for (size_t i = 0; i < len; ++i) debugPrint((char)data[i]);
+        debugPrintln("");
     StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, data, len);
     if (error) {
-        {
-            AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-            request->send(resp);
-        }
+        AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+        request->send(resp);
         return;
     }
-    // Merge incoming state with current state
-    uint8_t brightness = state.brightness;
-    uint8_t old_brightness = state.brightness;
-    uint32_t transitionTime = state.transitionTime;
-    bool power = state.power;
-    uint8_t effect = state.effect;
-    EffectParams params = state.params;
 
+    // Only update fields present in the request
+    bool updated = false;
     if (doc.containsKey("brightness")) {
-        brightness = doc["brightness"];
+        uint8_t brightness = doc["brightness"];
+        applySafetyLimits(brightness, state.transitionTime);
+        if (_brightnessCallback) _brightnessCallback(brightness);
+        updated = true;
     }
     if (doc.containsKey("transitionTime")) {
-        transitionTime = (uint32_t)doc["transitionTime"];
+        uint32_t transitionTime = (uint32_t)doc["transitionTime"];
+        applySafetyLimits(state.brightness, transitionTime);
+        state.transitionTime = transitionTime;
+        updated = true;
     }
     if (doc.containsKey("power")) {
-        power = doc["power"];
+        bool power = doc["power"];
+        if (_powerCallback) _powerCallback(power);
+        updated = true;
     }
     if (doc.containsKey("effect")) {
-        effect = (uint8_t)(int)doc["effect"];
+        uint8_t effect = (uint8_t)(int)doc["effect"];
+        if (_effectCallback) _effectCallback(effect, state.params);
+        updated = true;
     }
     if (doc.containsKey("params")) {
         JsonObject paramsObj = doc["params"];
-        // Speed is now percent (0–100)
-        params.speed = paramsObj["speed"].isNull() ? params.speed : (uint8_t)paramsObj["speed"];
-        params.intensity = paramsObj["intensity"] | params.intensity;
-        params.color1 = paramsObj["color1"] | params.color1;
-        params.color2 = paramsObj["color2"] | params.color2;
+        EffectParams params = state.params;
+        if (paramsObj.containsKey("speed") && !paramsObj["speed"].isNull()) {
+            params.speed = (uint8_t)paramsObj["speed"];
+            updated = true;
+        }
+        if (paramsObj.containsKey("intensity") && !paramsObj["intensity"].isNull()) {
+            params.intensity = (uint8_t)paramsObj["intensity"];
+            updated = true;
+        }
+        if (paramsObj.containsKey("colors")) {
+            JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
+            uint32_t arr[8] = {0x0000FF, 0x00FFFF};
+            size_t n = colorsArr.size() > 8 ? 8 : colorsArr.size();
+            for (size_t i = 0; i < n; ++i) {
+                const char* hex = colorsArr[i];
+                if (hex[0] == '#') hex++;
+                // Always parse exactly 6 hex digits for RGB
+                char buf[7] = {0};
+                strncpy(buf, hex, 6);
+                arr[i] = ((uint32_t)strtoul(buf, nullptr, 16)) & 0xFFFFFF;
+            }
+            setUserColor(arr, n);
+            updated = true;
+        }
+        if (updated && _effectCallback) _effectCallback(state.effect, params);
     }
 
-    // Apply safety limits for brightness and/or transitionTime
-    applySafetyLimits(brightness, transitionTime);
-
-    // Update state and call callbacks
-    if (_powerCallback) _powerCallback(power);
-    if (_brightnessCallback) _brightnessCallback(brightness);
-    if (_effectCallback) _effectCallback(effect, params);
-    state.transitionTime = transitionTime;
-
-    // Only respond and broadcast after state is updated
-    broadcastState();
-    {
-        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
+    if (updated) {
+        broadcastState();
     }
+    AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+    for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+    request->send(resp);
 }
 
 void WebServerManager::handleGetPresets(AsyncWebServerRequest* request) {
@@ -577,44 +570,43 @@ void WebServerManager::handleSetPreset(AsyncWebServerRequest* request, uint8_t* 
         return;
     }
     
-    uint8_t presetId = doc["id"] | 0;
-    
-    if (presetId >= _config->getPresetCount()) {
-        {
-            AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid preset ID\"}");
-            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-            request->send(resp);
-        }
+    int reqId = doc["id"] | -1;
+    auto it = std::find_if(_config->presets.begin(), _config->presets.end(), [reqId](const Preset& p) { return p.id == reqId; });
+    if (it == _config->presets.end()) {
+        AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid preset ID\"}");
+        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+        request->send(resp);
         return;
     }
-    
     // Apply or save preset
     if (doc.containsKey("apply") && doc["apply"]) {
-        if (_presetCallback) _presetCallback(presetId);
-        {
-            AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
-            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-            request->send(resp);
-        }
+        if (_presetCallback) _presetCallback(it->id);
+        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+        request->send(resp);
     } else {
         // Save preset data
-        _config->presets[presetId].name = doc["name"] | "";
-        _config->presets[presetId].effect = (uint8_t)(int)doc["effect"];
-        _config->presets[presetId].enabled = doc["enabled"] | true;
-        
+        it->name = doc["name"] | "";
+        it->effect = (uint8_t)(int)doc["effect"];
+        it->enabled = doc["enabled"] | true;
         if (doc.containsKey("params")) {
             JsonObject paramsObj = doc["params"];
-            _config->presets[presetId].params.speed = paramsObj["speed"].isNull() ? 100 : (uint8_t)paramsObj["speed"];
-            _config->presets[presetId].params.intensity = paramsObj["intensity"] | 128;
-            _config->presets[presetId].params.color1 = paramsObj["color1"] | 0x0000FF;
-            _config->presets[presetId].params.color2 = paramsObj["color2"] | 0x00FFFF;
+            it->params.speed = paramsObj["speed"].isNull() ? 100 : (uint8_t)paramsObj["speed"];
+            it->params.intensity = paramsObj["intensity"] | 128;
+            it->params.colors.clear();
+            if (paramsObj.containsKey("colors")) {
+                JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
+                for (JsonVariant v : colorsArr) {
+                    if (v.is<const char*>()) {
+                        it->params.colors.push_back(String(v.as<const char*>()));
+                    }
+                }
+            }
         }
         savePresets(_config->presets);
-        {
-            AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
-            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-            request->send(resp);
-        }
+        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+        request->send(resp);
     }
 }
 
@@ -660,17 +652,9 @@ void WebServerManager::handleSetConfig(AsyncWebServerRequest* request, uint8_t* 
     if (doc.containsKey("network")) {
         JsonObject netObj = doc["network"];
         if (netObj.containsKey("ssid")) {
-            Serial.print("[DEBUG] Changing SSID from: ");
-            Serial.print(_config->network.ssid);
-            Serial.print(" to: ");
-            Serial.println(netObj["ssid"].as<String>());
             _config->network.ssid = netObj["ssid"].as<String>();
         }
         if (netObj.containsKey("password")) {
-            Serial.print("[DEBUG] Changing password from: ");
-            Serial.print(_config->network.password);
-            Serial.print(" to: ");
-            Serial.println(netObj["password"].as<String>());
             _config->network.password = netObj["password"].as<String>();
         }
     }
@@ -758,8 +742,10 @@ String WebServerManager::getStateJSON() {
     JsonObject paramsObj = doc.createNestedObject("params");
     paramsObj["speed"] = state.params.speed;
     paramsObj["intensity"] = state.params.intensity;
-    paramsObj["color1"] = state.params.color1;
-    paramsObj["color2"] = state.params.color2;
+    JsonArray colorsArr = paramsObj.createNestedArray("colors");
+    for (const auto& c : state.params.colors) {
+        colorsArr.add(c);
+    }
 
     String output;
     serializeJson(doc, output);
@@ -769,23 +755,24 @@ String WebServerManager::getStateJSON() {
 String WebServerManager::getPresetsJSON() {
     StaticJsonDocument<4096> doc;
     JsonArray presetsArray = doc.createNestedArray("presets");
-    
-        for (size_t i = 0; i < _config->getPresetCount(); i++) {
+    for (size_t i = 0; i < _config->getPresetCount(); i++) {
         if (_config->presets[i].name.length() == 0 && i > 0) continue;
-        
+        const auto& preset = _config->presets[i];
         JsonObject presetObj = presetsArray.createNestedObject();
         presetObj["id"] = i;
-        presetObj["name"] = _config->presets[i].name;
-        presetObj["effect"] = _config->presets[i].effect;
-        presetObj["enabled"] = _config->presets[i].enabled;
-        
+        presetObj["name"] = preset.name;
+        presetObj["effect"] = preset.effect;
+        presetObj["enabled"] = preset.enabled;
         JsonObject paramsObj = presetObj.createNestedObject("params");
-        paramsObj["speed"] = _config->presets[i].params.speed;
-        paramsObj["intensity"] = _config->presets[i].params.intensity;
-        paramsObj["color1"] = _config->presets[i].params.color1;
-        paramsObj["color2"] = _config->presets[i].params.color2;
+        paramsObj["speed"] = preset.params.speed;
+        paramsObj["intensity"] = preset.params.intensity;
+        JsonArray colorsArr = paramsObj.createNestedArray("colors");
+        if (preset.params.colors.size() > 0) {
+            for (const auto& c : preset.params.colors) {
+                colorsArr.add(c);
+            }
+        }
     }
-    
     String output;
     serializeJson(doc, output);
     return output;

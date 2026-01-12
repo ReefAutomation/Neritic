@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-
+# PlatformIO SCons extra_script for User_Setup.h generation
 import os
-import sys
+import logging
+from SCons.Script import Import
+Import("env")
+logging.basicConfig(level=logging.INFO, format='[link_user_setup_scons] %(message)s')
 
 USER_SETUP_TEMPLATE = """
-// Auto-generated for 80x160 RGB IPS display (ST7735S)
+// TEST UNIQUE HEADER: DeepGlow PlatformIO overwrite check
 #define ST7735_DRIVER
+#define RGB_TFT
 #define TFT_WIDTH {TFT_WIDTH}
 #define TFT_HEIGHT {TFT_HEIGHT}
 #define TFT_MOSI {TFT_SDA}   // SDA
@@ -26,10 +30,10 @@ USER_SETUP_TEMPLATE = """
 #define ST7735_GREENTAB160x80
 """
 
-
 import re
 
 def parse_display_h(display_h_path):
+    logging.info(f"Parsing display header: {display_h_path}")
     values = {}
     with open(display_h_path, 'r') as f:
         for line in f:
@@ -37,10 +41,10 @@ def parse_display_h(display_h_path):
             if m:
                 key, val = m.groups()
                 values[key] = val
+                logging.info(f"Found {key} = {val}")
             m = re.match(r'#define\s+TFT_DRIVER\s+(\w+)', line)
             if m:
                 values['TFT_DRIVER'] = m.group(1)
-    # Map to User_Setup.h names
     return {
         'TFT_WIDTH': values.get('TFT_WIDTH', '80'),
         'TFT_HEIGHT': values.get('TFT_HEIGHT', '160'),
@@ -66,25 +70,28 @@ def generate_user_setup_h(path, vals):
     )
     with open(path, 'w') as f:
         f.write(content)
-    print(f"Generated {path}")
+    logging.info(f"Overwrote {path} with template header")
 
+# SCons hook
 
-def main():
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def pre_build_action(source, target, env):
+    project_root = env['PROJECT_DIR']
     display_h_path = os.path.join(project_root, 'src', 'display.h')
     vals = parse_display_h(display_h_path)
     libdeps_dir = os.path.join(project_root, '.pio', 'libdeps')
+    with open(os.path.join(project_root, 'link_user_setup_scons.log'), 'a') as logf:
+        logf.write('link_user_setup_scons.py executed\n')
     if not os.path.exists(libdeps_dir):
-        print(f"libdeps directory not found: {libdeps_dir}")
-        sys.exit(0)
-    for env in os.listdir(libdeps_dir):
-        tft_dir = os.path.join(libdeps_dir, env, 'TFT_eSPI')
+        logging.info(f"libdeps directory not found: {libdeps_dir}")
+        return
+    for env_name in os.listdir(libdeps_dir):
+        tft_dir = os.path.join(libdeps_dir, env_name, 'TFT_eSPI')
         if os.path.isdir(tft_dir):
             user_setup_dst = os.path.join(tft_dir, 'User_Setup.h')
             try:
                 generate_user_setup_h(user_setup_dst, vals)
+                logging.info(f"Generated {user_setup_dst}")
             except Exception as e:
-                print(f"Failed to generate {user_setup_dst}: {e}")
+                logging.info(f"Failed to generate {user_setup_dst}: {e}")
 
-if __name__ == "__main__":
-    main()
+env.AddPreAction("buildprog", pre_build_action)

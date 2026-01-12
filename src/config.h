@@ -29,7 +29,7 @@
 // Limits
 
 
-// Presets now use WS2812FX native effect index directly (uint8_t)
+// Presets now use effect index directly (uint8_t)
 
 // Timer Types
 enum TimerType {
@@ -71,8 +71,7 @@ struct TimeConfig {
 struct EffectParams {
     uint8_t speed = 100; // percent (0–100)
     uint8_t intensity = 128;
-    uint32_t color1 = 0x0000FF;  // Blue
-    uint32_t color2 = 0x00FFFF;  // Cyan
+    std::vector<String> colors = {"#0000FF", "#00FFFF"};
 };
 
 struct Timer {
@@ -93,8 +92,9 @@ struct Timer {
 };
 
 struct Preset {
+    uint8_t id = 0;
     String name = "";
-    uint8_t effect = 0; // WS2812FX native effect index
+    uint8_t effect = 0;
     EffectParams params;
     bool enabled = true;
 };
