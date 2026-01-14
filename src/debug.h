@@ -10,8 +10,9 @@ inline void debugPrintln(const String& msg) { Serial.println(msg); }
 inline void debugPrintln(int val) { Serial.println(val); }
 inline void debugPrintln(unsigned int val) { Serial.println(val); }
 inline void debugPrintln(unsigned long val) { Serial.println(val); }
-inline void debugPrintln(unsigned long val, int base) { Serial.println(val, base); }
 inline void debugPrintln(const IPAddress& ip) { Serial.println(ip); }
+inline void debugPrintln(float val, int digits = 3) { Serial.println(val, digits); }
+inline void debugPrintln(uint32_t val, int base) { Serial.println(val, base); }
 
 inline void debugPrintIp(uint32_t ip) {
 	IPAddress ipa(ip);
@@ -24,6 +25,8 @@ inline void debugPrint(int val) { Serial.print(val); }
 inline void debugPrint(unsigned int val) { Serial.print(val); }
 inline void debugPrint(unsigned long val) { Serial.print(val); }
 inline void debugPrint(unsigned long val, int base) { Serial.print(val, base); }
+inline void debugPrint(float val, int digits = 3) { Serial.print(val, digits); }
+inline void debugPrint(uint32_t val, int base) { Serial.print(val, base); }
 #else
 inline void debugPrintln() {}
 inline void debugPrintln(const char*) {}

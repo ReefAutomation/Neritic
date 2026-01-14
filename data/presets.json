@@ -2,7 +2,17 @@
   "presets": [
     {
       "id": 0,
-      "name": "Sunset",
+      "name": "Off",
+      "effect": 0,
+      "enabled": true,
+      "params": {
+        "speed": 30,
+        "colors": ["#000000"]
+      }
+    },
+    {
+      "id": 1,
+      "name": "Sunrise",
       "effect": 1,
       "enabled": true,
       "params": {
@@ -11,133 +21,33 @@
       }
     },
     {
-      "id": 1,
+      "id": 2,
       "name": "Daylight",
       "effect": 0,
       "enabled": true,
       "params": {
-        "colors": ["#FFFFFF"]
-      }
-    },
-    {
-      "id": 2,
-      "name": "Afternoon Ripple",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 80,
-        "intensity": 150,
-        "colors": ["#0057FF", "#00FFFF"]
+        "colors": ["#FFFFFFFF"]
       }
     },
     {
       "id": 3,
-      "name": "Gentle Wave",
-      "effect": 0,
+      "name": "Sunset",
+      "effect": 2,
       "enabled": true,
       "params": {
-        "speed": 80,
-        "intensity": 100,
-        "colors": ["#00BFFF", "#FFFFFF"]
+        "speed": 30,
+        "colors": ["#FF0050", "#B400FF", "#280078"]
       }
     },
     {
       "id": 4,
       "name": "Moonlight",
-      "effect": 0,
+      "effect": 3,
       "enabled": true,
       "params": {
-        "speed": 80,
+        "speed": 10,
         "intensity": 40,
-        "colors": ["#0A0800"]
-      }
-    },
-    {
-      "id": 5,
-      "name": "Coral Shimmer",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 5,
-        "intensity": 180,
-        "colors": ["#FF8800", "#FFA000"]
-      }
-    },
-    {
-      "id": 6,
-      "name": "Deep Ocean",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 80,
-        "intensity": 60,
-        "colors": ["#000080", "#0000CD"]
-      }
-    },
-    {
-      "id": 9,
-      "name": "Rainbow",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 50,
-        "intensity": 128,
-        "colors": ["#FF0000", "#00FF00"]
-      }
-    },
-    {
-      "id": 10,
-      "name": "Chase",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 60,
-        "intensity": 128,
-        "colors": ["#FFFF00", "#0000FF"]
-      }
-    },
-    {
-      "id": 11,
-      "name": "Comet",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 40,
-        "intensity": 200,
-        "colors": ["#FF00FF", "#FFFFFF"]
-      }
-    },
-    {
-      "id": 12,
-      "name": "Twinkle",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 50,
-        "intensity": 180,
-        "colors": ["#00FFFF", "#FFFFFF"]
-      }
-    },
-    {
-      "id": 13,
-      "name": "Color Wipe",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 60,
-        "intensity": 128,
-        "colors": ["#0000FF", "#FF0000"]
-      }
-    },
-    {
-      "id": 14,
-      "name": "Fireworks",
-      "effect": 0,
-      "enabled": true,
-      "params": {
-        "speed": 50,
-        "intensity": 220,
-        "colors": ["#FFB000", "#FFFFFF"]
+        "colors": ["#0000B405", "#001E50", "#000000"]
       }
     }
   ]

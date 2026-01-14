@@ -127,8 +127,8 @@ bool Configuration::load() {
         JsonObject timeObj = doc["time"];
         time.ntpServer = timeObj["ntpServer"].as<String>();
         time.timezone = timeObj["timezone"].as<String>();
-        time.latitude = timeObj["latitude"];
-        time.longitude = timeObj["longitude"];
+        time.latitude = timeObj["latitude"].as<double>();
+        time.longitude = timeObj["longitude"].as<double>();
         time.dstEnabled = timeObj["dstEnabled"];
     }
     // Timers
@@ -228,8 +228,8 @@ void Configuration::partialUpdate(const JsonObject& update) {
         JsonObject timeObj = update["time"];
         if (timeObj.containsKey("ntpServer")) time.ntpServer = timeObj["ntpServer"].as<String>();
         if (timeObj.containsKey("timezone")) time.timezone = timeObj["timezone"].as<String>();
-        if (timeObj.containsKey("latitude")) time.latitude = timeObj["latitude"];
-        if (timeObj.containsKey("longitude")) time.longitude = timeObj["longitude"];
+        if (timeObj.containsKey("latitude")) time.latitude = timeObj["latitude"].as<double>();
+        if (timeObj.containsKey("longitude")) time.longitude = timeObj["longitude"].as<double>();
         if (timeObj.containsKey("dstEnabled")) time.dstEnabled = timeObj["dstEnabled"];
     }
     if (update.containsKey("timers")) {
@@ -260,13 +260,11 @@ bool Configuration::factoryReset() {
     return ok;
 }
 
-// ...existing code...
-
 // Helper function to map percent (0-100) to hardware brightness (1-255)
 uint8_t percentToBrightness(uint8_t percent) {
-    if (percent <= 0) return 1;
+    if (percent <= 0) return 0;
     if (percent >= 100) return 255;
-    return (uint8_t)(1 + ((254 * percent) / 100));
+    return (uint8_t)((255 * percent) / 100);
 }
 
 // Helper to load timers from a JsonArray

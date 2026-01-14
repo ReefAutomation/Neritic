@@ -22,6 +22,7 @@ public:
     BusNeoPixel(void* strip, uint16_t len, BusNeoPixelType type) : _strip(strip), _len(len), _type(type) {}
     void show() override;
     void setPixelColor(uint16_t pix, uint32_t color) override;
+    uint32_t getPixelColor(uint16_t pix) const override;
     uint16_t getLength() const override { return _len; }
     void* getStrip() const { return _strip; }
     BusNeoPixelType getType() const { return _type; }
@@ -50,13 +51,22 @@ public:
             }
         }
     }
+    uint32_t getPixelColor(uint16_t pix) const {
+        for (const auto& bus : buses) {
+            if (pix < bus->getLength()) {
+                return bus->getPixelColor(pix);
+            } else {
+                pix -= bus->getLength();
+            }
+        }
+        return 0;
+    }
     void setBrightness(uint8_t bri) { for (auto& bus : buses) bus->setBrightness(bri); }
     uint16_t totalLength() const {
         uint16_t sum = 0;
         for (const auto& bus : buses) sum += bus->getLength();
         return sum;
     }
-
     // Update pixel count for all buses (returns total)
     uint16_t updatePixelCount();
     uint16_t getPixelCount() const { return pixelCount; }

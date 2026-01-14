@@ -16,31 +16,10 @@
 #include <Updater.h>
 #endif
 #include "effects.h"
-#include "debug.h"
 #include "transition.h"
 #include "presets.h"
 #include "state.h"
 
-
-
-// Cached effect list JSON
-static String cachedEffectsJson;
-static bool effectsCacheReady = false;
-
-void buildEffectsCache() {
-    // Populate effects array from the effect registry (portable vector-based)
-    StaticJsonDocument<4096> doc;
-    JsonArray effects = doc.createNestedArray("effects");
-    const auto& reg = getEffectRegistry();
-    for (size_t i = 0; i < reg.size(); ++i) {
-        JsonObject eff = effects.createNestedObject();
-        eff["id"] = i;
-        eff["name"] = reg[i].name;
-    }
-    cachedEffectsJson.clear();
-    serializeJson(doc, cachedEffectsJson);
-    effectsCacheReady = true;
-}
 // Helper: CORS headers for API responses
 static const char* CORS_HEADERS[][2] = {
     {"Access-Control-Allow-Origin", "*"},
@@ -55,6 +34,63 @@ extern SystemState state;
 // Helper: URL decode for form fields (declaration)
 static String urlDecode(const String& input);
 
+// Cached effect list JSON
+static String cachedEffectsJson;
+static bool effectsCacheReady = false;
+
+// Helper: Extract JSON body from POST request (for upload handler)
+static String extractJsonBody(AsyncWebServerRequest* request, uint8_t* data, size_t len) {
+    String jsonStr;
+    if (len > 0 && data != nullptr) {
+        for (size_t i = 0; i < len; ++i) jsonStr += (char)data[i];
+    } else {
+        jsonStr = request->arg("plain");
+    }
+    return jsonStr;
+}
+
+// Helper: Extract POST body for main POST handler
+static String extractPostBody(AsyncWebServerRequest* request) {
+    String body = request->arg("plain");
+    if (body.length() == 0 && request->params() > 0) {
+        body = request->getParam((size_t)0)->value();
+    }
+    if (body.length() == 0) {
+        if (request->_tempObject && ((String*)request->_tempObject)->length() > 0) {
+            body = *((String*)request->_tempObject);
+        }
+    }
+    return body;
+}
+
+// Helper: Deserialize JSON and handle error response
+template<typename TDoc>
+static bool parseJsonOrRespond(AsyncWebServerRequest* request, const String& jsonStr, TDoc& doc) {
+    DeserializationError error = deserializeJson(doc, jsonStr);
+    if (error) {
+        AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+        request->send(resp);
+        return false;
+    }
+    return true;
+}
+
+void buildEffectsCache() {
+    // Populate effects array from the effect registry (portable vector-based)
+    StaticJsonDocument<4096> doc;
+    JsonArray effects = doc.createNestedArray("effects");
+    extern std::vector<EffectRegistryEntry> effectRegistry;
+    for (size_t i = 0; i < effectRegistry.size(); ++i) {
+        JsonObject eff = effects.createNestedObject();
+        eff["id"] = effectRegistry[i].id;
+        eff["name"] = effectRegistry[i].name;
+    }
+    cachedEffectsJson.clear();
+    serializeJson(doc, cachedEffectsJson);
+    effectsCacheReady = true;
+}
+
 // Place at the very end of the file, after all other code
 void WebServerManager::handleOTAUpdate(AsyncWebServerRequest* request, unsigned char* data, unsigned int len, unsigned int index, unsigned int total) {
     // Actual OTA update logic
@@ -67,26 +103,32 @@ void WebServerManager::handleOTAUpdate(AsyncWebServerRequest* request, unsigned 
     #endif
             Update.printError(Serial);
         }
+        lastDot = 0;
+        debugPrintln("OTA update started");
     }
     if (Update.write(data, len) != len) {
         Update.printError(Serial);
     }
-    // Print progress dots every 10%
+    // Print progress dots every 1%
     if (total > 0) {
         unsigned int dot = ((index + len) * 100) / total;
         while (lastDot < dot) {
             lastDot++;
+            debugPrint(".");
         }
     }
     if (index + len == total) {
+        debugPrintln("");
         lastDot = 0; // reset for next OTA
         bool ok = Update.end(true);
         AsyncWebServerResponse *resp = nullptr;
         if (ok) {
             resp = request->beginResponse(200, "application/json", "{\"success\":true,\"message\":\"Rebooting\"}");
+            debugPrintln("OTA update complete, rebooting");
         } else {
             Update.printError(Serial);
             resp = request->beginResponse(500, "application/json", "{\"error\":\"OTA Update Failed\"}");
+            debugPrintln("OTA update failed");
         }
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
@@ -126,10 +168,15 @@ WebServerManager::WebServerManager(Configuration* config, Scheduler* scheduler) 
 }
 
 void WebServerManager::begin() {
+    debugPrintln("[WebServer] begin() called");
     setupWebSocket();
+    debugPrintln("[WebServer] WebSocket setup complete");
     setupRoutes();
+    debugPrintln("[WebServer] Routes setup complete");
     buildEffectsCache();
+    debugPrintln("[WebServer] Effects cache built");
     _server->begin();
+    debugPrintln("[WebServer] Server started");
 }
 
 void WebServerManager::update() {
@@ -224,46 +271,36 @@ void WebServerManager::setupRoutes() {
     );
 
     // Captive portal triggers for auto-popup on phones/laptops
-    auto logRequest = [](AsyncWebServerRequest* request, const char* tag = "[DEBUG] HTTP") {
-    };
-    _server->on("/generate_204", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /generate_204");
+    _server->on("/generate_204", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->redirect("/wifi");
     });
-    _server->on("/hotspot-detect.html", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /hotspot-detect.html");
+    _server->on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->redirect("/wifi");
     });
-    _server->on("/ncsi.txt", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /ncsi.txt");
+    _server->on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->redirect("/wifi");
     });
-    _server->on("/connecttest.txt", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /connecttest.txt");
+    _server->on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->redirect("/wifi");
     });
     // Extra captive portal triggers for maximum compatibility
-    _server->on("/favicon.ico", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /favicon.ico");
+    _server->on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send(204); // No Content
     });
-    _server->on("/wpad.dat", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /wpad.dat");
+    _server->on("/wpad.dat", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send(204); // No Content
     });
 
     // Serve web assets from filesystem image
-    _server->on("/", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /");
+    _server->on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "text/html", web_index_html, web_index_html_len);
     });
-    _server->on("/index.html", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /index.html");
+    _server->on("/index.html", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "text/html", web_index_html, web_index_html_len);
     });
-    // Serve WiFi page for POST: robust handler parses body manually (WLED-style, minimal signature)
+    // Serve WiFi page for POST: robust handler parses body manually
     _server->on("/wifi", HTTP_POST, 
-        [this, logRequest](AsyncWebServerRequest* request) {
+        [this](AsyncWebServerRequest* request) {
             for (size_t i = 0; i < request->params(); i++) {
             }
             // Fallback: If body handler is not called, parse POST params here
@@ -284,7 +321,7 @@ void WebServerManager::setupRoutes() {
             }
         }, 
         nullptr,
-        [this, logRequest](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
             String body;
             for (size_t i = 0; i < len; ++i) body += (char)data[i];
             String ssid, password;
@@ -312,33 +349,22 @@ void WebServerManager::setupRoutes() {
         }
     );
     // For GET, serve the WiFi form
-    _server->on("/wifi", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        for (size_t i = 0; i < request->headers(); i++) {
-            debugPrint("    ");
-            debugPrint(request->headerName(i));
-            debugPrint(": ");
-            debugPrintln(request->header(i));
-        }
+    _server->on("/wifi", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "text/html", web_wifi_html, web_wifi_html_len);
     });
-    _server->on("/app.js", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /app.js");
+    _server->on("/app.js", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "application/javascript", web_app_js, web_app_js_len);
     });
-    _server->on("/config.html", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /config.html");
+    _server->on("/config.html", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "text/html", web_config_html, web_config_html_len);
     });
-    _server->on("/config.js", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /config.js");
+    _server->on("/config.js", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "application/javascript", web_config_js, web_config_js_len);
     });
-    _server->on("/style.css", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /style.css");
+    _server->on("/style.css", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "text/css", web_style_css, web_style_css_len);
     });
-    _server->on("/fflate.min.js", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request, "[DEBUG] /fflate.min.js");
+    _server->on("/fflate.min.js", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send_P(200, "application/javascript", web_fflate_min_js, web_fflate_min_js_len);
     });
     
@@ -352,14 +378,20 @@ void WebServerManager::setupRoutes() {
         handleGetState(request);
     });
     
-    _server->on("/api/state", HTTP_POST, [](AsyncWebServerRequest* request) {
-        AsyncWebServerResponse *resp = request->beginResponse(204);
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-    },
-        NULL, [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-        handleSetState(request, data, len);
-    });
+    // Main POST handler
+    _server->on("/api/state", HTTP_POST,
+        [this](AsyncWebServerRequest* request) {
+            String body = extractPostBody(request);
+            if (body.length() == 0) return;
+            handleSetState(request, (uint8_t*)body.c_str(), body.length());
+        },
+        nullptr,
+        // Upload handler for application/json
+        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            String body = extractJsonBody(request, data, len);
+            handleSetState(request, (uint8_t*)body.c_str(), body.length());
+        }
+    );
 
     // Effects API: serve cached JSON for all available predefined effect names and indices
     _server->on("/api/effects", HTTP_GET, [](AsyncWebServerRequest* request) {
@@ -384,15 +416,19 @@ void WebServerManager::setupRoutes() {
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
-    _server->on("/api/preset", HTTP_POST, [](AsyncWebServerRequest* request) {
-        // Always return a JSON response so frontend .json() does not fail
-        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-    },
-        NULL, [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-        handleSetPreset(request, data, len);
-    });
+    _server->on("/api/preset", HTTP_POST,
+        [this](AsyncWebServerRequest* request) {
+            String body = extractPostBody(request);
+            if (body.length() == 0) return; // Prevent double response if upload handler already processed
+            handleSetPreset(request, (uint8_t*)body.c_str(), body.length());
+        },
+        nullptr,
+        // Upload handler for application/json
+        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            String body = extractJsonBody(request, data, len);
+            handleSetPreset(request, (uint8_t*)body.c_str(), body.length());
+        }
+    );
     
     // Configuration API
     _server->on("/api/config", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
@@ -404,14 +440,19 @@ void WebServerManager::setupRoutes() {
         handleGetConfig(request);
     });
     
-    _server->on("/api/config", HTTP_POST, [](AsyncWebServerRequest* request) {
-        AsyncWebServerResponse *resp = request->beginResponse(204);
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-    },
-        NULL, [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-        handleSetConfig(request, data, len);
-    });
+    _server->on("/api/config", HTTP_POST,
+        [this](AsyncWebServerRequest* request) {
+            String body = extractPostBody(request);
+            if (body.length() == 0) return;
+            handleSetConfig(request, (uint8_t*)body.c_str(), body.length());
+        },
+        nullptr,
+        // Upload handler for application/json
+        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            String body = extractJsonBody(request, data, len);
+            handleSetConfig(request, (uint8_t*)body.c_str(), body.length());
+        }
+    );
     // Factory Reset API
     _server->on("/api/factory_reset", HTTP_POST, [this](AsyncWebServerRequest* request) {
         bool ok = _config->factoryReset();
@@ -442,14 +483,11 @@ void WebServerManager::setupRoutes() {
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
-    _server->on("/api/timer", HTTP_POST, [](AsyncWebServerRequest* request) {
-        AsyncWebServerResponse *resp = request->beginResponse(204);
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-    },
-        NULL, [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-        handleSetTimer(request, data, len);
-    });
+    _server->on("/api/timer", HTTP_POST, nullptr, nullptr,
+        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            handleSetTimer(request, data, len);
+        }
+    );
     // Supported timezones API
     _server->on("/api/timezones", HTTP_GET, [this](AsyncWebServerRequest* request) {
         std::vector<String> tzList = _config->getSupportedTimezones();
@@ -475,18 +513,9 @@ void WebServerManager::handleGetState(AsyncWebServerRequest* request) {
 }
 
 void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* data, size_t len) {
-        debugPrintln("[API] handleSetState called");
-        debugPrint("[API] Raw data: ");
-        for (size_t i = 0; i < len; ++i) debugPrint((char)data[i]);
-        debugPrintln("");
     StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, data, len);
-    if (error) {
-        AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-        return;
-    }
+    String jsonStr = extractJsonBody(request, data, len);
+    if (!parseJsonOrRespond(request, jsonStr, doc)) return;
 
     // Only update fields present in the request
     bool updated = false;
@@ -525,17 +554,18 @@ void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* d
         }
         if (paramsObj.containsKey("colors")) {
             JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
-            uint32_t arr[8] = {0x0000FF, 0x00FFFF};
-            size_t n = colorsArr.size() > 8 ? 8 : colorsArr.size();
-            for (size_t i = 0; i < n; ++i) {
-                const char* hex = colorsArr[i];
-                if (hex[0] == '#') hex++;
-                // Always parse exactly 6 hex digits for RGB
-                char buf[7] = {0};
-                strncpy(buf, hex, 6);
-                arr[i] = ((uint32_t)strtoul(buf, nullptr, 16)) & 0xFFFFFF;
+            std::vector<String> parsedColors;
+            for (JsonVariant v : colorsArr) {
+                if (v.is<const char*>()) {
+                    String hex = v.as<const char*>();
+                    if (hex.length() == 6 && hex[0] != '#') {
+                        hex = "#" + hex;
+                    }
+                    parsedColors.push_back(hex);
+                }
             }
-            setUserColor(arr, n);
+            params.colors = parsedColors;
+            state.params.colors = parsedColors;
             updated = true;
         }
         if (updated && _effectCallback) _effectCallback(state.effect, params);
@@ -558,53 +588,60 @@ void WebServerManager::handleGetPresets(AsyncWebServerRequest* request) {
 }
 
 void WebServerManager::handleSetPreset(AsyncWebServerRequest* request, uint8_t* data, size_t len) {
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, data, len);
-    
-    if (error) {
-        {
-            AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    try {
+        StaticJsonDocument<512> doc;
+        String jsonStr = extractJsonBody(request, data, len);
+        if (!parseJsonOrRespond(request, jsonStr, doc)) return;
+        if (!doc.containsKey("id")) {
+            AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Missing preset ID\"}");
             for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
             request->send(resp);
+            return;
         }
-        return;
-    }
-    
-    int reqId = doc["id"] | -1;
-    auto it = std::find_if(_config->presets.begin(), _config->presets.end(), [reqId](const Preset& p) { return p.id == reqId; });
-    if (it == _config->presets.end()) {
-        AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid preset ID\"}");
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-        return;
-    }
-    // Apply or save preset
-    if (doc.containsKey("apply") && doc["apply"]) {
-        if (_presetCallback) _presetCallback(it->id);
-        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-    } else {
-        // Save preset data
-        it->name = doc["name"] | "";
-        it->effect = (uint8_t)(int)doc["effect"];
-        it->enabled = doc["enabled"] | true;
-        if (doc.containsKey("params")) {
-            JsonObject paramsObj = doc["params"];
-            it->params.speed = paramsObj["speed"].isNull() ? 100 : (uint8_t)paramsObj["speed"];
-            it->params.intensity = paramsObj["intensity"] | 128;
-            it->params.colors.clear();
-            if (paramsObj.containsKey("colors")) {
-                JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
-                for (JsonVariant v : colorsArr) {
-                    if (v.is<const char*>()) {
-                        it->params.colors.push_back(String(v.as<const char*>()));
+        int reqId = doc["id"].as<int>();
+        if (_config->presets.size() == 0) {
+            AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"No presets available\"}");
+            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+            request->send(resp);
+            return;
+        }
+        auto it = std::find_if(_config->presets.begin(), _config->presets.end(), [reqId](const Preset& p) { return p.id == reqId; });
+        if (it == _config->presets.end()) {
+            AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid preset ID\"}");
+            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+            request->send(resp);
+            return;
+        }
+        if (doc.containsKey("apply") && doc["apply"]) {
+            if (_presetCallback) _presetCallback(it->id);
+            AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+            request->send(resp);
+        } else {
+            it->name = doc["name"] | "";
+            it->effect = (uint8_t)(int)doc["effect"];
+            it->enabled = doc["enabled"] | true;
+            if (doc.containsKey("params")) {
+                JsonObject paramsObj = doc["params"];
+                it->params.speed = paramsObj["speed"].isNull() ? 100 : (uint8_t)paramsObj["speed"];
+                it->params.intensity = paramsObj["intensity"] | 128;
+                it->params.colors.clear();
+                if (paramsObj.containsKey("colors")) {
+                    JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
+                    for (JsonVariant v : colorsArr) {
+                        if (v.is<const char*>()) {
+                            it->params.colors.push_back(String(v.as<const char*>()));
+                        }
                     }
                 }
             }
+            savePresets(_config->presets);
+            AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
+            request->send(resp);
         }
-        savePresets(_config->presets);
-        AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true}");
+    } catch (...) {
+        AsyncWebServerResponse *resp = request->beginResponse(500, "application/json", "{\"error\":\"Internal server error\"}");
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     }
@@ -621,13 +658,8 @@ void WebServerManager::handleGetConfig(AsyncWebServerRequest* request) {
 void WebServerManager::handleSetConfig(AsyncWebServerRequest* request, uint8_t* data, size_t len) {
     // Parse uploaded JSON
     DynamicJsonDocument doc(4096);
-    DeserializationError error = deserializeJson(doc, data, len);
-    if (error) {
-        AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-        for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-        request->send(resp);
-        return;
-    }
+    String jsonStr = extractJsonBody(request, data, len);
+    if (!parseJsonOrRespond(request, jsonStr, doc)) return;
     // Load current config from file for comparison
     DynamicJsonDocument currentDoc(4096);
     bool loaded = _config->loadFromFile(CONFIG_FILE, currentDoc);
@@ -636,10 +668,6 @@ void WebServerManager::handleSetConfig(AsyncWebServerRequest* request, uint8_t* 
         String incoming, stored;
         serializeJson(doc, incoming);
         serializeJson(currentDoc, stored);
-        Serial.println("[DEBUG] Incoming config JSON:");
-        Serial.println(incoming);
-        Serial.println("[DEBUG] Current config JSON:");
-        Serial.println(stored);
         isDifferent = (incoming != stored);
     }
     if (!isDifferent) {
@@ -683,16 +711,8 @@ void WebServerManager::handleGetTimers(AsyncWebServerRequest* request) {
 
 void WebServerManager::handleSetTimer(AsyncWebServerRequest* request, uint8_t* data, size_t len) {
     StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, data, len);
-    
-    if (error) {
-        {
-            AsyncWebServerResponse *resp = request->beginResponse(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-            for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
-            request->send(resp);
-        }
-        return;
-    }
+    String jsonStr = extractJsonBody(request, data, len);
+    if (!parseJsonOrRespond(request, jsonStr, doc)) return;
     
     uint8_t timerId = doc["id"] | 0;
     
@@ -723,29 +743,40 @@ void WebServerManager::handleSetTimer(AsyncWebServerRequest* request, uint8_t* d
 
 String WebServerManager::getStateJSON() {
     StaticJsonDocument<512> doc;
-    
-    doc["power"] = state.power;
-    // Send target brightness as 'brightness' in state
     extern TransitionEngine transition;
-    doc["brightness"] = transition.getTargetBrightness();
-    doc["effect"] = state.effect;
-    doc["transitionTime"] = state.transitionTime;
-    doc["currentPreset"] = state.currentPreset;
-    if (_scheduler->isTimeValid()) {
-        doc["time"] = _scheduler->getCurrentTime();
+    extern PendingTransitionState pendingTransition;
+    // Only use pendingTransition for fields that actually change during a transition
+    if (state.inTransition) {
+        doc["power"] = true;
+        doc["effect"] = pendingTransition.effect;
+        doc["preset"] = pendingTransition.preset;
+        JsonObject paramsObj = doc.createNestedObject("params");
+        paramsObj["speed"] = pendingTransition.params.speed;
+        paramsObj["intensity"] = pendingTransition.params.intensity;
+        JsonArray colorsArr = paramsObj.createNestedArray("colors");
+        for (const auto& c : pendingTransition.params.colors) {
+            colorsArr.add(c);
+        }
     } else {
-        doc["time"] = "--:--";
+        doc["power"] = state.power;
+        doc["effect"] = state.effect;
+        doc["preset"] = state.preset;
+        JsonObject paramsObj = doc.createNestedObject("params");
+        paramsObj["speed"] = state.params.speed;
+        paramsObj["intensity"] = state.params.intensity;
+        JsonArray colorsArr = paramsObj.createNestedArray("colors");
+        for (const auto& c : state.params.colors) {
+            colorsArr.add(c);
+        }
     }
+    // These fields are always reported from state/transition engine
+    uint8_t brightnessHex = transition.getTargetBrightness();
+    uint8_t brightnessPercent = (uint8_t)((brightnessHex * 100 + 127) / 255);
+    doc["brightness"] = brightnessPercent;
+    doc["transitionTime"] = state.transitionTime;
+    doc["time"] = _scheduler->isTimeValid() ? _scheduler->getCurrentTime() : "--:--";
     doc["sunrise"] = _scheduler->getSunriseTime();
     doc["sunset"] = _scheduler->getSunsetTime();
-
-    JsonObject paramsObj = doc.createNestedObject("params");
-    paramsObj["speed"] = state.params.speed;
-    paramsObj["intensity"] = state.params.intensity;
-    JsonArray colorsArr = paramsObj.createNestedArray("colors");
-    for (const auto& c : state.params.colors) {
-        colorsArr.add(c);
-    }
 
     String output;
     serializeJson(doc, output);
@@ -889,7 +920,9 @@ bool WebServerManager::applySafetyLimits(uint8_t& brightness, uint32_t& transiti
 void WebServerManager::broadcastState() {
     // Sync config.state.brightness with transition engine before broadcasting
     extern TransitionEngine transition;
-    state.brightness = transition.getCurrentBrightness();
+    // Store as percent for reporting
+    uint8_t brightnessHex = transition.getCurrentBrightness();
+    state.brightness = (uint8_t)((brightnessHex * 100 + 127) / 255);
     String stateJSON = getStateJSON();
     _ws->textAll(stateJSON);
 }

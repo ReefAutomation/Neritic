@@ -66,13 +66,6 @@ int8_t lastScheduledPreset = -1;
 
 // Function declarations
 void setupWiFi();
-void printHeap(const char* tag) {
-    #if defined(ESP32)
-    debugPrint(tag);
-    debugPrint(F(" Heap: "));
-    debugPrintln(ESP.getFreeHeap());
-    #endif
-}
 void setupLEDs();
 void addBusToManager();
 void checkSchedule();
@@ -120,19 +113,18 @@ void setup() {
     // Initialize transition engine brightness to default
     extern TransitionEngine transition;
     transition.forceCurrentBrightness(state.brightness); // Set current
-    transition.startTransition(state.brightness, 1);     // Set target
+    // Removed unnecessary initial transition at boot
 
     // Connect to WiFi
 
     setupWiFi();
-    printHeap("[DEBUG] After WiFi connect");
     delay(500); // Give network stack time to settle
 
     // Setup web server callbacks (moved up)
     webServer.onPowerChange(setPower);
     webServer.onBrightnessChange(setBrightness);
     webServer.onEffectChange(setEffect);
-    webServer.onPresetApply([](uint8_t presetId) { applyPreset(presetId, false); });
+    webServer.onPresetApply([](uint8_t presetId) { applyPreset(presetId); });
     webServer.onConfigChange([]() {
         // Immediately apply relay pin and logic changes
         pinMode(config.led.relayPin, OUTPUT);
@@ -199,25 +191,19 @@ void setup() {
         delay(1000);
     }
 
-    // Check if we should apply a scheduled preset on boot
-    int8_t bootPreset = scheduler.getCurrentScheduledPreset();
-    if (bootPreset >= 0 && bootPreset < config.getPresetCount()) {
-        applyPreset(bootPreset);
-    } else {
-        // Ensure transition starts from the actual brightness, not 0
-        transition.forceCurrentBrightness(state.brightness);
-        setEffect(state.effect, state.params);
-        setBrightness(state.brightness);
-        setPower(state.power);
-    }
-
-    // Mark that we have not yet applied a schedule after time becomes valid
-    // (Handled in loop by checkAndApplyScheduleAfterBoot)
     debugPrintln();
     debugPrintln("System ready!");
     debugPrint("IP Address: ");
     debugPrintln(WiFi.localIP());
     debugPrintln("=================================");
+
+    // Do not apply a scheduled preset here; let checkAndApplyScheduleAfterBoot() handle it after time sync
+    // Ensure transition starts from the actual brightness, not 0
+    transition.forceCurrentBrightness(state.brightness);
+    setEffect(state.effect, state.params);
+    setBrightness(state.brightness);
+    setPower(state.power);
+
 }
 
 void loop() {
@@ -244,8 +230,8 @@ void loop() {
         static uint8_t lastBrightness = 0;
         static String lastIp;
         String presetName = "-";
-        if (state.currentPreset < config.getPresetCount()) {
-            presetName = config.presets[state.currentPreset].name;
+        if (state.preset < config.getPresetCount()) {
+            presetName = config.presets[state.preset].name;
         }
         String ipStr = (WiFi.getMode() == WIFI_AP) ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
         if (presetName != lastPreset || state.power != lastPower || state.brightness != lastBrightness || ipStr != lastIp) {
@@ -262,6 +248,7 @@ void loop() {
 }
 
 void setupWiFi() {
+    debugPrintln("[WiFi] setupWiFi() called");
     debugPrint("Connecting to WiFi");
     // Set hostname
     #ifdef ESP8266
@@ -271,6 +258,8 @@ void setupWiFi() {
     #endif
     // Connect to WiFi
     if (config.network.ssid.length() > 0) {
+        debugPrintln("");
+        debugPrintln("[WiFi] Calling WiFi.begin");
         WiFi.begin(config.network.ssid.c_str(), config.network.password.c_str());
         int attempts = 0;
         int maxAttempts = 60; // 60 x 500ms = 30s (double previous)
@@ -279,12 +268,15 @@ void setupWiFi() {
             debugPrint(".");
             attempts++;
         }
+        debugPrintln("");
+        debugPrintln("[WiFi] First connection attempt done");
         // If not connected, try a second round of retries (total up to 60s)
         if (WiFi.status() != WL_CONNECTED) {
-            debugPrintln();
-            debugPrintln("First WiFi attempt failed, retrying...");
+            debugPrintln("");
+            debugPrintln("[WiFi] First WiFi attempt failed, retrying...");
             WiFi.disconnect();
             delay(1000);
+            debugPrintln("[WiFi] Calling WiFi.begin (retry)");
             WiFi.begin(config.network.ssid.c_str(), config.network.password.c_str());
             attempts = 0;
             while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
@@ -292,9 +284,12 @@ void setupWiFi() {
                 debugPrint(".");
                 attempts++;
             }
+            debugPrintln("");
+            debugPrintln("[WiFi] Second connection attempt done");
         }
         if (WiFi.status() == WL_CONNECTED) {
-            debugPrintln();
+            debugPrintln("");
+            debugPrintln("[WiFi] Connected!");
             debugPrint("Connected! IP: ");
             debugPrintln(WiFi.localIP());
             stopCaptivePortal();
@@ -302,8 +297,8 @@ void setupWiFi() {
         }
     }
     // If connection failed or no credentials, start AP mode
-    debugPrintln();
-    debugPrintln("Starting Access Point mode");
+    debugPrintln("");
+    debugPrintln("[WiFi] Starting Access Point mode");
     WiFi.mode(WIFI_AP);
     WiFi.softAP(config.network.hostname.c_str(), config.network.apPassword.c_str());
     debugPrint("AP IP: ");
@@ -323,7 +318,7 @@ void checkSchedule() {
     auto it = std::find_if(config.presets.begin(), config.presets.end(), [scheduledPresetId](const Preset& p) { return p.id == scheduledPresetId; });
     if (it != config.presets.end()) {
         if (scheduledPresetId != lastScheduledPreset) {
-            applyPreset(scheduledPresetId, false);
+            applyPreset(scheduledPresetId);
             lastScheduledPreset = scheduledPresetId;
         }
     }
@@ -338,7 +333,7 @@ void checkAndApplyScheduleAfterBoot() {
             int8_t bootPreset2 = scheduler.getCurrentScheduledPreset();
             auto it = std::find_if(config.presets.begin(), config.presets.end(), [bootPreset2](const Preset& p) { return p.id == bootPreset2; });
             if (it != config.presets.end()) {
-                applyPreset(bootPreset2, false);
+                applyPreset(bootPreset2);
                 lastScheduledPreset = bootPreset2;
             }
             scheduleApplied = true; 

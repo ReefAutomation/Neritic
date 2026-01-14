@@ -63,15 +63,15 @@ struct NetworkConfig {
 struct TimeConfig {
     String ntpServer;
     String timezone; // IANA timezone string, e.g. "America/Los_Angeles"
-    float latitude;
-    float longitude;
+    double latitude;
+    double longitude;
     bool dstEnabled;
 };
 
 struct EffectParams {
     uint8_t speed = 100; // percent (0–100)
     uint8_t intensity = 128;
-    std::vector<String> colors = {"#0000FF", "#00FFFF"};
+    std::vector<String> colors = {"#000000", "#000000"};
 };
 
 struct Timer {

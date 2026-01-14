@@ -3,7 +3,7 @@
 let ws = null;
 let reconnectInterval = null;
 let currentState = {};
-let cachedCurrentPreset = undefined;
+let cachedPreset = undefined;
 let clockInterval = null;
 let clockSynced = false;
 let localClock = null;
@@ -212,7 +212,7 @@ function formatTransitionTime(val) {
 
 // Update UI with state from server
 function updateState(state) {
-    const prevPreset = currentState.currentPreset;
+    const prevPreset = currentState.preset;
     currentState = state;
     // Show Quick Controls on first WebSocket message
     const quickControls = document.querySelector('.card');
@@ -337,9 +337,9 @@ function updateState(state) {
     }
 
     // Highlight active preset
-    if (state.currentPreset !== undefined) {
+    if (state.preset !== undefined) {
         document.querySelectorAll('.preset-card').forEach((card, index) => {
-            if (index === state.currentPreset) {
+            if (index === state.preset) {
                 card.classList.add('active');
             } else {
                 card.classList.remove('active');
@@ -347,13 +347,13 @@ function updateState(state) {
         });
     }
 
-    // Only redraw preset cards if currentPreset changed
-    if (state.currentPreset !== undefined && state.currentPreset !== cachedCurrentPreset) {
+    // Only redraw preset cards if preset changed
+    if (state.preset !== undefined && state.preset !== cachedPreset) {
         displayPresets();
     } else {
         // Just update active class
         document.querySelectorAll('.preset-card').forEach((card, index) => {
-            if (index === state.currentPreset) {
+            if (index === state.preset) {
                 card.classList.add('active');
             } else {
                 card.classList.remove('active');
@@ -662,7 +662,7 @@ function displayPresets() {
         const card = document.createElement('div');
         card.className = 'preset-card';
         // Highlight if this preset is active (by id)
-        if (currentState.currentPreset !== undefined && presets.find(p => p.id === currentState.currentPreset)?.id === preset.id) {
+        if (currentState.preset !== undefined && presets.find(p => p.id === currentState.preset)?.id === preset.id) {
             card.classList.add('active');
         }
         const effectName = effectNames[preset.effect] || `Effect #${preset.effect}`;
@@ -678,7 +678,7 @@ function displayPresets() {
         card.addEventListener('click', () => applyPreset(preset.id));
         grid.appendChild(card);
     });
-    cachedCurrentPreset = currentState.currentPreset;
+    cachedPreset = currentState.preset;
 }
 
 function applyPreset(presetId) {
@@ -699,8 +699,8 @@ function applyPreset(presetId) {
     })
     .then(data => {
         if (data.success) {
-            // Optionally update currentState.currentPreset to presetId for immediate UI feedback
-            currentState.currentPreset = presetId;
+            // Optionally update currentState.preset to presetId for immediate UI feedback
+            currentState.preset = presetId;
             displayPresets();
             console.log('Preset applied:', presetId);
         }
@@ -740,7 +740,7 @@ function renderBrightnessGraph() {
         return;
     }
 
-    // For each 10-min interval, determine active timer and its brightness
+    // For each 10-min interval, determine active timer and its brightness, wrapping to previous day if needed
     let currentEventIdx = 0;
     for (let i = 0; i < totalPoints; i++) {
         const minutes = i * 10;
@@ -748,8 +748,13 @@ function renderBrightnessGraph() {
         while (currentEventIdx < events.length - 1 && minutes >= events[currentEventIdx + 1].time) {
             currentEventIdx++;
         }
-        // Get brightness for current timer
-        let brightness = events[currentEventIdx].brightness;
+        // If before the first event, use the last event's brightness (cycle from previous day)
+        let brightness;
+        if (minutes < events[0].time) {
+            brightness = events[events.length - 1].brightness;
+        } else {
+            brightness = events[currentEventIdx].brightness;
+        }
         data[i] = brightness;
         // Label every hour
         labels.push(i % pointsPerHour === 0 ? (i / pointsPerHour).toString().padStart(2, '0') + ':00' : '');

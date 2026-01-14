@@ -357,7 +357,7 @@ GET /api/state
   "brightness": 180,
   "effect": 1,
   "transitionTime": 5000,
-  "currentPreset": 2,
+  "preset": 2,
   "time": "14:32:05",
   "sunrise": "06:23",
   "sunset": "18:45",
