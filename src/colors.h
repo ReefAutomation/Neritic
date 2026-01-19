@@ -39,14 +39,14 @@ inline uint32_t parse_hex_rgbw(const char* hexstr) {
 
 // Math
 inline void scale_rgbw_brightness(uint8_t in_r, uint8_t in_g, uint8_t in_b, uint8_t in_w, uint8_t brightness, uint8_t &out_r, uint8_t &out_g, uint8_t &out_b, uint8_t &out_w) {
-  out_r = (uint16_t)in_r * brightness / 255;
-  out_g = (uint16_t)in_g * brightness / 255;
-  out_b = (uint16_t)in_b * brightness / 255;
-  out_w = (uint16_t)in_w * brightness / 255;
+  out_r = (uint8_t)ceilf((float)in_r * brightness / 255.0f);
+  out_g = (uint8_t)ceilf((float)in_g * brightness / 255.0f);
+  out_b = (uint8_t)ceilf((float)in_b * brightness / 255.0f);
+  out_w = (uint8_t)ceilf((float)in_w * brightness / 255.0f);
 }
 inline void blend_rgbw_brightness(uint32_t c0, uint32_t c1, float frac, uint8_t brightness, uint8_t& r, uint8_t& g, uint8_t& b, uint8_t& w) {
-  r = (uint8_t)((((c0 >> 24) & 0xFF) * (1.0f - frac) + ((c1 >> 24) & 0xFF) * frac) * brightness / 255);
-  g = (uint8_t)((((c0 >> 16) & 0xFF) * (1.0f - frac) + ((c1 >> 16) & 0xFF) * frac) * brightness / 255);
-  b = (uint8_t)((((c0 >> 8) & 0xFF) * (1.0f - frac) + ((c1 >> 8) & 0xFF) * frac) * brightness / 255);
-  w = (uint8_t)((( (c0 & 0xFF) * (1.0f - frac) + (c1 & 0xFF) * frac) * brightness / 255));
+  r = (uint8_t)ceilf(((((c0 >> 24) & 0xFF) * (1.0f - frac) + ((c1 >> 24) & 0xFF) * frac) * brightness) / 255.0f);
+  g = (uint8_t)ceilf(((((c0 >> 16) & 0xFF) * (1.0f - frac) + ((c1 >> 16) & 0xFF) * frac) * brightness) / 255.0f);
+  b = (uint8_t)ceilf(((((c0 >> 8) & 0xFF) * (1.0f - frac) + ((c1 >> 8) & 0xFF) * frac) * brightness) / 255.0f);
+  w = (uint8_t)ceilf(((( (c0 & 0xFF) * (1.0f - frac) + (c1 & 0xFF) * frac) * brightness) / 255.0f));
 }

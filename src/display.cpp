@@ -1,4 +1,6 @@
 #include <TFT_eSPI.h>
+#include "config.h"
+#include "transition.h"
 
 TFT_eSPI tft = TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
 
@@ -48,13 +50,15 @@ void setup_display() {
     delay(500);
 }
 
-void display_status(const char* preset, bool power, uint8_t brightness, const char* ip) {
+void display_status(const char* preset, bool power, const char* ip) {
+    extern TransitionEngine transition;
+    uint8_t targetBrightness = transition.getTargetBrightness();
     tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setTextSize(1);
     tft.setCursor(0, 0);
     tft.printf("Preset: %s\n", preset);
     tft.printf("Power: %s\n", power ? "ON" : "OFF");
-    tft.printf("Bri: %3d%%\n", (int)((brightness * 100) / 255));
+    tft.printf("Bri: %3d%%\n", hexToPercent(targetBrightness));
     tft.printf("IP: %s\n", ip);
 }

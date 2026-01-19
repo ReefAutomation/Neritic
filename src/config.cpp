@@ -8,6 +8,7 @@ using std::vector;
 #include <vector>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include "debug.h"
 
 #define FILESYSTEM LittleFS
 
@@ -44,23 +45,24 @@ void mergeJson(JsonVariant dst, JsonVariantConst src) {
 }
 
 
+
+// Loads config file and converts percent to hex for internal use
 bool Configuration::loadFromFile(const char* path, JsonDocument& doc) {
     if (!ensureFilesystemMounted()) return false;
     File file = FILESYSTEM.open(path, "r");
     if (!file) {
         return false;
     }
-    size_t fileSize = file.size();
     DeserializationError error = deserializeJson(doc, file);
     file.close();
-
     if (error) {
         return false;
     }
-
     return true;
 }
 
+
+// Saves config file, converting hex to percent for human-readable storage
 bool Configuration::saveToFile(const char* path, const JsonDocument& doc) {
     if (!ensureFilesystemMounted()) return false;
     File file = FILESYSTEM.open(path, "w");
@@ -74,6 +76,7 @@ bool Configuration::saveToFile(const char* path, const JsonDocument& doc) {
     return written > 0;
 }
 
+
 bool Configuration::load() {
     // Load defaults from config_default.inc
     StaticJsonDocument<2048> doc;
@@ -85,13 +88,15 @@ bool Configuration::load() {
     }
 
     bool updated = false;
-    if (!loadFromFile(CONFIG_FILE, doc)) {
+    bool loadedFromFile = loadFromFile(CONFIG_FILE, doc);
+    if (!loadedFromFile) {
         doc = defaultsDoc;
         updated = true;
     } else {
         // Deep merge: fill missing/null fields from defaults
         mergeJson(doc, defaultsDoc);
-        updated = true; // always update to ensure defaults are saved
+        saveToFile(CONFIG_FILE, doc);
+        updated = true;
     }
 
     // (copy the field assignment logic from before, but now doc is always complete)
@@ -110,9 +115,16 @@ bool Configuration::load() {
         JsonObject safetyObj = doc["safety"];
         safety.minTransitionTime = safetyObj["minTransitionTime"];
         int percent = safetyObj["maxBrightness"];
-        if (percent < 1) percent = 1;
-        if (percent > 100) percent = 100;
-        safety.maxBrightness = percent;
+        safety.maxBrightness = percentToHex(percent);
+    }
+    // Transition Times
+    if (doc.containsKey("transitionTimes")) {
+        JsonObject tObj = doc["transitionTimes"];
+        if (tObj.containsKey("powerOn")) transitionTimes.powerOn = tObj["powerOn"];
+        if (tObj.containsKey("schedule")) transitionTimes.schedule = tObj["schedule"];
+        if (tObj.containsKey("manual")) transitionTimes.manual = tObj["manual"];
+        if (tObj.containsKey("effect")) transitionTimes.effect = tObj["effect"];
+        // ...existing code...
     }
     // Network Configuration
     if (doc.containsKey("network")) {
@@ -158,7 +170,14 @@ bool Configuration::save() {
     // Safety Configuration
     JsonObject safetyObj = doc.createNestedObject("safety");
     safetyObj["minTransitionTime"] = safety.minTransitionTime;
-    safetyObj["maxBrightness"] = safety.maxBrightness;
+    safetyObj["maxBrightness"] = hexToPercent(safety.maxBrightness);
+
+    // Transition Times
+    JsonObject tObj = doc.createNestedObject("transitionTimes");
+    tObj["powerOn"] = transitionTimes.powerOn;
+    tObj["schedule"] = transitionTimes.schedule;
+    tObj["manual"] = transitionTimes.manual;
+    tObj["effect"] = transitionTimes.effect;
 
     // Network Configuration
     JsonObject netObj = doc.createNestedObject("network");
@@ -185,7 +204,7 @@ bool Configuration::save() {
         timerObj["hour"] = timers[i].hour;
         timerObj["minute"] = timers[i].minute;
         timerObj["presetId"] = timers[i].presetId;
-        timerObj["brightness"] = timers[i].brightness;
+        timerObj["brightness"] = hexToPercent(timers[i].brightness);
     }
 
     return saveToFile(CONFIG_FILE, doc);
@@ -208,10 +227,15 @@ void Configuration::partialUpdate(const JsonObject& update) {
         if (safetyObj.containsKey("minTransitionTime")) safety.minTransitionTime = safetyObj["minTransitionTime"];
         if (safetyObj.containsKey("maxBrightness")) {
             int percent = safetyObj["maxBrightness"];
-            if (percent < 1) percent = 1;
-            if (percent > 100) percent = 100;
-            safety.maxBrightness = percent;
+            safety.maxBrightness = percentToHex(percent);
         }
+    }
+    if (update.containsKey("transitionTimes")) {
+        JsonObject tObj = update["transitionTimes"];
+        if (tObj.containsKey("powerOn")) transitionTimes.powerOn = tObj["powerOn"];
+        if (tObj.containsKey("schedule")) transitionTimes.schedule = tObj["schedule"];
+        if (tObj.containsKey("manual")) transitionTimes.manual = tObj["manual"];
+        if (tObj.containsKey("effect")) transitionTimes.effect = tObj["effect"];
     }
     if (update.containsKey("network")) {
         JsonObject netObj = update["network"];
@@ -243,7 +267,9 @@ void Configuration::partialUpdate(const JsonObject& update) {
             t.hour = timerObj["hour"];
             t.minute = timerObj["minute"];
             t.presetId = timerObj["presetId"];
-            t.brightness = timerObj["brightness"] | 100;
+            // Convert percent to hex at config boundary
+            uint8_t percent = timerObj["brightness"] | 100;
+            t.brightness = percentToHex(percent);
             timers.push_back(t);
         }
     }
@@ -260,13 +286,6 @@ bool Configuration::factoryReset() {
     return ok;
 }
 
-// Helper function to map percent (0-100) to hardware brightness (1-255)
-uint8_t percentToBrightness(uint8_t percent) {
-    if (percent <= 0) return 0;
-    if (percent >= 100) return 255;
-    return (uint8_t)((255 * percent) / 100);
-}
-
 // Helper to load timers from a JsonArray
 void Configuration::loadTimersFromJson(JsonArray timersArray) {
     timers.clear();
@@ -278,7 +297,7 @@ void Configuration::loadTimersFromJson(JsonArray timersArray) {
         t.hour = timerObj["hour"];
         t.minute = timerObj["minute"];
         t.presetId = timerObj["presetId"];
-        t.brightness = timerObj["brightness"] | 100;
+        t.brightness = percentToHex(timerObj["brightness"] | 100);
         timers.push_back(t);
     }
 }

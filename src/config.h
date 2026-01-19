@@ -48,9 +48,28 @@ struct LEDConfig {
     bool relayActiveHigh; // true: HIGH=on, false: LOW=on
 };
 
+
+// Conversion helpers
+inline uint8_t percentToHex(uint8_t percent) {
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    return (uint8_t)((percent * 255 + 50) / 100); // round to nearest
+}
+inline uint8_t hexToPercent(uint8_t hex) {
+    return (uint8_t)((hex * 100 + 127) / 255); // round to nearest
+}
+
+struct TransitionTimesConfig {
+    uint32_t powerOn;
+    uint32_t schedule;
+    uint32_t manual;
+    uint32_t effect;
+};
+
 struct SafetyConfig {
     uint32_t minTransitionTime;
-    uint8_t maxBrightness; // percent (1-100)
+    uint8_t maxBrightness; // internal (0-255)
+    // For config file/API: use percent, convert at boundaries
 };
 
 struct NetworkConfig {
@@ -80,7 +99,7 @@ struct Timer {
     uint8_t hour = 0;
     uint8_t minute = 0;
     uint8_t presetId = 0;
-    uint8_t brightness = 100; // percent (0-100)
+    uint8_t brightness = 255; // internal hex (0-255)
     bool operator==(const Timer& other) const {
         return enabled == other.enabled &&
                 type == other.type &&
@@ -101,10 +120,12 @@ struct Preset {
 
 
 // Global Configuration Class
+
 class Configuration {
 public:
     LEDConfig led;
     SafetyConfig safety;
+    TransitionTimesConfig transitionTimes;
     NetworkConfig network;
     TimeConfig time;
     std::vector<Preset> presets;

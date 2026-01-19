@@ -1,7 +1,7 @@
-
 #pragma once
 #include <Arduino.h>
 #include <IPAddress.h>
+#include <stdarg.h>
 
 #ifdef DEBUG_SERIAL
 inline void debugPrintln() { Serial.println(); }
@@ -27,6 +27,15 @@ inline void debugPrint(unsigned long val) { Serial.print(val); }
 inline void debugPrint(unsigned long val, int base) { Serial.print(val, base); }
 inline void debugPrint(float val, int digits = 3) { Serial.print(val, digits); }
 inline void debugPrint(uint32_t val, int base) { Serial.print(val, base); }
+
+// Only use this printf-style overload if no other overload matches
+template<typename... Args>
+inline void debugPrint(const char* fmt, Args... args) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), fmt, args...);
+    Serial.print(buf);
+}
+
 #else
 inline void debugPrintln() {}
 inline void debugPrintln(const char*) {}
@@ -34,8 +43,6 @@ inline void debugPrintln(const String&) {}
 inline void debugPrintln(int) {}
 inline void debugPrintln(unsigned int) {}
 inline void debugPrintln(unsigned long) {}
-inline void debugPrintln(uint32_t) {}
-inline void debugPrintln(uint32_t, int) {}
 inline void debugPrintln(const IPAddress&) {}
 
 inline void debugPrintIp(uint32_t) {}
@@ -45,6 +52,4 @@ inline void debugPrint(const String&) {}
 inline void debugPrint(int) {}
 inline void debugPrint(unsigned int) {}
 inline void debugPrint(unsigned long) {}
-inline void debugPrint(uint32_t) {}
-inline void debugPrint(uint32_t, int) {}
 #endif

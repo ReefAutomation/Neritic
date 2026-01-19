@@ -168,15 +168,10 @@ WebServerManager::WebServerManager(Configuration* config, Scheduler* scheduler) 
 }
 
 void WebServerManager::begin() {
-    debugPrintln("[WebServer] begin() called");
     setupWebSocket();
-    debugPrintln("[WebServer] WebSocket setup complete");
     setupRoutes();
-    debugPrintln("[WebServer] Routes setup complete");
     buildEffectsCache();
-    debugPrintln("[WebServer] Effects cache built");
     _server->begin();
-    debugPrintln("[WebServer] Server started");
 }
 
 void WebServerManager::update() {
@@ -197,21 +192,35 @@ void WebServerManager::setupWebSocket() {
 }
 
 void WebServerManager::setupRoutes() {
+    // Debug: Log every incoming HTTP request
+    _server->onNotFound([this](AsyncWebServerRequest* request) {
+        debugPrintln(String("[HTTP] NotFound: ") + request->url());
+        request->send(404, "text/plain", "Not Found");
+    });
+
+    // Helper: Log all requests (valid or not)
+    auto logRequest = [](AsyncWebServerRequest* request) {
+        String logMsg = String("[HTTP] ") + (request->method() == HTTP_GET ? "GET " : request->method() == HTTP_POST ? "POST " : "OTHER ") + request->url();
+        debugPrintln(logMsg);
+    };
+
     // System command API (reboot, update, etc.)
-    _server->on("/api/command", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/api/command", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
-    _server->on("/api/command", HTTP_POST, [](AsyncWebServerRequest* request) {
-        // If body handler is not called, treat as reboot for compatibility
+    _server->on("/api/command", HTTP_POST, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true,\"message\":\"Rebooting\"}");
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
         request->onDisconnect([]() { delay(100); ESP.restart(); });
     },
         NULL,
-        [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+        [logRequest](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            logRequest(request);
             StaticJsonDocument<128> doc;
             DeserializationError error = deserializeJson(doc, data, len);
             String respJson;
@@ -241,14 +250,16 @@ void WebServerManager::setupRoutes() {
         }
     );
     // CORS preflight for OTA
-    _server->on("/ota", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/ota", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
     // OTA Update endpoint (POST /ota, direct binary upload)
     _server->on("/ota", HTTP_POST,
-        [](AsyncWebServerRequest* request) {
+        [logRequest](AsyncWebServerRequest* request) {
+            logRequest(request);
             AsyncWebServerResponse *resp = nullptr;
             if (Update.hasError()) {
                 resp = request->beginResponse(500, "application/json", "{\"error\":\"OTA Update Failed\"}");
@@ -265,42 +276,52 @@ void WebServerManager::setupRoutes() {
             }
         },
         NULL,
-        [this](AsyncWebServerRequest* request, unsigned char* data, unsigned int len, unsigned int index, unsigned int total) {
+        [this, logRequest](AsyncWebServerRequest* request, unsigned char* data, unsigned int len, unsigned int index, unsigned int total) {
+            logRequest(request);
             handleOTAUpdate(request, reinterpret_cast<uint8_t*>(data), static_cast<size_t>(len), static_cast<size_t>(index), static_cast<size_t>(total));
         }
     );
 
     // Captive portal triggers for auto-popup on phones/laptops
-    _server->on("/generate_204", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/generate_204", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->redirect("/wifi");
     });
-    _server->on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/hotspot-detect.html", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->redirect("/wifi");
     });
-    _server->on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/ncsi.txt", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->redirect("/wifi");
     });
-    _server->on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/connecttest.txt", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->redirect("/wifi");
     });
     // Extra captive portal triggers for maximum compatibility
-    _server->on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/favicon.ico", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send(204); // No Content
     });
-    _server->on("/wpad.dat", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/wpad.dat", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send(204); // No Content
     });
 
     // Serve web assets from filesystem image
-    _server->on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "text/html", web_index_html, web_index_html_len);
     });
-    _server->on("/index.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/index.html", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "text/html", web_index_html, web_index_html_len);
     });
     // Serve WiFi page for POST: robust handler parses body manually
     _server->on("/wifi", HTTP_POST, 
-        [this](AsyncWebServerRequest* request) {
+        [this, logRequest](AsyncWebServerRequest* request) {
+            logRequest(request);
             for (size_t i = 0; i < request->params(); i++) {
             }
             // Fallback: If body handler is not called, parse POST params here
@@ -321,7 +342,8 @@ void WebServerManager::setupRoutes() {
             }
         }, 
         nullptr,
-        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+        [this, logRequest](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            logRequest(request);
             String body;
             for (size_t i = 0; i < len; ++i) body += (char)data[i];
             String ssid, password;
@@ -349,52 +371,63 @@ void WebServerManager::setupRoutes() {
         }
     );
     // For GET, serve the WiFi form
-    _server->on("/wifi", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/wifi", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "text/html", web_wifi_html, web_wifi_html_len);
     });
-    _server->on("/app.js", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/app.js", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "application/javascript", web_app_js, web_app_js_len);
     });
-    _server->on("/config.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/config.html", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "text/html", web_config_html, web_config_html_len);
     });
-    _server->on("/config.js", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/config.js", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "application/javascript", web_config_js, web_config_js_len);
     });
-    _server->on("/style.css", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/style.css", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "text/css", web_style_css, web_style_css_len);
     });
-    _server->on("/fflate.min.js", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/fflate.min.js", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         request->send_P(200, "application/javascript", web_fflate_min_js, web_fflate_min_js_len);
     });
     
     // State API
-    _server->on("/api/state", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/api/state", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
-    _server->on("/api/state", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    _server->on("/api/state", HTTP_GET, [this, logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         handleGetState(request);
     });
     
     // Main POST handler
     _server->on("/api/state", HTTP_POST,
-        [this](AsyncWebServerRequest* request) {
+        [this, logRequest](AsyncWebServerRequest* request) {
+            logRequest(request);
             String body = extractPostBody(request);
             if (body.length() == 0) return;
             handleSetState(request, (uint8_t*)body.c_str(), body.length());
         },
         nullptr,
         // Upload handler for application/json
-        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+        [this, logRequest](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            logRequest(request);
             String body = extractJsonBody(request, data, len);
             handleSetState(request, (uint8_t*)body.c_str(), body.length());
         }
     );
 
     // Effects API: serve cached JSON for all available predefined effect names and indices
-    _server->on("/api/effects", HTTP_GET, [](AsyncWebServerRequest* request) {
+    _server->on("/api/effects", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         if (!effectsCacheReady) buildEffectsCache();
         AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", cachedEffectsJson);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
@@ -402,59 +435,69 @@ void WebServerManager::setupRoutes() {
     });
 
     // Presets API
-    _server->on("/api/presets", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/api/presets", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
-    _server->on("/api/presets", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    _server->on("/api/presets", HTTP_GET, [this, logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         handleGetPresets(request);
     });
     
-    _server->on("/api/preset", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/api/preset", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
     _server->on("/api/preset", HTTP_POST,
-        [this](AsyncWebServerRequest* request) {
+        [this, logRequest](AsyncWebServerRequest* request) {
+            logRequest(request);
             String body = extractPostBody(request);
             if (body.length() == 0) return; // Prevent double response if upload handler already processed
             handleSetPreset(request, (uint8_t*)body.c_str(), body.length());
         },
         nullptr,
         // Upload handler for application/json
-        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+        [this, logRequest](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            logRequest(request);
             String body = extractJsonBody(request, data, len);
             handleSetPreset(request, (uint8_t*)body.c_str(), body.length());
         }
     );
     
     // Configuration API
-    _server->on("/api/config", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/api/config", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
-    _server->on("/api/config", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    _server->on("/api/config", HTTP_GET, [this, logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         handleGetConfig(request);
     });
     
     _server->on("/api/config", HTTP_POST,
-        [this](AsyncWebServerRequest* request) {
+        [this, logRequest](AsyncWebServerRequest* request) {
+            logRequest(request);
             String body = extractPostBody(request);
             if (body.length() == 0) return;
             handleSetConfig(request, (uint8_t*)body.c_str(), body.length());
         },
         nullptr,
         // Upload handler for application/json
-        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+        [this, logRequest](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            logRequest(request);
             String body = extractJsonBody(request, data, len);
             handleSetConfig(request, (uint8_t*)body.c_str(), body.length());
         }
     );
     // Factory Reset API
-    _server->on("/api/factory_reset", HTTP_POST, [this](AsyncWebServerRequest* request) {
+    _server->on("/api/factory_reset", HTTP_POST, [this, logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         bool ok = _config->factoryReset();
         if (ok) {
             AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true,\"message\":\"Factory reset complete, rebooting...\"}");
@@ -469,27 +512,32 @@ void WebServerManager::setupRoutes() {
     });
 
     // Timers API
-    _server->on("/api/timers", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/api/timers", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
-    _server->on("/api/timers", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    _server->on("/api/timers", HTTP_GET, [this, logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         handleGetTimers(request);
     });
     
-    _server->on("/api/timer", HTTP_OPTIONS, [](AsyncWebServerRequest* request) {
+    _server->on("/api/timer", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         AsyncWebServerResponse *resp = request->beginResponse(204);
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
     });
     _server->on("/api/timer", HTTP_POST, nullptr, nullptr,
-        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+        [this, logRequest](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+            logRequest(request);
             handleSetTimer(request, data, len);
         }
     );
     // Supported timezones API
-    _server->on("/api/timezones", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    _server->on("/api/timezones", HTTP_GET, [this, logRequest](AsyncWebServerRequest* request) {
+        logRequest(request);
         std::vector<String> tzList = _config->getSupportedTimezones();
         StaticJsonDocument<2048> namesDoc;
         JsonArray namesArr = namesDoc.to<JsonArray>();
@@ -520,14 +568,16 @@ void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* d
     // Only update fields present in the request
     bool updated = false;
     if (doc.containsKey("brightness")) {
-        uint8_t brightness = doc["brightness"];
-        applySafetyLimits(brightness, state.transitionTime);
+        uint8_t brightness = percentToHex(doc["brightness"]);
+        applyBrightnessLimit(brightness);
+        applyTransitionTimeLimit(state.transitionTime);
         if (_brightnessCallback) _brightnessCallback(brightness);
         updated = true;
     }
     if (doc.containsKey("transitionTime")) {
         uint32_t transitionTime = (uint32_t)doc["transitionTime"];
-        applySafetyLimits(state.brightness, transitionTime);
+        applyTransitionTimeLimit(transitionTime);
+        applyBrightnessLimit(state.brightness);
         state.transitionTime = transitionTime;
         updated = true;
     }
@@ -730,7 +780,11 @@ void WebServerManager::handleSetTimer(AsyncWebServerRequest* request, uint8_t* d
     _config->timers[timerId].hour = doc["hour"] | 0;
     _config->timers[timerId].minute = doc["minute"] | 0;
     _config->timers[timerId].presetId = doc["presetId"] | 0;
-    _config->timers[timerId].brightness = doc["brightness"] | 100;
+    // Always store timer brightness as hex internally; convert from percent at API boundary
+    if (doc.containsKey("brightness")) {
+        uint8_t percent = doc["brightness"] | 100;
+        _config->timers[timerId].brightness = percentToHex(percent);
+    }
     
     _config->save();
     
@@ -770,9 +824,7 @@ String WebServerManager::getStateJSON() {
         }
     }
     // These fields are always reported from state/transition engine
-    uint8_t brightnessHex = transition.getTargetBrightness();
-    uint8_t brightnessPercent = (uint8_t)((brightnessHex * 100 + 127) / 255);
-    doc["brightness"] = brightnessPercent;
+    doc["brightness"] = hexToPercent(transition.getTargetBrightness());
     doc["transitionTime"] = state.transitionTime;
     doc["time"] = _scheduler->isTimeValid() ? _scheduler->getCurrentTime() : "--:--";
     doc["sunrise"] = _scheduler->getSunriseTime();
@@ -821,16 +873,14 @@ String WebServerManager::getConfigJSON() {
 
     JsonObject safetyObj = doc.createNestedObject("safety");
     safetyObj["minTransitionTime"] = _config->safety.minTransitionTime;
-    // maxBrightness is now always stored as percent
-    safetyObj["maxBrightness"] = _config->safety.maxBrightness;
-    // Store maxBrightness as percent everywhere
+    // maxBrightness is now always stored as percent for API/config
+    safetyObj["maxBrightness"] = hexToPercent(_config->safety.maxBrightness);
+    // Store maxBrightness as percent everywhere for config/API
     if (doc.containsKey("safety")) {
         JsonObject safetyObj = doc["safety"];
         if (safetyObj.containsKey("maxBrightness")) {
             int percent = safetyObj["maxBrightness"].as<int>();
-            if (percent < 1) percent = 1;
-            if (percent > 100) percent = 100;
-            _config->safety.maxBrightness = percent;
+            _config->safety.maxBrightness = percentToHex(percent);
             safetyObj["maxBrightness"] = percent; // update doc for file save
         }
     }
@@ -867,7 +917,7 @@ String WebServerManager::getConfigJSON() {
         timerObj["hour"] = t.hour;
         timerObj["minute"] = t.minute;
         timerObj["presetId"] = t.presetId;
-        timerObj["brightness"] = t.brightness;
+        timerObj["brightness"] = hexToPercent(t.brightness);
     }
     String output;
     serializeJson(doc, output);
@@ -893,7 +943,7 @@ String WebServerManager::getTimersJSON() {
         timerObj["hour"] = t.hour;
         timerObj["minute"] = t.minute;
         timerObj["presetId"] = t.presetId;
-        timerObj["brightness"] = t.brightness;
+        timerObj["brightness"] = hexToPercent(t.brightness);
     }
 
     String output;
@@ -901,28 +951,27 @@ String WebServerManager::getTimersJSON() {
     return output;
 }
 
-bool WebServerManager::applySafetyLimits(uint8_t& brightness, uint32_t& transitionTime) {
-    bool modified = false;
-
-    // maxBrightness is now percent, and brightness is 0-100, so clamp directly
+bool WebServerManager::applyBrightnessLimit(uint8_t& brightness) {
     if (brightness > _config->safety.maxBrightness) {
         brightness = _config->safety.maxBrightness;
-        modified = true;
+        return true;
     }
+    return false;
+}
 
+bool WebServerManager::applyTransitionTimeLimit(uint32_t& transitionTime) {
     if (transitionTime < _config->safety.minTransitionTime) {
         transitionTime = _config->safety.minTransitionTime;
-        modified = true;
+        return true;
     }
-    return modified;
+    return false;
 }
 
 void WebServerManager::broadcastState() {
     // Sync config.state.brightness with transition engine before broadcasting
     extern TransitionEngine transition;
     // Store as percent for reporting
-    uint8_t brightnessHex = transition.getCurrentBrightness();
-    state.brightness = (uint8_t)((brightnessHex * 100 + 127) / 255);
+    state.brightness = transition.getCurrentBrightness();
     String stateJSON = getStateJSON();
     _ws->textAll(stateJSON);
 }

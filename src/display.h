@@ -10,4 +10,4 @@
 #define TFT_DRIVER ST7735S
 
 void setup_display();
-void display_status(const char* preset, bool power, uint8_t brightness, const char* ip);
+void display_status(const char* preset, bool power, const char* ip);

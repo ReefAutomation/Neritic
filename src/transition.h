@@ -6,7 +6,14 @@
 #include "debug.h"
 
 class TransitionEngine {
+        // Fraction of total duration for effect transition (0.0–1.0)
+        float effectTransitionFraction = 0.4f; // 40% of the time for effect
+    enum class Phase { None, Color, Brightness };
+    Phase _phase = Phase::None;
 public:
+    // Interrupt and clear any ongoing transition
+    void abortTransition();
+    float getEffectTransitionFraction() const { return effectTransitionFraction; }
     // Setters for transition start values (for smooth interruption)
     void setStartBrightness(uint8_t value) { _startBrightness = value; }
     void setStartColor1(uint32_t value) { _startColor1 = value; }
@@ -18,6 +25,8 @@ public:
     void setTargetFrame(const std::vector<uint32_t>& frame);
     void clearFrames();
     std::vector<uint32_t> getBlendedFrame(float progress, bool brightnessOnly);
+    // Start effect (color/params) transition, then brightness transition
+    void startEffectAndBrightnessTransition(uint8_t targetBrightness, uint32_t targetColor1, uint32_t targetColor2, uint32_t duration);
     uint8_t getStartBrightness() const { return _startBrightness; }
     uint8_t getTargetBrightness() const { return _targetBrightness; }
     TransitionEngine();
@@ -38,6 +47,10 @@ public:
     uint32_t getCurrentColor1();
     uint32_t getCurrentColor2();
 
+    // For sequential effect/brightness transition
+    bool _pendingBrightnessTransition = false;
+    uint8_t _pendingTargetBrightness = 0;
+    uint32_t _pendingBrightnessDuration = 0;
 private:
     std::vector<uint32_t> previousFrame;
     std::vector<uint32_t> targetFrame;

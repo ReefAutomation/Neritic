@@ -77,7 +77,7 @@ void setup() {
     // Set relay to off state at boot
     digitalWrite(config.led.relayPin, config.led.relayActiveHigh ? LOW : HIGH);
     #ifdef DEBUG_SERIAL
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD);
     delay(1000);
     #endif
     debugPrintln();
@@ -124,7 +124,7 @@ void setup() {
     webServer.onPowerChange(setPower);
     webServer.onBrightnessChange(setBrightness);
     webServer.onEffectChange(setEffect);
-    webServer.onPresetApply([](uint8_t presetId) { applyPreset(presetId); });
+    webServer.onPresetApply([](uint8_t presetId) { applyPreset(presetId, transition.getTargetBrightness()); }); // already hex
     webServer.onConfigChange([]() {
         // Immediately apply relay pin and logic changes
         pinMode(config.led.relayPin, OUTPUT);
@@ -161,8 +161,7 @@ void setup() {
             uint32_t prevColor1 = transition.getCurrentColor1();
             uint32_t prevColor2 = transition.getCurrentColor2();
             transition = TransitionEngine();
-            transition.startTransition(prevBrightness, 0);
-            transition.startColorTransition(prevColor1, prevColor2, 0);
+            transition.startEffectAndBrightnessTransition(prevBrightness, prevColor1, prevColor2, 0);
             updateLEDs();
             // Restore effect, brightness, and power after reinitializing LEDs
             setEffect(state.effect, state.params);
@@ -206,6 +205,7 @@ void setup() {
 
 }
 
+
 void loop() {
     // Prioritize OTA: if OTA is in progress, only handle OTA and show debug dots
     if (otaInProgress) {
@@ -218,7 +218,42 @@ void loop() {
     scheduler.update();
     webServer.update();
     transition.update();
-    checkSchedule();
+    // Only check schedule on a new round minute
+    {
+        static int lastCheckedMinute = -1;
+        int currentMinute = scheduler.getCurrentMinute();
+        if (currentMinute != lastCheckedMinute) {
+            checkSchedule();
+            lastCheckedMinute = currentMinute;
+        }
+    }
+    // --- WiFi reconnect logic ---
+    static uint32_t lastWiFiCheck = 0;
+    static int wifiReconnectAttempts = 0;
+    const int wifiReconnectInterval = 10000; // 10 seconds
+    const int maxWiFiReconnectAttempts = 5;
+    if (WiFi.getMode() != WIFI_AP && config.network.ssid.length() > 0) {
+        if (WiFi.status() != WL_CONNECTED) {
+            uint32_t now = millis();
+            if (now - lastWiFiCheck > wifiReconnectInterval) {
+                debugPrintln("[WiFi] Lost connection, attempting reconnect...");
+                WiFi.disconnect();
+                delay(100);
+                WiFi.begin(config.network.ssid.c_str(), config.network.password.c_str());
+                wifiReconnectAttempts++;
+                lastWiFiCheck = now;
+                if (wifiReconnectAttempts >= maxWiFiReconnectAttempts) {
+                    debugPrintln("[WiFi] Too many failed reconnects, switching to AP mode");
+                    WiFi.mode(WIFI_AP);
+                    WiFi.softAP(config.network.hostname.c_str(), config.network.apPassword.c_str());
+                    startCaptivePortal(WiFi.softAPIP());
+                    wifiReconnectAttempts = 0;
+                }
+            }
+        } else {
+            wifiReconnectAttempts = 0;
+        }
+    }
     static uint32_t lastFrame = 0;
     uint32_t now = millis();
     if (now - lastFrame >= (1000 / FRAMES_PER_SECOND)) {
@@ -235,7 +270,7 @@ void loop() {
         }
         String ipStr = (WiFi.getMode() == WIFI_AP) ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
         if (presetName != lastPreset || state.power != lastPower || state.brightness != lastBrightness || ipStr != lastIp) {
-            display_status(presetName.c_str(), state.power, state.brightness, ipStr.c_str());
+            display_status(presetName.c_str(), state.power, ipStr.c_str());
             lastPreset = presetName;
             lastPower = state.power;
             lastBrightness = state.brightness;
@@ -312,31 +347,37 @@ void setupLEDs() {
 }
 
 
-void checkSchedule() {
-    // Always apply the most recent valid scheduled preset for the current time
-    int8_t scheduledPresetId = scheduler.getCurrentScheduledPreset();
-    auto it = std::find_if(config.presets.begin(), config.presets.end(), [scheduledPresetId](const Preset& p) { return p.id == scheduledPresetId; });
-    if (it != config.presets.end()) {
-        if (scheduledPresetId != lastScheduledPreset) {
-            applyPreset(scheduledPresetId);
-            lastScheduledPreset = scheduledPresetId;
-        }
+
+void handleScheduledPreset(int8_t presetId, int currentMinutes) {
+    const Timer* activeTimer = scheduler.getActiveTimer();
+    if (activeTimer && activeTimer->presetId == presetId && presetId != lastScheduledPreset) {
+        uint8_t brightness = activeTimer->brightness;
+        // If this is the first schedule application after boot, use powerOn transition time
+        static bool firstScheduleApplied = false;
+        uint32_t transitionTime = firstScheduleApplied ? config.transitionTimes.schedule : config.transitionTimes.powerOn;
+        webServer.applyTransitionTimeLimit(transitionTime);
+        state.transitionTime = transitionTime;
+        applyPreset(presetId, brightness);
+        firstScheduleApplied = true;
+        lastScheduledPreset = presetId;
     }
 }
 
+void checkSchedule() {
+    const Timer* activeTimer = scheduler.getActiveTimer();
+    if (activeTimer) {
+        handleScheduledPreset(activeTimer->presetId, scheduler.getTimerMinutes(*activeTimer));
+    }
+}
 
 // Apply the correct schedule as soon as time becomes valid after boot (only once)
+
 void checkAndApplyScheduleAfterBoot() {
     static bool scheduleApplied = false;
     if (!scheduleApplied) {
         if (scheduler.isTimeValid()) {
-            int8_t bootPreset2 = scheduler.getCurrentScheduledPreset();
-            auto it = std::find_if(config.presets.begin(), config.presets.end(), [bootPreset2](const Preset& p) { return p.id == bootPreset2; });
-            if (it != config.presets.end()) {
-                applyPreset(bootPreset2);
-                lastScheduledPreset = bootPreset2;
-            }
-            scheduleApplied = true; 
+            checkSchedule();
+            scheduleApplied = true;
         }
     }
 }

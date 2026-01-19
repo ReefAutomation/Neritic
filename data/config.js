@@ -58,6 +58,13 @@ function displayConfig() {
             document.getElementById('minTransitionValue').textContent = minTransSeconds;
         }
     }
+    // Transition Times
+    if (window.config.transitionTimes) {
+        document.getElementById('ttPowerOn').value = Math.floor((window.config.transitionTimes.powerOn || 0) / 1000);
+        document.getElementById('ttSchedule').value = Math.floor((window.config.transitionTimes.schedule || 0) / 1000);
+        document.getElementById('ttManual').value = Math.floor((window.config.transitionTimes.manual || 0) / 1000);
+        document.getElementById('ttEffect').value = Math.floor((window.config.transitionTimes.effect || 0) / 1000);
+    }
     // Time
     if (window.config.time) {
         if (window.config.time.ntpServer !== undefined) document.getElementById('ntpServer').value = window.config.time.ntpServer;
@@ -392,6 +399,19 @@ function saveConfig() {
         const minTransitionTime = Math.max(2, parseInt(document.getElementById('minTransition').value)) * 1000;
         if (!orig.safety || minTransitionTime !== orig.safety.minTransitionTime) safetyUpdate.minTransitionTime = minTransitionTime;
         if (Object.keys(safetyUpdate).length > 0) update.safety = safetyUpdate;
+    }
+    // Transition Times
+    if (window.config.transitionTimes) {
+        const ttUpdate = {};
+        const powerOn = parseInt(document.getElementById('ttPowerOn').value) * 1000;
+        const schedule = parseInt(document.getElementById('ttSchedule').value) * 1000;
+        const manual = parseInt(document.getElementById('ttManual').value) * 1000;
+        const effect = parseInt(document.getElementById('ttEffect').value) * 1000;
+        if (window.config.transitionTimes.powerOn !== powerOn) ttUpdate.powerOn = powerOn;
+        if (window.config.transitionTimes.schedule !== schedule) ttUpdate.schedule = schedule;
+        if (window.config.transitionTimes.manual !== manual) ttUpdate.manual = manual;
+        if (window.config.transitionTimes.effect !== effect) ttUpdate.effect = effect;
+        if (Object.keys(ttUpdate).length > 0) update.transitionTimes = ttUpdate;
     }
     // Time
     if (window.config.time) {

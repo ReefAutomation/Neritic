@@ -1,4 +1,6 @@
+
 #include "scheduler.h"
+#include "config.h"
 #include "debug.h"
 #include <math.h>
 #if defined(ESP8266)
@@ -6,6 +8,36 @@
 #else
 #include <WiFi.h>
 #endif
+
+const Timer* Scheduler::getActiveTimer() {
+    if (!isTimeValid()) return nullptr;
+    int currentMinutes = getCurrentTimeInMinutes();
+    const Timer* best = nullptr;
+    int bestMinutes = -1;
+    for (const auto& t : _config->timers) {
+        if (!isTimerActive(t, 0)) continue;
+        int timerMinutes = getTimerMinutes(t);
+        if (timerMinutes == -1) continue;
+        if (timerMinutes <= currentMinutes && timerMinutes > bestMinutes) {
+            bestMinutes = timerMinutes;
+            best = &t;
+        }
+    }
+    // If no timer has triggered today, select the last timer of the previous day
+    if (!best) {
+        int latestMinutes = -1;
+        for (const auto& t : _config->timers) {
+            if (!isTimerActive(t, 0)) continue;
+            int timerMinutes = getTimerMinutes(t);
+            if (timerMinutes == -1) continue;
+            if (timerMinutes > latestMinutes) {
+                latestMinutes = timerMinutes;
+                best = &t;
+            }
+        }
+    }
+    return best;
+}
 
 Scheduler::Scheduler(Configuration* config) {
     _config = config;
@@ -17,6 +49,10 @@ Scheduler::Scheduler(Configuration* config) {
 void Scheduler::begin() {
     _timeClient->begin();
     updateNTP();
+}
+
+int Scheduler::getCurrentTimeInMinutes() {
+    return timeToMinutes(getCurrentHour(), getCurrentMinute());
 }
 
 void Scheduler::update() {
@@ -79,14 +115,46 @@ void Scheduler::updateNTP() {
 }
 
 bool Scheduler::isTimeValid() {
-        if (_config) {
-            String ntpServer = _config->time.ntpServer;
-            if (ntpServer.length() == 0 || ntpServer == "null") {
-                // Fallback: treat time as valid if NTP is disabled
-                return true;
+    if (_config) {
+        String ntpServer = _config->time.ntpServer;
+        if (ntpServer.length() == 0 || ntpServer == "null") {
+            // Fallback: treat time as valid if NTP is disabled
+            return true;
+        }
+    }
+    return _timeClient->isTimeSet();
+}
+
+uint8_t Scheduler::getScheduledBrightness(int8_t presetId, int currentMinutes) {
+    int mostRecentMinutes = -1;
+    uint8_t mostRecentBrightness = 100;
+    for (const auto& t : _config->timers) {
+        if (!t.enabled) continue;
+        if (t.presetId != presetId) continue;
+        int timerMinutes = getTimerMinutes(t);
+        if (timerMinutes == -1) continue;
+        if (timerMinutes <= currentMinutes && timerMinutes > mostRecentMinutes) {
+            mostRecentMinutes = timerMinutes;
+            mostRecentBrightness = t.brightness;
+        }
+    }
+    // If no timer has triggered today, select the last timer of the previous day
+    if (mostRecentMinutes == -1) {
+        int latestMinutes = -1;
+        uint8_t latestBrightness = 100;
+        for (const auto& t : _config->timers) {
+            if (!t.enabled) continue;
+            if (t.presetId != presetId) continue;
+            int timerMinutes = getTimerMinutes(t);
+            if (timerMinutes == -1) continue;
+            if (timerMinutes > latestMinutes) {
+                latestMinutes = timerMinutes;
+                latestBrightness = t.brightness;
             }
         }
-        return _timeClient->isTimeSet();
+        mostRecentBrightness = latestBrightness;
+    }
+    return mostRecentBrightness;
 }
 
 String Scheduler::getCurrentTime() {
@@ -233,35 +301,6 @@ int Scheduler::getTimerMinutes(const Timer& timer) {
     return minutes;
 }
 
-int8_t Scheduler::checkTimers() {
-    if (!isTimeValid()) {
-        return -1;
-    }
-    // Check only once per minute
-    uint32_t now = millis();
-    if (now - _lastTimerCheck < 60000) {
-        return -1;
-    }
-    _lastTimerCheck = now;
-    int hour = getCurrentHour();
-    int minute = getCurrentMinute();
-    int currentMinutes = timeToMinutes(hour, minute);
-    // Check all timers
-    for (size_t i = 0; i < _config->timers.size(); i++) {
-        const Timer& t = _config->timers[i];
-        if (!isTimerActive(t, 0)) {
-            continue;
-        }
-        int timerMinutes = getTimerMinutes(t);
-        if (timerMinutes == -1) {
-            continue;
-        }
-        if (currentMinutes == timerMinutes) {
-            return t.presetId;
-        }
-    }
-    return -1;
-}
 
 int8_t Scheduler::getCurrentScheduledPreset() {
     if (!isTimeValid()) return -1;

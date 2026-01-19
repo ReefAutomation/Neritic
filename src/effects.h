@@ -28,10 +28,6 @@ struct PendingTransitionState {
 	uint8_t preset = 0;
 };
 
-// Removed EffectRegistryEntry structure and registration macros
-// Utility to print all colors sent to the strip
-void debugPrintStripColors(const std::vector<uint32_t>& colors, const char* tag = "strip colors");
-
 // Centralized effect speed to delay mapping
 uint32_t getEffectDelayMs(const EffectParams& params);
 

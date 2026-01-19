@@ -30,6 +30,10 @@ public:
     void onEffectChange(void (*callback)(uint8_t, const EffectParams&));
     void onPresetApply(void (*callback)(uint8_t));
     void onConfigChange(void (*callback)());
+
+    // Safety helpers available for other modules
+    bool applyBrightnessLimit(uint8_t& brightness);
+    bool applyTransitionTimeLimit(uint32_t& transitionTime);
     
 private:
     Configuration* _config;
@@ -51,12 +55,13 @@ private:
     void setupWebSocket();
     
     // REST API handlers
-    void handleGetState(AsyncWebServerRequest* request);
-    void handleSetState(AsyncWebServerRequest* request, uint8_t* data, size_t len);
+    // API/page/ws handlers convert percent<->hex at boundaries
+    void handleGetState(AsyncWebServerRequest* request); // convert hex->percent for user
+    void handleSetState(AsyncWebServerRequest* request, uint8_t* data, size_t len); // convert percent->hex from user
     void handleGetPresets(AsyncWebServerRequest* request);
     void handleSetPreset(AsyncWebServerRequest* request, uint8_t* data, size_t len);
-    void handleGetConfig(AsyncWebServerRequest* request);
-    void handleSetConfig(AsyncWebServerRequest* request, uint8_t* data, size_t len);
+    void handleGetConfig(AsyncWebServerRequest* request); // convert hex->percent for user
+    void handleSetConfig(AsyncWebServerRequest* request, uint8_t* data, size_t len); // convert percent->hex from user
     void handleGetTimers(AsyncWebServerRequest* request);
     void handleSetTimer(AsyncWebServerRequest* request, uint8_t* data, size_t len);
     
@@ -65,7 +70,6 @@ private:
     String getPresetsJSON();
     String getConfigJSON();
     String getTimersJSON();
-    bool applySafetyLimits(uint8_t& brightness, uint32_t& transitionTime);
 };
 
 #endif

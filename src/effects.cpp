@@ -1,5 +1,3 @@
-// === Includes ===
-#include "debug.h"
 #include "state.h"
 #include <vector>
 #include <array>
@@ -39,19 +37,7 @@ void effect_solid_frame() {
   uint32_t c = color[0];
   uint8_t r, g, b, w;
   unpack_rgbw(c, r, g, b, w);
-  debugPrint("[effect_solid_frame] input color: 0x");
-  debugPrint(String(c, HEX));
-  debugPrint(" unpacked: r="); debugPrint((int)r);
-  debugPrint(" g="); debugPrint((int)g);
-  debugPrint(" b="); debugPrint((int)b);
-  debugPrint(" w="); debugPrint((int)w);
-  debugPrintln("");
   scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-  debugPrint("[effect_solid_frame] after scale: r="); debugPrint((int)r);
-  debugPrint(" g="); debugPrint((int)g);
-  debugPrint(" b="); debugPrint((int)b);
-  debugPrint(" w="); debugPrint((int)w);
-  debugPrintln("");
   if (!g_effectBuffer) return;
   for (size_t i = 0; i < g_ledCount; ++i) {
     (*g_effectBuffer)[i] = pack_rgbw(r, g, b, w);
@@ -202,27 +188,6 @@ void renderEffectToBuffer(uint8_t effectId, const EffectParams& params, std::vec
   g_effectBuffer = old_g_effectBuffer;
   g_ledCount = old_g_ledCount;
 
-  // Debug output: print buffer contents after rendering
-  debugPrint("[renderEffectToBuffer] effectId: "); debugPrintln((int)effectId);
-  debugPrint("[renderEffectToBuffer] buffer: ");
-  char buf[12];
-  for (size_t i = 0; i < buffer.size(); ++i) {
-    snprintf(buf, sizeof(buf), "#%08X", buffer[i]);
-    debugPrint(buf); debugPrint(" ");
-  }
-  debugPrintln("");
-}
-
-// === Utility/helper functions ===
-void debugPrintStripColors(const std::vector<uint32_t>& colors, const char* tag) {
-  debugPrint("["); debugPrint(tag); debugPrint("] ");
-  char buf[12];
-  for (size_t i = 0; i < colors.size(); ++i) {
-    snprintf(buf, sizeof(buf), "#%08X", colors[i]);
-    debugPrint(buf);
-    debugPrint(" ");
-  }
-  debugPrintln("");
 }
 
 uint32_t getEffectDelayMs(const EffectParams& params) {
