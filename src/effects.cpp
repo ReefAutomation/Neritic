@@ -32,6 +32,18 @@ void effect_chase_frame();
 // === Registry ===
 std::vector<EffectRegistryEntry> effectRegistry;
 
+// === Color blend utility ===
+static uint32_t color_blend(uint32_t color1, uint32_t color2, uint8_t blend) {
+  const uint32_t TWO_CHANNEL_MASK = 0x00FF00FF;
+  uint32_t rb1 =  color1       & TWO_CHANNEL_MASK;
+  uint32_t wg1 = (color1 >> 8) & TWO_CHANNEL_MASK;
+  uint32_t rb2 =  color2       & TWO_CHANNEL_MASK;
+  uint32_t wg2 = (color2 >> 8) & TWO_CHANNEL_MASK;
+  uint32_t rb3 = ((((rb1 << 8) | rb2) + (rb2 * blend) - (rb1 * blend)) >> 8) &  TWO_CHANNEL_MASK;
+  uint32_t wg3 = ((((wg1 << 8) | wg2) + (wg2 * blend) - (wg1 * blend)))      & ~TWO_CHANNEL_MASK;
+  return rb3 | wg3;
+}
+
 // === Frame generator functions ===
 void effect_solid_frame() {
   uint32_t c = color[0];
@@ -52,26 +64,42 @@ void effect_blend_frame() {
     for (size_t i = 0; i < g_ledCount; ++i) (*g_effectBuffer)[i] = 0;
     return;
   }
+  // Prepare palette
   std::vector<uint32_t> stops;
   for (size_t i = 0; i < colorCount; ++i) {
     const char* cstr = state.params.colors[i].c_str();
     stops.push_back((uint32_t)strtoul(cstr + (cstr[0] == '#' ? 1 : 0), nullptr, 16));
   }
+  // Persistent pixel buffer for blending
+  static std::vector<uint32_t> blendBuffer;
+  if (blendBuffer.size() != g_ledCount) blendBuffer.assign(g_ledCount, stops[0]);
+  // Timing and speed
   uint32_t now = millis();
   uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
-  uint32_t period = 10000 - ((speed - 1) * 9000 / 99);
-  float phase = float(now % period) / float(period);
+  // Map speed to blend speed
+  uint8_t blendSpeed = 10 + ((speed - 1) * (128 - 10) / 99);
+  // Phase for palette shift
+  uint32_t shift = (now * ((speed >> 3) + 1)) >> 8;
   for (size_t i = 0; i < g_ledCount; ++i) {
-    float ledPos = float(i) / float(g_ledCount - 1);
-    float shiftedPos = fmodf(ledPos + phase, 1.0f);
-    float stopPos = shiftedPos * (colorCount - 1);
-    int stopIdx = int(stopPos);
-    float frac = stopPos - stopIdx;
+    // Wavy offset for each pixel (quadwave8 analog)
+    float wave = 128.0f * (1.0f - cosf(2.0f * 3.14159265f * (float(i + 1) * 16) / 256.0f)); // quadwave8 approx
+    size_t paletteIdx = (shift + (uint32_t)wave) % (colorCount * 256);
+    size_t stopIdx = paletteIdx / 256;
+    float frac = (paletteIdx % 256) / 255.0f;
     uint32_t c1 = stops[stopIdx];
-    uint32_t c2 = (stopIdx < int(colorCount - 1)) ? stops[stopIdx + 1] : stops[colorCount - 1];
-    uint8_t r, g, b, w;
-    blend_rgbw_brightness(c1, c2, frac, state.brightness, r, g, b, w);
-    (*g_effectBuffer)[i] = pack_rgbw(r, g, b, w); // RRGGBBWW
+    uint32_t c2 = stops[(stopIdx + 1) % colorCount];
+    // Blend previous color toward target palette color
+    uint32_t target;
+    {
+      uint8_t r, g, b, w;
+      blend_rgbw_brightness(c1, c2, frac, state.brightness, r, g, b, w);
+      target = pack_rgbw(r, g, b, w);
+    }
+    // Blend current pixel toward target using blendSpeed
+    uint32_t prev = blendBuffer[i];
+    uint8_t br = blendSpeed;
+    blendBuffer[i] = color_blend(prev, target, br);
+    (*g_effectBuffer)[i] = blendBuffer[i];
   }
 }
 REGISTER_EFFECT(1, "Blend", effect_blend_frame)
@@ -103,20 +131,24 @@ void effect_flow_frame() {
   size_t zoneLen = g_ledCount / zones;
   size_t offset = (g_ledCount - zones * zoneLen) >> 1;
 
-  // Helper: get color from palette (wraps palette if needed)
+  // Helper: get color from palette (always wraps, last blends into first)
   auto get_palette_color = [&](int idx) -> uint32_t {
     if (colorCount == 0) return 0;
-    float pos = float((idx % 256 + 256) % 256) / 255.0f;
-    float scaled = pos * (colorCount - 1);
-    size_t i0 = size_t(scaled);
-    size_t i1 = (i0 + 1 < colorCount) ? i0 + 1 : i0;
-    float frac = scaled - float(i0);
+    int wrapped = ((idx % 256) + 256) % 256;
+    float pos = float(wrapped) / 255.0f;
+    float scaled = pos * colorCount;
+    size_t i0 = size_t(scaled) % colorCount;
+    size_t i1 = (i0 + 1) % colorCount;
+    float frac = scaled - float(size_t(scaled));
     uint32_t c0 = stops[i0];
     uint32_t c1 = stops[i1];
     uint8_t r, g, b, w;
     blend_rgbw_brightness(c0, c1, frac, state.brightness, r, g, b, w);
     return pack_rgbw(r, g, b, w);
   };
+
+  // Use reverse from params
+  bool reverse = state.params.reverse;
 
   // Fill all LEDs with background palette color
   for (size_t i = 0; i < g_ledCount; ++i) {
@@ -128,7 +160,7 @@ void effect_flow_frame() {
     size_t pos = offset + z * zoneLen;
     for (size_t i = 0; i < zoneLen; ++i) {
       int colorIndex = int(i * 255 / zoneLen) - int(counter);
-      size_t led = (z & 0x01) ? i : (zoneLen - 1) - i;
+      size_t led = ((z & 0x01) ^ reverse) ? i : (zoneLen - 1) - i;
       if (pos + led < g_ledCount)
         (*g_effectBuffer)[pos + led] = get_palette_color(colorIndex);
     }
@@ -139,21 +171,78 @@ REGISTER_EFFECT(2, "Flow", effect_flow_frame)
 void effect_chase_frame() {
   if (!g_effectBuffer) return;
   if (g_ledCount == 0) return;
+  // order: color[2]=background, color[1]=main, color[0]=trail
+  uint32_t bgColor = (color[2] != 0) ? color[2] : 0;
+  uint32_t mainColor = (color[1] != 0) ? color[1] : bgColor;
+  uint32_t trailColor = (color[0] != 0) ? color[0] : mainColor;
+  // Speed and phase
   uint32_t now = millis();
   uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
-  uint8_t size = state.params.intensity > 0 ? state.params.intensity : 8; // default chase size
-  uint32_t period = 2000 - ((speed - 1) * 1800 / 99); // 2000ms (slow) to 200ms (fast)
-  float phase = float(now % period) / float(period);
-  size_t chaseLen = (size * g_ledCount) / 255;
-  if (chaseLen < 1) chaseLen = 1;
-  size_t chaseStart = size_t(phase * (g_ledCount + chaseLen)) % (g_ledCount + chaseLen);
+  uint16_t counter = now * ((speed >> 2) + 1);
+  uint16_t a = (counter * g_ledCount) >> 16;
+  // Intensity controls chase size
+  uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 128;
+  uint16_t chaseSize = 1 + ((intensity * g_ledCount) >> 10);
+  if (chaseSize >= g_ledCount / 2) chaseSize = g_ledCount / 2;
+  uint16_t b = a + chaseSize;
+  if (b >= g_ledCount) b -= g_ledCount;
+  uint16_t c = b + chaseSize;
+  if (c >= g_ledCount) c -= g_ledCount;
+  // (No special case: always fill background, then main, then trail, even if they overlap)
+  // Fill background
   for (size_t i = 0; i < g_ledCount; ++i) {
-    bool inChase = (i >= chaseStart && i < chaseStart + chaseLen);
-    uint32_t c = inChase ? color[0] : color[1];
     uint8_t r, g, b, w;
-    unpack_rgbw(c, r, g, b, w);
+    unpack_rgbw(bgColor, r, g, b, w);
     scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
     (*g_effectBuffer)[i] = pack_rgbw(r, g, b, w);
+  }
+  // Fill main chase (a to b)
+  if (a != b) {
+    if (a < b) {
+      for (size_t i = a; i < b; ++i) {
+        uint8_t r, g, b, w;
+        unpack_rgbw(mainColor, r, g, b, w);
+        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
+        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
+      }
+    } else {
+      for (size_t i = a; i < g_ledCount; ++i) {
+        uint8_t r, g, b, w;
+        unpack_rgbw(mainColor, r, g, b, w);
+        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
+        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
+      }
+      for (size_t i = 0; i < b; ++i) {
+        uint8_t r, g, b, w;
+        unpack_rgbw(mainColor, r, g, b, w);
+        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
+        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
+      }
+    }
+  }
+  // Fill trail (b to c), always, even if it overlaps main
+  if (b != c) {
+    if (b < c) {
+      for (size_t i = b; i < c; ++i) {
+        uint8_t r, g, b, w;
+        unpack_rgbw(trailColor, r, g, b, w);
+        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
+        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
+      }
+    } else {
+      for (size_t i = b; i < g_ledCount; ++i) {
+        uint8_t r, g, b, w;
+        unpack_rgbw(trailColor, r, g, b, w);
+        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
+        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
+      }
+      for (size_t i = 0; i < c; ++i) {
+        uint8_t r, g, b, w;
+        unpack_rgbw(trailColor, r, g, b, w);
+        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
+        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
+      }
+    }
   }
 }
 REGISTER_EFFECT(3, "Chase", effect_chase_frame)
@@ -196,16 +285,6 @@ uint32_t getEffectDelayMs(const EffectParams& params) {
   return 200 - ((speed - 1) * 190 / 99);
 }
 
-static uint32_t color_blend(uint32_t color1, uint32_t color2, uint8_t blend) {
-  const uint32_t TWO_CHANNEL_MASK = 0x00FF00FF;
-  uint32_t rb1 =  color1       & TWO_CHANNEL_MASK;
-  uint32_t wg1 = (color1 >> 8) & TWO_CHANNEL_MASK;
-  uint32_t rb2 =  color2       & TWO_CHANNEL_MASK;
-  uint32_t wg2 = (color2 >> 8) & TWO_CHANNEL_MASK;
-  uint32_t rb3 = ((((rb1 << 8) | rb2) + (rb2 * blend) - (rb1 * blend)) >> 8) &  TWO_CHANNEL_MASK;
-  uint32_t wg3 = ((((wg1 << 8) | wg2) + (wg2 * blend) - (wg1 * blend)))      & ~TWO_CHANNEL_MASK;
-  return rb3 | wg3;
-}
 
 // === Miscellaneous functions ===
 void updatePixelCount() {

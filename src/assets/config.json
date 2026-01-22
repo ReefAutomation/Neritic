@@ -6,11 +6,11 @@
 		"apPassword": ""
 	},
 	"led": {
-		"pin": 2,
+		"pin": 13,
 		"count": 34,
 		"type": "SK6812",
 		"colorOrder": "GRB",
-		"relayPin": 12,
+		"relayPin": 2,
 		"relayActiveHigh": true
 	},
 	"safety": {

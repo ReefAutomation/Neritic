@@ -53,17 +53,36 @@ function displayConfig() {
             document.getElementById('maxBrightnessValue').textContent = percent + '%';
         }
         if (window.config.safety.minTransitionTime !== undefined) {
-            const minTransSeconds = Math.floor(Number(window.config.safety.minTransitionTime) / 1000);
-            document.getElementById('minTransition').value = minTransSeconds;
-            document.getElementById('minTransitionValue').textContent = minTransSeconds;
+            // Convert ms to slider value using custom mapping
+            const ms = Number(window.config.safety.minTransitionTime);
+            let sliderVal = 0;
+            const sec = Math.round(ms / 1000);
+            if (sec <= 59) sliderVal = sec;
+            else if (sec < 3600) sliderVal = 59 + Math.round(sec / 60);
+            else sliderVal = 119 + Math.round(sec / 3600);
+            document.getElementById('minTransition').value = sliderVal;
+            document.getElementById('minTransitionValue').textContent = formatTransitionTime(sec);
         }
     }
     // Transition Times
     if (window.config.transitionTimes) {
-        document.getElementById('ttPowerOn').value = Math.floor((window.config.transitionTimes.powerOn || 0) / 1000);
-        document.getElementById('ttSchedule').value = Math.floor((window.config.transitionTimes.schedule || 0) / 1000);
-        document.getElementById('ttManual').value = Math.floor((window.config.transitionTimes.manual || 0) / 1000);
-        document.getElementById('ttEffect').value = Math.floor((window.config.transitionTimes.effect || 0) / 1000);
+        const ttFields = [
+            { id: 'ttPowerOn', val: window.config.transitionTimes.powerOn },
+            { id: 'ttSchedule', val: window.config.transitionTimes.schedule },
+            { id: 'ttManual', val: window.config.transitionTimes.manual },
+            { id: 'ttEffect', val: window.config.transitionTimes.effect }
+        ];
+        ttFields.forEach(f => {
+            const el = document.getElementById(f.id);
+            let sliderVal = 0;
+            const sec = Math.round((f.val || 0) / 1000);
+            if (sec <= 59) sliderVal = sec;
+            else if (sec < 3600) sliderVal = 59 + Math.round(sec / 60);
+            else sliderVal = 119 + Math.round(sec / 3600);
+            if (el) el.value = sliderVal;
+            const valSpan = document.getElementById(f.id + 'Value');
+            if (valSpan) valSpan.textContent = formatTransitionTime(sec);
+        });
     }
     // Time
     if (window.config.time) {
@@ -78,25 +97,6 @@ function displayConfig() {
                     opt.textContent = tzName;
                     tzSelect.appendChild(opt);
                 });
-        // --- GPS Button Handler ---
-        const gpsBtn = document.getElementById('getLocationBtn');
-        if (gpsBtn && !gpsBtn._handlerSet) {
-            window._gpsListenerSet = window._gpsListenerSet || false;
-            gpsBtn.onclick = function () {
-                if (!window._gpsListenerSet) {
-                    window.addEventListener('message', function (event) {
-                        if (event.origin !== 'https://locate.wled.me') return;
-                        if (event.data && typeof event.data === 'object' && 'lat' in event.data && 'lon' in event.data) {
-                            document.getElementById('latitude').value = event.data.lat;
-                            document.getElementById('longitude').value = event.data.lon;
-                        }
-                    }, false);
-                    window._gpsListenerSet = true;
-                }
-                window.open('https://locate.wled.me', '_blank');
-            };
-            gpsBtn._handlerSet = true;
-        }
             }
             if (window.config.time.timezone) tzSelect.value = window.config.time.timezone;
         }
@@ -322,13 +322,45 @@ if (maxBrightnessInput) {
         document.getElementById('maxBrightnessValue').textContent = e.target.value + '%';
     });
 }
+
+
 const minTransitionInput = document.getElementById('minTransition');
 if (minTransitionInput) {
+    minTransitionInput.min = 0;
+    minTransitionInput.max = 127;
+    minTransitionInput.step = 1;
     minTransitionInput.addEventListener('input', e => {
-        document.getElementById('minTransitionValue').textContent = e.target.value;
+        let seconds = steppedTransitionValue(e.target.value);
+        minTransitionInput.value = e.target.value;
+        document.getElementById('minTransitionValue').textContent = formatTransitionTime(seconds);
     });
+    // Set initial display with unit
+    let initial = minTransitionInput.value;
+    let seconds = steppedTransitionValue(initial);
+    minTransitionInput.value = initial;
+    document.getElementById('minTransitionValue').textContent = formatTransitionTime(seconds);
 }
 
+// Transition Times sliders: stepped and show value
+['ttPowerOn','ttSchedule','ttManual','ttEffect'].forEach(id => {
+    const el = document.getElementById(id);
+    const valSpan = document.getElementById(id + 'Value');
+    if (el && valSpan) {
+        el.min = 0;
+        el.max = 127;
+        el.step = 1;
+        el.addEventListener('input', e => {
+            let seconds = steppedTransitionValue(e.target.value);
+            el.value = e.target.value;
+            valSpan.textContent = formatTransitionTime(seconds);
+        });
+        // Set initial display with unit
+        let initial = el.value;
+        let seconds = steppedTransitionValue(initial);
+        el.value = initial;
+        valSpan.textContent = formatTransitionTime(seconds);
+    }
+});
 
 async function sendCommandWithStatus(command) {
     try {
@@ -396,7 +428,13 @@ function saveConfig() {
         const safetyUpdate = {};
         const maxBrightness = Math.max(1, Math.min(100, parseInt(document.getElementById('maxBrightness').value)));
         if (!orig.safety || maxBrightness !== orig.safety.maxBrightness) safetyUpdate.maxBrightness = maxBrightness;
-        const minTransitionTime = Math.max(2, parseInt(document.getElementById('minTransition').value)) * 1000;
+        // Convert slider value to seconds using custom mapping
+        const sliderVal = parseInt(document.getElementById('minTransition').value);
+        let minTransitionTime = 0;
+        if (sliderVal <= 59) minTransitionTime = sliderVal * 1000;
+        else if (sliderVal <= 119) minTransitionTime = (sliderVal - 59) * 60 * 1000;
+        else if (sliderVal <= 127) minTransitionTime = (sliderVal - 119) * 3600 * 1000;
+        else minTransitionTime = 28800 * 1000;
         if (!orig.safety || minTransitionTime !== orig.safety.minTransitionTime) safetyUpdate.minTransitionTime = minTransitionTime;
         if (Object.keys(safetyUpdate).length > 0) update.safety = safetyUpdate;
     }
@@ -504,12 +542,12 @@ if (rebootBtn && !rebootBtn._handlerSet) {
     rebootBtn.onclick = async function () {
         rebootBtn.disabled = true;
         rebootBtn.textContent = 'Rebooting...';
-        const statusSpan = document.getElementById('systemStatus');
-        if (statusSpan) statusSpan.textContent = '';
+        // Use toast for status
+        showToast('', 'info');
         try {
             const result = await sendCommandWithStatus('reboot');
             if (result && result.success) {
-                if (statusSpan) statusSpan.textContent = 'Rebooting device...';
+                showToast('Rebooting device...', 'info');
                 rebootBtn.textContent = 'Rebooting...';
                 setTimeout(() => {
                     rebootBtn.textContent = 'Reboot Device';
@@ -517,17 +555,74 @@ if (rebootBtn && !rebootBtn._handlerSet) {
                     if (statusSpan) statusSpan.textContent = '';
                 }, 8000);
             } else {
-                if (statusSpan) statusSpan.textContent = 'Reboot failed!';
+                showToast('Reboot failed!', 'error');
                 rebootBtn.textContent = 'Reboot Device';
                 rebootBtn.disabled = false;
             }
         } catch (e) {
-            if (statusSpan) statusSpan.textContent = 'Reboot error!';
+            showToast('Reboot error!', 'error');
             rebootBtn.textContent = 'Reboot Device';
             rebootBtn.disabled = false;
         }
     };
     rebootBtn._handlerSet = true;
+}
+
+// Attach Update button handler
+// Attach GPS button handler
+const gpsBtn = document.getElementById('getLocationBtn');
+if (gpsBtn && !gpsBtn._handlerSet) {
+    window._gpsListenerSet = window._gpsListenerSet || false;
+    gpsBtn.onclick = function () {
+        if (!window._gpsListenerSet) {
+            window.addEventListener('message', function (event) {
+                if (event.origin !== 'https://locate.wled.me') return;
+                if (event.data && typeof event.data === 'object' && 'lat' in event.data && 'lon' in event.data) {
+                    document.getElementById('latitude').value = event.data.lat;
+                    document.getElementById('longitude').value = event.data.lon;
+                    if (window._gpsPopup && !window._gpsPopup.closed) window._gpsPopup.close();
+                }
+            }, false);
+            window._gpsListenerSet = true;
+        }
+        // Open as larger popup window
+        const w = 500, h = 500;
+        const left = window.screenX + (window.outerWidth - w) / 2;
+        const top = window.screenY + (window.outerHeight - h) / 2;
+        window._gpsPopup = window.open('https://locate.wled.me', 'wled_gps', `width=${w},height=${h},left=${left},top=${top},resizable,scrollbars`);
+        if (window._gpsPopup) window._gpsPopup.focus();
+    };
+    gpsBtn._handlerSet = true;
+}
+
+const updateBtn = document.getElementById('updateButton');
+if (updateBtn && !updateBtn._handlerSet) {
+    updateBtn.onclick = async function () {
+        updateBtn.disabled = true;
+        updateBtn.textContent = 'Checking...';
+        // Use toast for status
+        showToast('', 'info');
+        try {
+            // Call backend endpoint to check and install update
+            const resp = await fetch(BASE_URL + '/api/update', { method: 'POST' });
+            const result = await resp.json();
+            if (result && result.success) {
+                updateBtn.textContent = 'Updating...';
+                showToast('Installing update... Device will reboot.', 'info');
+            } else {
+                updateBtn.textContent = 'Check for Updates';
+                showToast(result && result.message ? result.message : 'No update found.', 'info');
+            }
+        } catch (e) {
+            updateBtn.textContent = 'Check for Updates';
+            showToast('Update check failed!', 'error');
+        }
+        setTimeout(() => {
+            updateBtn.textContent = 'Check for Updates';
+            updateBtn.disabled = false;
+        }, 6000);
+    };
+    updateBtn._handlerSet = true;
 }
 
 // --- Upload Config Handler ---
@@ -588,3 +683,56 @@ if (uploadInput && !uploadInput._handlerSet) {
     });
     uploadInput._handlerSet = true;
 }
+
+// --- WebSocket OTA Status & Toast ---
+function showToast(message, type = 'info', duration = 4000) {
+    let toast = document.getElementById('toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.className = 'toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.className = 'toast show ' + type;
+    setTimeout(() => {
+        toast.className = 'toast';
+    }, duration);
+}
+
+function addOtaStatusHandlerToWs(ws) {
+    if (!ws) return;
+    ws.addEventListener('message', (event) => {
+        console.debug('[WS] Message:', event.data);
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'ota_status') {
+                if (msg.status === 'success') {
+                    showToast('OTA update successful! Device will reboot.', 'success');
+                } else if (msg.status === 'error') {
+                    const errMsg = msg.message || msg.error || 'Unknown error';
+                    showToast('OTA update failed: ' + errMsg, 'error');
+                }
+            }
+        } catch (e) {
+            // Not JSON, ignore
+        }
+    });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    // Use global ws from app.js if available, otherwise create it
+    let ws = window.ws;
+    if (!ws) {
+        let wsUrl;
+        if (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+            // Use BASE_URL from app.js
+            wsUrl = BASE_URL.replace(/^http/, 'ws') + '/ws';
+        } else {
+            wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+        }
+        ws = new WebSocket(wsUrl);
+        window.ws = ws;
+    }
+    addOtaStatusHandlerToWs(ws);
+});

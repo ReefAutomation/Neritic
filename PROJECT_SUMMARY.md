@@ -23,7 +23,7 @@ DeepGlow/
 │   ├── webserver.h               # Web server declarations
 │   └── webserver.cpp             # REST API & WebSocket implementation
 │
-├── data/                         # Web interface (uploaded to filesystem)
+├── src/web_assets/               # Web interface (uploaded to filesystem)
 │   ├── index.html                # Main web interface
 │   ├── style.css                 # Ocean-themed styling
 │   └── app.js                    # WebSocket & API client logic

@@ -45,10 +45,11 @@
                 
                 <div class="control-item full-width">
                     <label>
-                        <span>Transition Time (seconds)</span>
-                        <span id="transitionValue">5</span>
+                        <span>Transition Time</span>
+                        <span id="transitionValue"></span>
                     </label>
-                    <input type="range" id="transitionSlider" min="0" max="28800" value="5" class="slider-input" step="1">
+                    <!-- Custom mapping: 0–59 for seconds, 60–119 for minutes, 120–127 for hours -->
+                    <input type="range" id="transitionSlider" min="0" max="127" value="5" class="slider-input" step="1">
                 </div>
                 
                 <div class="control-item full-width">
@@ -106,6 +107,9 @@
 
     </div>
 
+    <footer class="footer" style="text-align:center;margin-top:24px;color:#888;font-size:0.95em">
+        <span id="versionString">Version: ...</span>
+    </footer>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="fflate.min.js"></script>
     <script src="app.js"></script>

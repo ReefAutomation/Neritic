@@ -17,10 +17,10 @@
 *.elf
 *.hex
 *.img
-src/web_assets/*.inc
+*.inc
 
 # Exclude auto-downloaded browser-side decompression lib
-data/fflate.min.js
+fflate.min.js
 
 # Logs
 *.log
@@ -55,3 +55,5 @@ wifi_credentials.h
 # Documentation builds
 docs/_build/
 docs/.doctrees/
+
+lib/

@@ -16,13 +16,14 @@
 
 class WebServerManager {
 public:
-    // OTA handler for direct POST
-    void handleOTAUpdate(AsyncWebServerRequest* request, unsigned char* data, unsigned int len, unsigned int index, unsigned int total);
     WebServerManager(Configuration* config, Scheduler* scheduler);
     
     void begin();
     void update();
     void broadcastState();
+
+    // OTA status broadcast
+    void broadcastOtaStatus(const String& status, const String& message = "", int progress = -1);
     
     // Callbacks for control actions
     void onPowerChange(void (*callback)(bool));
@@ -70,6 +71,8 @@ private:
     String getPresetsJSON();
     String getConfigJSON();
     String getTimersJSON();
+        friend bool performGzOtaUpdate(String& errorOut);
+        friend void otaProgressCallback(uint8_t progress);
 };
 
 #endif

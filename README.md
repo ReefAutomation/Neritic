@@ -573,7 +573,7 @@ On every boot, the firmware deletes and regenerates `presets.json` with the defa
 │   ├── scheduler.h/cpp    # Time & scheduling
 │   ├── transition.h/cpp   # Smooth transitions
 │   └── webserver.h/cpp    # Web server & API
-├── data/
+├── src/web_assets/
 │   ├── index.html         # Web interface
 │   ├── style.css          # Styling
 │   └── app.js             # JavaScript logic

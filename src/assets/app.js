@@ -24,6 +24,23 @@ if (location.protocol === 'file:' || location.hostname === 'localhost' || locati
 // Global effect names list
 let effectNames = [];
 
+// Shared slider logic for both config.js and app.js
+window.steppedTransitionValue = function(val) {
+    val = Number(val);
+    if (val <= 59) return val; // 0–59s
+    if (val <= 119) return (val - 59) * 60; // 1–60m
+    if (val <= 127) return (val - 119) * 3600; // 1–8h
+    return 28800;
+};
+
+window.formatTransitionTime = function(val) {
+    val = Number(val);
+    if (val === 0) return '0s';
+    if (val < 60) return val + 's';
+    if (val < 3600) return Math.round(val / 60) + 'm';
+    return Math.round(val / 3600) + 'h';
+};
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     // Hide Quick Controls until first WebSocket message
@@ -41,6 +58,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (typeof loadPresets === 'function') loadPresets();
             if (typeof loadTimers === 'function') loadTimers();
         });
+        // Fetch and display version
+        fetch(BASE_URL + '/api/version')
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.version) {
+                    const vEl = document.getElementById('versionString');
+                    if (vEl) vEl.textContent = 'Version: ' + data.version;
+                }
+            })
+            .catch(() => {
+                const vEl = document.getElementById('versionString');
+                if (vEl) vEl.textContent = 'Version: (unavailable)';
+            });
     }
 
 // Load all available effects from backend
@@ -191,23 +221,21 @@ function initializeWebSocket() {
 // Update UI with state from server
 // Stepped transform for transition time slider (even-distribution, decisecond/second/minute/hour)
 function steppedTransitionValue(val) {
-    // 0-9: 0-9s (1s step)
-    if (val <= 9) return val;
-    // 10-59: 10-59s (5s step)
-    if (val <= 59) return Math.round(val / 5) * 5;
-    // 60-599: 1-9m59s (10s step)
-    if (val <= 599) return Math.round(val / 10) * 10;
-    // 600-3599: 10m-59m59s (1m step)
-    if (val <= 3599) return Math.round(val / 60) * 60;
-    // 3600-28800: 1h-8h (5m step)
-    return Math.round(val / 300) * 300;
+    // EXACTLY match Min Transition Time mapping from config.js
+    val = Number(val);
+    if (val <= 59) return val; // 0–59s
+    if (val <= 119) return (val - 59) * 60; // 1–60m
+    if (val <= 127) return (val - 119) * 3600; // 1–8h
+    return 28800;
 }
 
 // Format transition time for display
 function formatTransitionTime(val) {
+    val = Number(val);
+    if (val === 0) return '0s';
     if (val < 60) return val + 's';
-    if (val < 3600) return (val / 60).toFixed(val % 60 === 0 ? 0 : 1) + 'm';
-    return (val / 3600).toFixed(val % 3600 === 0 ? 0 : 1) + 'h';
+    if (val < 3600) return Math.round(val / 60) + 'm';
+    return Math.round(val / 3600) + 'h';
 }
 
 // Update UI with state from server
@@ -242,21 +270,15 @@ function updateState(state) {
     // Update transition slider and label from state
     if (typeof state.transitionTime !== 'undefined') {
         const transitionSlider = document.getElementById('transitionSlider');
-        const transitionSeconds = Math.round(Number(state.transitionTime) / 1000);
         if (transitionSlider) {
-            const sliderVal = (function secondsToSlider(seconds) {
-                seconds = parseInt(seconds);
-                if (seconds <= 59) return seconds - 1;
-                if (seconds <= 59 * 60) return 58 + Math.round((seconds - 60) / 60);
-                return 117 + Math.round((seconds - 3600) / 3600);
-            })(transitionSeconds);
-            if (transitionSlider.value != sliderVal) transitionSlider.value = sliderVal;
-            if (typeof updateExpoSlider === 'function') {
-                updateExpoSlider(sliderVal);
-            } else {
-                const transitionValue = document.getElementById('transitionValue');
-                if (transitionValue) transitionValue.textContent = formatTransitionTime(transitionSeconds);
-            }
+            let transitionSeconds = Math.round(Number(state.transitionTime) / 1000);
+            let sliderVal = 0;
+            if (transitionSeconds <= 59) sliderVal = transitionSeconds;
+            else if (transitionSeconds < 3600) sliderVal = 59 + Math.round(transitionSeconds / 60);
+            else sliderVal = 119 + Math.round(transitionSeconds / 3600);
+            transitionSlider.value = sliderVal;
+            const transitionValue = document.getElementById('transitionValue');
+            if (transitionValue) transitionValue.textContent = formatTransitionTime(transitionSeconds);
         }
     }
 
@@ -366,8 +388,9 @@ function updateState(state) {
 function setupEventListeners() {
     // Power toggle
     const powerToggle = document.getElementById('powerToggle');
-    // Transition time slider (expo-step)
+    // Transition time slider (stepped)
     const transitionSlider = document.getElementById('transitionSlider');
+    const transitionValue = document.getElementById('transitionValue');
     if (powerToggle) {
         powerToggle.addEventListener('change', (e) => {
             sendState({ power: e.target.checked });
@@ -389,98 +412,39 @@ function setupEventListeners() {
             sendState({ brightness: percent });
         });
     }
-        if (transitionSlider) {
-            // Even distribution: seconds (1–59), minutes (1–59), hours (1–8)
-            // Slider range: 0–(59+59+8-1) = 0–125
-            // 0–58: seconds (1–59)
-            // 59–117: minutes (1–59)
-            // 118–125: hours (1–8)
-            function sliderToTime(val) {
-                val = parseInt(val);
-                if (val <= 58) return val + 1; // 1–59s
-                if (val <= 117) return (val - 58); // 1–59m
-                return (val - 117); // 1–8h
-            }
-            function timeToSeconds(time, segment) {
-                if (segment === 's') return time;
-                if (segment === 'm') return time * 60;
-                return time * 3600;
-            }
-            // Ensure max slider value (125) always maps to 8h (28800s)
-            function sliderToSeconds(val) {
-                val = parseInt(val);
-                if (val <= 58) return val + 1; // 1–59s
-                if (val <= 117) return (val - 58) * 60 + 60; // 1–59m
-                return (val - 117) * 3600 + 3600; // 1–8h
-            }
-            function secondsToSlider(seconds) {
-                seconds = parseInt(seconds);
-                if (seconds <= 59) return seconds - 1;
-                if (seconds <= 59 * 60) return 58 + Math.round((seconds - 60) / 60);
-                return 117 + Math.round((seconds - 3600) / 3600);
-            }
-            function formatExpoTime(val) {
-                if (val < 60) return val + 's';
-                if (val < 3600) return (val / 60) + 'm';
-                return (val / 3600) + 'h';
-            }
-            function updateExpoSlider(val) {
-                val = parseInt(val);
-                // Clamp value to slider range
-                if (val < 0) val = 0;
-                if (val > 125) val = 125;
-                const seconds = sliderToSeconds(val);
-
-                // Only update value if not already set
-                if (transitionSlider.value != val) transitionSlider.value = val;
-                const transitionValue = document.getElementById('transitionValue');
-                if (transitionValue) transitionValue.textContent = formatExpoTime(seconds);
-                return seconds;
-            }
-            transitionSlider.max = 125;
-            transitionSlider.min = 0;
-            transitionSlider.step = 1;
-            transitionSlider.addEventListener('input', (e) => {
-                updateExpoSlider(e.target.value);
-            });
-            transitionSlider.addEventListener('change', (e) => {
-                const seconds = updateExpoSlider(e.target.value);
-                sendState({ transitionTime: seconds * 1000 });
-            });
-            // On load, set slider to match state
-            if (typeof currentState.transitionTime !== 'undefined') {
-                const seconds = Math.round(Number(currentState.transitionTime) / 1000);
-                transitionSlider.value = secondsToSlider(seconds);
-                updateExpoSlider(transitionSlider.value);
-            }
-        // On load, set slider to match state
+    if (transitionSlider && transitionValue) {
+        transitionSlider.min = 0;
+        transitionSlider.max = 127;
+        transitionSlider.step = 1;
+        // Set initial value
+        let initial = transitionSlider.value;
+        let seconds = steppedTransitionValue(initial);
+        transitionSlider.value = initial;
+        transitionValue.textContent = formatTransitionTime(seconds);
+        transitionSlider.addEventListener('input', e => {
+            let seconds = steppedTransitionValue(e.target.value);
+            transitionSlider.value = e.target.value;
+            transitionValue.textContent = formatTransitionTime(seconds);
+        });
+        transitionSlider.addEventListener('change', e => {
+            let seconds = steppedTransitionValue(e.target.value);
+            transitionSlider.value = e.target.value;
+            transitionValue.textContent = formatTransitionTime(seconds);
+            sendState({ transitionTime: seconds * 1000 });
+        });
+        // On load, set slider to match state (EXACTLY as in config.js)
         if (typeof currentState.transitionTime !== 'undefined') {
-            const t = Math.round(Number(currentState.transitionTime) / 1000);
-            transitionSlider.value = snapToStep(t);
-            updateExpoSlider(transitionSlider.value);
+            const ms = Number(currentState.transitionTime);
+            let sec = Math.round(ms / 1000);
+            let sliderVal = 0;
+            if (sec <= 59) sliderVal = sec;
+            else if (sec < 3600) sliderVal = 59 + Math.round(sec / 60);
+            else sliderVal = 119 + Math.round(sec / 3600);
+            transitionSlider.value = sliderVal;
+            transitionValue.textContent = formatTransitionTime(sec);
         }
     }
 
-    // Stepped transform for transition time slider (even-distribution, decisecond/second/minute/hour)
-    function steppedTransitionValue(val) {
-        // 0-9: 0-9s (1s step)
-        if (val <= 9) return val;
-        // 10-59: 10-59s (5s step)
-        if (val <= 59) return Math.round(val / 5) * 5;
-        // 60-599: 1-9m59s (10s step)
-        if (val <= 599) return Math.round(val / 10) * 10;
-        // 600-3599: 10m-59m59s (1m step)
-        if (val <= 3599) return Math.round(val / 60) * 60;
-        // 3600-28800: 1h-8h (5m step)
-        return Math.round(val / 300) * 300;
-    }
-
-    // Format transition time for display
-    function formatTransitionTime(val) {
-        if (val < 60) return val + 's';
-        if (val < 3600) return (val / 60).toFixed(val % 60 === 0 ? 0 : 1) + 'm';
-        return (val / 3600).toFixed(val % 3600 === 0 ? 0 : 1) + 'h';
-    }
     // Effect selector
     const effectSelect = document.getElementById('effectSelect');
     if (effectSelect) {

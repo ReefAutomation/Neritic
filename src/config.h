@@ -5,12 +5,6 @@
 #include <ArduinoJson.h>
 #include <vector>
 
-// Version
-#define FIRMWARE_VERSION "1.0.0"
-#define FIRMWARE_NAME "AquariumLED"
-
-
-
 // LED Configuration
 #define MAX_LED_COUNT 512
 #define FRAMES_PER_SECOND 60
@@ -91,6 +85,7 @@ struct EffectParams {
     uint8_t speed = 100; // percent (0–100)
     uint8_t intensity = 128;
     std::vector<String> colors = {"#000000", "#000000"};
+    bool reverse = false;
 };
 
 struct Timer {
@@ -137,6 +132,9 @@ public:
     bool save();
     bool factoryReset();
     void setDefaults();
+
+    // Serialize config to JSON string for API
+    String toJsonString();
 
     // GPS and timezone helpers
     void updateLocationFromGPS(float lat, float lon, bool valid);

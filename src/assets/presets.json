@@ -26,7 +26,7 @@
       "effect": 0,
       "enabled": true,
       "params": {
-        "colors": ["#FFFFFF"]
+        "colors": ["#000000FF"]
       }
     },
     {
@@ -46,8 +46,8 @@
       "enabled": true,
       "params": {
         "speed": 10,
-        "intensity": 40,
-        "colors": ["#0000B4", "#001E50"]
+        "intensity": 255,
+        "colors": ["#0000B405", "#001E50","#000000"]
       }
     }
   ]

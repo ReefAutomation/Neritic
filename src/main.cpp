@@ -36,11 +36,14 @@
 #include "config.h"
 #include "state.h"
 
+
+#include "version.h"
 #include "display.h"
 
 
 // Global BusManager instance
 BusManager busManager;
+WebServerManager* webServerPtr = nullptr;
 
 // Track last configuration for change detection
 Configuration lastConfiguration;
@@ -72,6 +75,7 @@ void checkSchedule();
 void checkAndApplyScheduleAfterBoot();
 
 void setup() {
+    webServerPtr = &webServer;
     // Initialize relay pin from config
     pinMode(config.led.relayPin, OUTPUT);
     // Set relay to off state at boot
@@ -79,11 +83,13 @@ void setup() {
     #ifdef DEBUG_SERIAL
     Serial.begin(SERIAL_BAUD);
     delay(1000);
+    Serial.println();
+    Serial.println("=================================");
+    Serial.println("  Aquarium LED Controller");
+    Serial.print("  Version: ");
+    Serial.println(getFirmwareVersion());
+    Serial.println("=================================");
     #endif
-    debugPrintln();
-    debugPrintln("=================================");
-    debugPrintln("  Aquarium LED Controller v1.0  ");
-    debugPrintln("=================================");
     
     // List files in LittleFS for debugging
     LittleFS.begin();

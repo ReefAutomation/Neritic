@@ -1,8 +1,8 @@
 #include "presets.h"
 using std::vector;
 
-#include "web_assets/config_default.inc"
-#include "web_assets/timezones_json.inc"
+#include "inc/config_default.inc"
+#include "inc/timezones_json.inc"
 #include "config.h"
 
 #include <vector>
@@ -12,6 +12,55 @@ using std::vector;
 
 #define FILESYSTEM LittleFS
 
+// Serialize the current configuration to a JSON string for API
+String Configuration::toJsonString() {
+    StaticJsonDocument<4096> doc;
+    JsonObject ledObj = doc.createNestedObject("led");
+    ledObj["pin"] = led.pin;
+    ledObj["count"] = led.count;
+    ledObj["type"] = led.type;
+    ledObj["colorOrder"] = led.colorOrder;
+    ledObj["relayPin"] = led.relayPin;
+    ledObj["relayActiveHigh"] = led.relayActiveHigh;
+
+    JsonObject safetyObj = doc.createNestedObject("safety");
+    safetyObj["minTransitionTime"] = safety.minTransitionTime;
+    safetyObj["maxBrightness"] = hexToPercent(safety.maxBrightness);
+
+    JsonObject timeObj = doc.createNestedObject("time");
+    timeObj["ntpServer"] = time.ntpServer;
+    timeObj["timezone"] = time.timezone;
+    timeObj["latitude"] = time.latitude;
+    timeObj["longitude"] = time.longitude;
+    timeObj["dstEnabled"] = time.dstEnabled;
+
+    JsonObject netObj = doc.createNestedObject("network");
+    netObj["hostname"] = network.hostname;
+    netObj["apPassword"] = network.apPassword;
+    netObj["ssid"] = network.ssid;
+
+    JsonObject tObj = doc.createNestedObject("transitionTimes");
+    tObj["powerOn"] = transitionTimes.powerOn;
+    tObj["schedule"] = transitionTimes.schedule;
+    tObj["manual"] = transitionTimes.manual;
+    tObj["effect"] = transitionTimes.effect;
+
+    JsonArray timersArray = doc.createNestedArray("timers");
+    for (size_t i = 0; i < timers.size(); i++) {
+        const auto& t = timers[i];
+        JsonObject timerObj = timersArray.createNestedObject();
+        timerObj["id"] = i;
+        timerObj["enabled"] = t.enabled;
+        timerObj["type"] = t.type;
+        timerObj["hour"] = t.hour;
+        timerObj["minute"] = t.minute;
+        timerObj["presetId"] = t.presetId;
+        timerObj["brightness"] = hexToPercent(t.brightness);
+    }
+    String output;
+    serializeJson(doc, output);
+    return output;
+}
 // Ensure filesystem is mounted before any file operation
 static bool ensureFilesystemMounted() {
     static bool mounted = false;
@@ -120,11 +169,10 @@ bool Configuration::load() {
     // Transition Times
     if (doc.containsKey("transitionTimes")) {
         JsonObject tObj = doc["transitionTimes"];
-        if (tObj.containsKey("powerOn")) transitionTimes.powerOn = tObj["powerOn"];
-        if (tObj.containsKey("schedule")) transitionTimes.schedule = tObj["schedule"];
-        if (tObj.containsKey("manual")) transitionTimes.manual = tObj["manual"];
-        if (tObj.containsKey("effect")) transitionTimes.effect = tObj["effect"];
-        // ...existing code...
+        transitionTimes.powerOn = tObj["powerOn"];
+        transitionTimes.schedule = tObj["schedule"];
+        transitionTimes.manual = tObj["manual"];
+        transitionTimes.effect = tObj["effect"];
     }
     // Network Configuration
     if (doc.containsKey("network")) {
