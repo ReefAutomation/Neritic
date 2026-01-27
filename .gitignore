@@ -19,9 +19,6 @@
 *.img
 *.inc
 
-# Exclude auto-downloaded browser-side decompression lib
-fflate.min.js
-
 # Logs
 *.log
 

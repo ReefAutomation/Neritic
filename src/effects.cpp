@@ -24,10 +24,11 @@ static size_t g_ledCount = 0;
 typedef void (*EffectFrameGen)();
 
 // === Forward declarations ===
-void effect_solid_frame();
-void effect_blend_frame();
-void effect_flow_frame();
-void effect_chase_frame();
+void effect_solid();
+void effect_sunrise();
+void effect_sunset();
+void effect_moonlight();
+void effect_lightning();
 
 // === Registry ===
 std::vector<EffectRegistryEntry> effectRegistry;
@@ -45,19 +46,22 @@ static uint32_t color_blend(uint32_t color1, uint32_t color2, uint8_t blend) {
 }
 
 // === Frame generator functions ===
-void effect_solid_frame() {
+void effect_solid() {
   uint32_t c = color[0];
   uint8_t r, g, b, w;
   unpack_rgbw(c, r, g, b, w);
-  scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
+  // Intensity modifier: scale brightness by intensity percent
+  uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
+  uint8_t mod_brightness = (uint16_t(state.brightness) * intensity) / 255;
+  scale_rgbw_brightness(r, g, b, w, mod_brightness, r, g, b, w);
   if (!g_effectBuffer) return;
   for (size_t i = 0; i < g_ledCount; ++i) {
     (*g_effectBuffer)[i] = pack_rgbw(r, g, b, w);
   }
 }
-REGISTER_EFFECT(0, "Solid", effect_solid_frame)
+REGISTER_EFFECT(0, "Solid", effect_solid)
 
-void effect_blend_frame() {
+void effect_sunrise() {
   if (!g_effectBuffer) return;
   size_t colorCount = state.params.colors.size();
   if (colorCount < 2) {
@@ -76,8 +80,10 @@ void effect_blend_frame() {
   // Timing and speed
   uint32_t now = millis();
   uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
-  // Map speed to blend speed
+  uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
+  // Intensity modifier: scale blendSpeed
   uint8_t blendSpeed = 10 + ((speed - 1) * (128 - 10) / 99);
+  blendSpeed = 1 + ((blendSpeed - 1) * intensity) / 255;
   // Phase for palette shift
   uint32_t shift = (now * ((speed >> 3) + 1)) >> 8;
   for (size_t i = 0; i < g_ledCount; ++i) {
@@ -102,9 +108,9 @@ void effect_blend_frame() {
     (*g_effectBuffer)[i] = blendBuffer[i];
   }
 }
-REGISTER_EFFECT(1, "Blend", effect_blend_frame)
+REGISTER_EFFECT(1, "Sunrise", effect_sunrise)
 
-void effect_flow_frame() {
+void effect_sunset() {
   if (!g_effectBuffer) return;
   if (g_ledCount == 0) return;
   size_t colorCount = state.params.colors.size();
@@ -116,6 +122,7 @@ void effect_flow_frame() {
   // Calculate counter based on speed
   uint32_t now = millis();
   uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
+  uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
   uint32_t counter = 0;
   if (speed != 0) {
     counter = now * ((speed >> 2) + 1);
@@ -124,8 +131,7 @@ void effect_flow_frame() {
 
   // Determine number of zones
   size_t maxZones = g_ledCount / 6;
-  size_t intensity = state.params.intensity > 0 ? state.params.intensity : 128;
-  size_t zones = (intensity * maxZones) >> 8;
+  size_t zones = 1 + ((intensity * maxZones) / 255);
   if (zones & 0x01) zones++;
   if (zones < 2) zones = 2;
   size_t zoneLen = g_ledCount / zones;
@@ -166,86 +172,191 @@ void effect_flow_frame() {
     }
   }
 }
-REGISTER_EFFECT(2, "Flow", effect_flow_frame)
+REGISTER_EFFECT(2, "Sunset", effect_sunset)
 
-void effect_chase_frame() {
+void effect_moonlight() {
   if (!g_effectBuffer) return;
   if (g_ledCount == 0) return;
-  // order: color[2]=background, color[1]=main, color[0]=trail
-  uint32_t bgColor = (color[2] != 0) ? color[2] : 0;
-  uint32_t mainColor = (color[1] != 0) ? color[1] : bgColor;
-  uint32_t trailColor = (color[0] != 0) ? color[0] : mainColor;
-  // Speed and phase
+
+  // Underwater moonlight: soft blue base, moving caustic highlight, gentle shimmer
+  // Base color: dim blue/cyan
+  uint8_t baseR = 10, baseG = 30, baseB = 60, baseW = 0;
+  // Highlight color: brighter blue/cyan
+  uint8_t highR = 40, highG = 120, highB = 255, highW = 0;
+
   uint32_t now = millis();
-  uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
-  uint16_t counter = now * ((speed >> 2) + 1);
-  uint16_t a = (counter * g_ledCount) >> 16;
-  // Intensity controls chase size
+  // Map speed param (1-255) to a practical, visible range
+  uint8_t userSpeed = state.params.speed > 0 ? state.params.speed : 30;
+  // At speed=1: 1 cycle per 8s; at speed=255: 1 cycle per 1s
+  float minPeriod = 8000.0f; // ms for one cycle at slowest
+  float maxPeriod = 1000.0f; // ms for one cycle at fastest
+  float t = (userSpeed - 1) / 254.0f;
+  float period = minPeriod - t * (minPeriod - maxPeriod);
+  float speed = 1.0f / period; // cycles per ms
+  // Debug: print speed mapping
+  static uint8_t lastDebugSpeed = 0;
+  if (userSpeed != lastDebugSpeed) {
+    printf("[Moonlight Debug] speed param: %d, period: %g ms, speed: %g cycles/ms\n", userSpeed, period, speed);
+    lastDebugSpeed = userSpeed;
+  }
+  float shimmerSpeed = 0.0015f;
   uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 128;
-  uint16_t chaseSize = 1 + ((intensity * g_ledCount) >> 10);
-  if (chaseSize >= g_ledCount / 2) chaseSize = g_ledCount / 2;
-  uint16_t b = a + chaseSize;
-  if (b >= g_ledCount) b -= g_ledCount;
-  uint16_t c = b + chaseSize;
-  if (c >= g_ledCount) c -= g_ledCount;
-  // (No special case: always fill background, then main, then trail, even if they overlap)
-  // Fill background
+  float waveLen = 0.08f + 0.32f * (intensity / 255.0f); // how wide the caustic highlight is
+
   for (size_t i = 0; i < g_ledCount; ++i) {
-    uint8_t r, g, b, w;
-    unpack_rgbw(bgColor, r, g, b, w);
-    scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-    (*g_effectBuffer)[i] = pack_rgbw(r, g, b, w);
-  }
-  // Fill main chase (a to b)
-  if (a != b) {
-    if (a < b) {
-      for (size_t i = a; i < b; ++i) {
-        uint8_t r, g, b, w;
-        unpack_rgbw(mainColor, r, g, b, w);
-        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
-      }
-    } else {
-      for (size_t i = a; i < g_ledCount; ++i) {
-        uint8_t r, g, b, w;
-        unpack_rgbw(mainColor, r, g, b, w);
-        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
-      }
-      for (size_t i = 0; i < b; ++i) {
-        uint8_t r, g, b, w;
-        unpack_rgbw(mainColor, r, g, b, w);
-        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
-      }
+    float pos = (float)i / g_ledCount;
+    float phase = fmodf(now * speed, 1.0f); // ensure phase wraps smoothly
+    // Use a raised cosine (Hann window) for the caustic highlight
+    float dist = fabsf(pos - phase);
+    if (dist > 0.5f) dist = 1.0f - dist; // wrap around
+    float caustic = 0.0f;
+    if (dist < waveLen) {
+      float x = dist / waveLen;
+      caustic = 0.5f * (1.0f + cosf(3.14159f * x)); // smooth, no spikes
     }
-  }
-  // Fill trail (b to c), always, even if it overlaps main
-  if (b != c) {
-    if (b < c) {
-      for (size_t i = b; i < c; ++i) {
-        uint8_t r, g, b, w;
-        unpack_rgbw(trailColor, r, g, b, w);
-        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
-      }
-    } else {
-      for (size_t i = b; i < g_ledCount; ++i) {
-        uint8_t r, g, b, w;
-        unpack_rgbw(trailColor, r, g, b, w);
-        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
-      }
-      for (size_t i = 0; i < c; ++i) {
-        uint8_t r, g, b, w;
-        unpack_rgbw(trailColor, r, g, b, w);
-        scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-        (*g_effectBuffer)[i % g_ledCount] = pack_rgbw(r, g, b, w);
-      }
-    }
+    // Gentle shimmer, even softer
+    float shimmer = 0.85f + 0.15f * sinf(now * shimmerSpeed + i * 0.7f);
+
+    // Blend base and highlight
+    float r = baseR * shimmer * (1.0f - caustic) + highR * shimmer * caustic;
+    float g = baseG * shimmer * (1.0f - caustic) + highG * shimmer * caustic;
+    float b = baseB * shimmer * (1.0f - caustic) + highB * shimmer * caustic;
+    float w = baseW * shimmer * (1.0f - caustic) + highW * shimmer * caustic;
+
+    scale_rgbw_brightness((uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)w, state.brightness, (uint8_t&)r, (uint8_t&)g, (uint8_t&)b, (uint8_t&)w);
+    (*g_effectBuffer)[i] = pack_rgbw((uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)w);
   }
 }
-REGISTER_EFFECT(3, "Chase", effect_chase_frame)
+REGISTER_EFFECT(3, "Moonlight", effect_moonlight)
+
+// Lightning effect: emulates a storm seen from underwater
+void effect_lightning() {
+    // Debug: print speed and delay info
+    static uint8_t lastDebugSpeed = 0;
+    static uint32_t lastDebugDelay = 0;
+    static uint8_t lastSpeed = 0;
+  if (!g_effectBuffer) return;
+  if (g_ledCount == 0) return;
+
+  static uint32_t lastFlash = 0;
+  static bool inBurst = false;
+  static uint32_t burstStart = 0;
+  static uint32_t burstDuration = 0;
+  static uint32_t burstFlashCount = 0;
+  static uint32_t burstFlashIdx = 0;
+  static uint32_t flashStart = 0;
+  static uint32_t flashLen = 0;
+  static uint32_t flashTime = 0;
+  static uint32_t flashDuration = 0;
+  static float flashIntensity = 0.0f;
+  static uint32_t rngSeed = 123456789;
+  static uint32_t nextDelay = 2000;
+
+  // Simple LCG for pseudo-randomness
+  auto randf = [&]() {
+    rngSeed = (rngSeed * 1664525UL + 1013904223UL);
+    return (rngSeed & 0xFFFFFF) / float(0xFFFFFF);
+  };
+
+  uint32_t now = millis();
+  // Use preset colors: first is base, last is flash, middle (if present) is highlight
+  uint8_t baseR = 0, baseG = 0, baseB = 0, baseW = 0;
+  uint8_t flashR = 0, flashG = 0, flashB = 0, flashW = 0;
+  const auto& colors = state.params.colors;
+  if (colors.size() > 0) {
+    uint32_t c = (uint32_t)strtoul(colors[0].c_str() + (colors[0][0] == '#' ? 1 : 0), nullptr, 16);
+    unpack_rgbw(c, baseR, baseG, baseB, baseW);
+  }
+  if (colors.size() > 1) {
+    uint32_t c = (uint32_t)strtoul(colors[colors.size()-1].c_str() + (colors[colors.size()-1][0] == '#' ? 1 : 0), nullptr, 16);
+    unpack_rgbw(c, flashR, flashG, flashB, flashW);
+  }
+
+  // Recalculate delay immediately if speed changes
+  uint8_t userSpeed = state.params.speed > 0 ? state.params.speed : 1;
+  if (userSpeed != lastSpeed) {
+    // Clamp to [1,255]
+    if (userSpeed < 1) userSpeed = 1;
+    if (userSpeed > 255) userSpeed = 255;
+    uint32_t maxDelay = 60000; // 60s
+    uint32_t minDelay = 5000;  // 5s
+    float t = (userSpeed - 1) / 254.0f;
+    uint32_t baseDelay = (uint32_t)(maxDelay - t * (maxDelay - minDelay));
+    float jitter = 0.9f + 0.2f * randf();
+    nextDelay = (uint32_t)(baseDelay * jitter);
+    lastSpeed = userSpeed;
+    // Debug output
+    printf("[Lightning Debug] speed param: %d, mapped: %d, baseDelay: %lu ms, nextDelay: %lu ms\n", state.params.speed, userSpeed, (unsigned long)baseDelay, (unsigned long)nextDelay);
+  }
+  // Flash logic
+  if (!inBurst && now - lastFlash > nextDelay) {
+    // Start a burst (lightning event)
+    inBurst = true;
+    burstStart = now;
+    burstDuration = 180 + (uint32_t)(randf() * 220); // 180-400ms burst
+    burstFlashCount = 2 + (uint32_t)(randf() * 4); // 2-5 flashes per burst
+    burstFlashIdx = 0;
+    flashTime = now;
+    flashDuration = 30 + (uint32_t)(randf() * 60); // 30-90ms per flash
+    uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
+    float minFlash = 0.1f + 0.7f * (intensity / 255.0f); // min intensity 0.1-0.8
+    float maxFlash = 0.5f + 0.5f * (intensity / 255.0f); // max intensity 0.5-1.0
+    flashIntensity = minFlash + (maxFlash - minFlash) * randf();
+    // Pick a random set of LEDs for the flash
+    flashLen = std::max(1U, (uint32_t)(1 + randf() * (g_ledCount - 1)));
+    flashStart = (uint32_t)(randf() * g_ledCount);
+    lastFlash = now;
+  }
+  if (inBurst) {
+    if (now - flashTime > flashDuration) {
+      // Next flash in burst
+      burstFlashIdx++;
+      if (burstFlashIdx < burstFlashCount) {
+        flashTime = now;
+        flashDuration = 30 + (uint32_t)(randf() * 60); // 30-90ms
+        // Use intensity for flash range in burst
+        uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
+        float minFlash = 0.1f + 0.7f * (intensity / 255.0f);
+        float maxFlash = 0.5f + 0.5f * (intensity / 255.0f);
+        flashIntensity = minFlash + (maxFlash - minFlash) * randf();
+        flashLen = std::max(1U, (uint32_t)(1 + randf() * (g_ledCount - 1)));
+        flashStart = (uint32_t)(randf() * g_ledCount);
+      } else {
+        inBurst = false;
+        flashIntensity = 0.0f;
+      }
+    }
+    // Optionally, fade out last flash at end of burst
+    if (burstFlashIdx == burstFlashCount - 1 && (now - flashTime > flashDuration / 2)) {
+      float t = 1.0f - float(now - flashTime) / float(flashDuration);
+      if (t < 0.2f) flashIntensity *= t / 0.2f;
+    }
+  } else {
+    flashIntensity = 0.0f;
+  }
+
+  // Gentle shimmer for underwater
+  float shimmerSpeed = 0.0015f;
+  for (size_t i = 0; i < g_ledCount; ++i) {
+    float shimmer = 0.85f + 0.15f * sinf(now * shimmerSpeed + i * 0.7f);
+    // Lightning: randomly distributed flash LEDs
+    bool inFlashSet = false;
+    if (inBurst && flashIntensity > 0.0f) {
+      // Each flash, randomly select which LEDs are lit
+      // Use a hash of flashStart, flashLen, and i for deterministic randomness per flash
+      uint32_t hash = (uint32_t)(flashStart ^ (i * 2654435761UL) ^ (flashLen * 374761393UL));
+      inFlashSet = ((hash % g_ledCount) < flashLen);
+    }
+    float segIntensity = inFlashSet ? flashIntensity : 0.0f;
+    float r = baseR * shimmer * (1.0f - segIntensity) + flashR * segIntensity;
+    float g = baseG * shimmer * (1.0f - segIntensity) + flashG * segIntensity;
+    float b = baseB * shimmer * (1.0f - segIntensity) + flashB * segIntensity;
+    float w = baseW * shimmer * (1.0f - segIntensity) + flashW * segIntensity;
+    scale_rgbw_brightness((uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)w, state.brightness, (uint8_t&)r, (uint8_t&)g, (uint8_t&)b, (uint8_t&)w);
+    (*g_effectBuffer)[i] = pack_rgbw((uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)w);
+  }
+}
+REGISTER_EFFECT(4, "Lightning", effect_lightning)
 
 // === Core rendering function ===
 void renderEffectToBuffer(uint8_t effectId, const EffectParams& params, std::vector<uint32_t>& buffer, size_t ledCount, const std::array<uint32_t, 8>& colors, size_t colorCount, uint8_t brightness) {

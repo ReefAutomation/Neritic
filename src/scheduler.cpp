@@ -63,18 +63,10 @@ void Scheduler::update() {
     bool apMode = (WiFi.getMode() == WIFI_MODE_AP);
     #endif
     if (!apMode) {
-        // If time is not valid, force NTP update every second
-        if (!isTimeValid()) {
-            if (millis() - _lastNTPUpdate > 1000) {
-                updateNTP();
-            }
-        } else {
-            // Update NTP periodically
-            if (millis() - _lastNTPUpdate > NTP_UPDATE_INTERVAL) {
-                updateNTP();
-            }
+        uint32_t interval = isTimeValid() ? NTP_UPDATE_INTERVAL : NTP_RETRY_INTERVAL;
+        if (millis() - _lastNTPUpdate > interval) {
+            updateNTP();
         }
-        // Update time client
         _timeClient->update();
     }
     // Calculate sun times only once per day at midnight or on first update

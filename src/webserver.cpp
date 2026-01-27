@@ -5,7 +5,6 @@
 #include "inc/wifi_html.inc"
 #include "inc/app_js.inc"
 #include "inc/style_css.inc"
-#include "inc/fflate_min_js.inc"
 #include "inc/config_html.inc"
 #include "inc/config_js.inc"
 
@@ -193,12 +192,10 @@ void WebServerManager::setupRoutes() {
     _server->on("/api/update", HTTP_POST, [logRequest, this](AsyncWebServerRequest* request) {
         logRequest(request);
         debugPrintln("[OTA] /api/update called. Launching OTA FreeRTOS task.");
-        static const char* firmwareUrl = "https://github.com/kabroxiko/DeepGlow/releases/download/v1.0.0/firmware_esp32d_debug_1.0.0.bin.gz";
-    #if defined(ESP32)
-        Serial.printf("[OTA] Free heap before OTA: %u\n", ESP.getFreeHeap());
+#if defined(ESP32)
         xTaskCreatePinnedToCore(
-            otaTask, "otaTask", 16384, (void*)firmwareUrl, 1, nullptr, 1);
-    #endif
+            otaTask, "otaTask", 16384, nullptr, 1, nullptr, 1);
+#endif
         AsyncWebServerResponse *resp = request->beginResponse(200, "application/json", "{\"success\":true,\"message\":\"OTA update started in background. Device will update and reboot.\"}");
         for (size_t i = 0; i < CORS_HEADER_COUNT; ++i) resp->addHeader(CORS_HEADERS[i][0], CORS_HEADERS[i][1]);
         request->send(resp);
@@ -257,8 +254,7 @@ void WebServerManager::setupRoutes() {
         request->send(resp);
     });
     // OTA Update endpoint (POST /ota, direct binary upload)
-    _server->on("/ota", HTTP_POST,
-        [logRequest](AsyncWebServerRequest* request) {
+    _server->on("/ota", HTTP_POST, [logRequest](AsyncWebServerRequest* request) {
             logRequest(request);
             AsyncWebServerResponse *resp = nullptr;
             if (Update.hasError()) {
@@ -390,11 +386,7 @@ void WebServerManager::setupRoutes() {
         logRequest(request);
         request->send_P(200, "text/css", web_style_css, web_style_css_len);
     });
-    _server->on("/fflate.min.js", HTTP_GET, [logRequest](AsyncWebServerRequest* request) {
-        logRequest(request);
-        request->send_P(200, "application/javascript", web_fflate_min_js, web_fflate_min_js_len);
-    });
-    
+
     // State API
     _server->on("/api/state", HTTP_OPTIONS, [logRequest](AsyncWebServerRequest* request) {
         logRequest(request);
@@ -596,11 +588,11 @@ void WebServerManager::handleSetState(AsyncWebServerRequest* request, uint8_t* d
         JsonObject paramsObj = doc["params"];
         EffectParams params = state.params;
         if (paramsObj.containsKey("speed") && !paramsObj["speed"].isNull()) {
-            params.speed = (uint8_t)paramsObj["speed"];
+            params.speed = percentToHex((uint8_t)paramsObj["speed"]); // convert percent to 8-bit
             updated = true;
         }
         if (paramsObj.containsKey("intensity") && !paramsObj["intensity"].isNull()) {
-            params.intensity = (uint8_t)paramsObj["intensity"];
+            params.intensity = percentToHex((uint8_t)paramsObj["intensity"]);
             updated = true;
         }
         if (paramsObj.containsKey("colors")) {
@@ -676,8 +668,8 @@ void WebServerManager::handleSetPreset(AsyncWebServerRequest* request, uint8_t* 
             it->enabled = doc["enabled"] | true;
             if (doc.containsKey("params")) {
                 JsonObject paramsObj = doc["params"];
-                it->params.speed = paramsObj["speed"].isNull() ? 100 : (uint8_t)paramsObj["speed"];
-                it->params.intensity = paramsObj["intensity"] | 128;
+                it->params.speed = paramsObj["speed"].isNull() ? percentToHex(100) : percentToHex((uint8_t)paramsObj["speed"]);
+                it->params.intensity = paramsObj["intensity"].isNull() ? percentToHex(50) : percentToHex((uint8_t)paramsObj["intensity"]);
                 it->params.colors.clear();
                 if (paramsObj.containsKey("colors")) {
                     JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
@@ -804,8 +796,8 @@ String WebServerManager::getStateJSON() {
         doc["effect"] = pendingTransition.effect;
         doc["preset"] = pendingTransition.preset;
         JsonObject paramsObj = doc.createNestedObject("params");
-        paramsObj["speed"] = pendingTransition.params.speed;
-        paramsObj["intensity"] = pendingTransition.params.intensity;
+        paramsObj["speed"] = hexToPercent(pendingTransition.params.speed);
+        paramsObj["intensity"] = hexToPercent(pendingTransition.params.intensity);
         JsonArray colorsArr = paramsObj.createNestedArray("colors");
         for (const auto& c : pendingTransition.params.colors) {
             colorsArr.add(c);
@@ -815,8 +807,8 @@ String WebServerManager::getStateJSON() {
         doc["effect"] = state.effect;
         doc["preset"] = state.preset;
         JsonObject paramsObj = doc.createNestedObject("params");
-        paramsObj["speed"] = state.params.speed;
-        paramsObj["intensity"] = state.params.intensity;
+        paramsObj["speed"] = hexToPercent(state.params.speed);
+        paramsObj["intensity"] = hexToPercent(state.params.intensity);
         JsonArray colorsArr = paramsObj.createNestedArray("colors");
         for (const auto& c : state.params.colors) {
             colorsArr.add(c);
@@ -847,7 +839,7 @@ String WebServerManager::getPresetsJSON() {
         presetObj["enabled"] = preset.enabled;
         JsonObject paramsObj = presetObj.createNestedObject("params");
         paramsObj["speed"] = preset.params.speed;
-        paramsObj["intensity"] = preset.params.intensity;
+        paramsObj["intensity"] = hexToPercent(preset.params.intensity);
         JsonArray colorsArr = paramsObj.createNestedArray("colors");
         if (preset.params.colors.size() > 0) {
             for (const auto& c : preset.params.colors) {

@@ -68,7 +68,6 @@ ASSETS = [
 	('wifi.html', 'wifi_html.inc'),
 	('app.js', 'app_js.inc'),
 	('style.css', 'style_css.inc'),
-	('fflate.min.js', 'fflate_min_js.inc'),
 	('config.html', 'config_html.inc'),
 	('config.js', 'config_js.inc'),
 	('config.json', 'config_default.inc'),

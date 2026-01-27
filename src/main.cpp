@@ -75,34 +75,15 @@ void checkSchedule();
 void checkAndApplyScheduleAfterBoot();
 
 void setup() {
-    webServerPtr = &webServer;
-    // Initialize relay pin from config
-    pinMode(config.led.relayPin, OUTPUT);
-    // Set relay to off state at boot
-    digitalWrite(config.led.relayPin, config.led.relayActiveHigh ? LOW : HIGH);
     #ifdef DEBUG_SERIAL
     Serial.begin(SERIAL_BAUD);
-    delay(1000);
-    Serial.println();
-    Serial.println("=================================");
-    Serial.println("  Aquarium LED Controller");
-    Serial.print("  Version: ");
-    Serial.println(getFirmwareVersion());
-    Serial.println("=================================");
     #endif
-    
-    // List files in LittleFS for debugging
-    LittleFS.begin();
-
-    // Initialize display (test)
-    setup_display();
-
+    webServerPtr = &webServer;
     // Load configuration
     if (!config.load()) {
         config.setDefaults();
         config.save();
     }
-    // Ensure lastConfiguration matches loaded config at boot
     lastConfiguration = config;
 
     // Load presets
@@ -111,44 +92,55 @@ void setup() {
         savePresets(config.presets);
     }
 
-
     // Initialize LEDs and BusManager
     setupLEDs();
     updatePixelCount();
+    busManager.turnOffLEDs();
+
+    // Initialize relay pin from config
+    pinMode(config.led.relayPin, OUTPUT);
+    digitalWrite(config.led.relayPin, config.led.relayActiveHigh ? LOW : HIGH);
 
     // Initialize transition engine brightness to default
     extern TransitionEngine transition;
-    transition.forceCurrentBrightness(state.brightness); // Set current
-    // Removed unnecessary initial transition at boot
+    transition.forceCurrentBrightness(state.brightness);
+
+    delay(1000);
+    debugPrintln();
+    debugPrintln("=================================");
+    debugPrintln("  Aquarium LED Controller");
+    debugPrintln("  Version: %s", getFirmwareVersion());
+    debugPrintln("=================================");
+
+    // List files in LittleFS for debugging
+    LittleFS.begin();
+
+    // Initialize display (test)
+    setup_display();
 
     // Connect to WiFi
-
     setupWiFi();
-    delay(500); // Give network stack time to settle
+    delay(500);
 
-    // Setup web server callbacks (moved up)
+    // Setup web server callbacks
     webServer.onPowerChange(setPower);
     webServer.onBrightnessChange(setBrightness);
     webServer.onEffectChange(setEffect);
-    webServer.onPresetApply([](uint8_t presetId) { applyPreset(presetId, transition.getTargetBrightness()); }); // already hex
+    webServer.onPresetApply([](uint8_t presetId) { applyPreset(presetId, transition.getTargetBrightness()); });
     webServer.onConfigChange([]() {
-        // Immediately apply relay pin and logic changes
         pinMode(config.led.relayPin, OUTPUT);
         digitalWrite(config.led.relayPin, state.power ? (config.led.relayActiveHigh ? HIGH : LOW) : (config.led.relayActiveHigh ? LOW : HIGH));
-        // Only recalculate sun times if location changed
         bool locationChanged = config.time.latitude != lastConfiguration.time.latitude || config.time.longitude != lastConfiguration.time.longitude;
         if (locationChanged) {
             scheduler.calculateSunTimes();
             lastConfiguration.time.latitude = config.time.latitude;
             lastConfiguration.time.longitude = config.time.longitude;
         }
-        // Only update schedule if timers changed
         bool timersChanged = config.timers != lastConfiguration.timers;
         if (timersChanged) {
-            scheduler.begin(); // or scheduler.update() if begin is too heavy
+            scheduler.begin();
             lastConfiguration.timers = config.timers;
         }
-        // Only reinitialize LEDs if hardware config changed
         bool ledChanged = config.led.pin != lastConfiguration.led.pin ||
                           config.led.count != lastConfiguration.led.count ||
                           config.led.type != lastConfiguration.led.type ||
@@ -161,7 +153,6 @@ void setup() {
             lastConfiguration.led.type = config.led.type;
             lastConfiguration.led.colorOrder = config.led.colorOrder;
         }
-        // Only reset transition engine and update LEDs if LED config changed
         if (ledChanged) {
             uint8_t prevBrightness = transition.getCurrentBrightness();
             uint32_t prevColor1 = transition.getCurrentColor1();
@@ -169,23 +160,16 @@ void setup() {
             transition = TransitionEngine();
             transition.startEffectAndBrightnessTransition(prevBrightness, prevColor1, prevColor2, 0);
             updateLEDs();
-            // Restore effect, brightness, and power after reinitializing LEDs
             setEffect(state.effect, state.params);
             setBrightness(state.brightness);
             setPower(state.power);
         }
     });
 
-    // Start web server
     webServer.begin();
-
-    // Initialize scheduler
     scheduler.begin();
-
-    // Setup ArduinoOTA (ESP32 only)
     setupArduinoOTA(config.network.hostname.c_str());
-    
-    // Wait for NTP time sync
+
     debugPrintln("Waiting for time sync...");
     for (int i = 0; i < 30; i++) {
         scheduler.update();
@@ -202,8 +186,6 @@ void setup() {
     debugPrintln(WiFi.localIP());
     debugPrintln("=================================");
 
-    // Do not apply a scheduled preset here; let checkAndApplyScheduleAfterBoot() handle it after time sync
-    // Ensure transition starts from the actual brightness, not 0
     transition.forceCurrentBrightness(state.brightness);
     setEffect(state.effect, state.params);
     setBrightness(state.brightness);

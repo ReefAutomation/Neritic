@@ -205,13 +205,12 @@
             <div id="otaStatus" class="ota-status"></div>
             <div class="system-actions" style="margin-top: 1em;">
                 <button id="rebootButton" class="btn btn-warning">Reboot Device</button>
-                <button id="updateButton" class="btn btn-info">Check for Updates</button>
+                <button id="updateButton" class="btn btn-info">Check for Updates <span id="updateSpinner" class="spinner" style="display:none;"></span></button>
                 <button id="factoryResetButton" class="btn btn-danger" style="margin-left:0.5em;">Factory Reset</button>
                 <span id="systemStatus" class="system-status"></span>
             </div>
         </section>
     </div>
-    <script src="fflate.min.js"></script>
     <script src="app.js"></script>
     <script src="config.js"></script>
 </body>

@@ -41,6 +41,7 @@ jobs:
         run: |
           source .venv/bin/activate
           pio pkg install
+
       - name: Cache Python venv and PlatformIO dependencies
         id: cache-deps
         uses: actions/cache@v4
@@ -49,7 +50,7 @@ jobs:
             .venv
             ~/.platformio/.cache
             ~/.platformio/lib
-          key: pio-venv-deps-${{ hashFiles('platformio.ini') }}
+          key: pio-venv-deps-${{ hashFiles('platformio.ini', 'VERSION') }}
 
   build:
     needs: deps
@@ -57,7 +58,13 @@ jobs:
     strategy:
       matrix:
         env: [esp32, esp32d, esp8266, athom]
+    outputs:
+      envs: ${{ toJson(matrix.env) }}
     steps:
+      - name: Clean all build output directories (prevent stale artifacts)
+        run: |
+          rm -rf .pio/build
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -68,7 +75,7 @@ jobs:
             .venv
             ~/.platformio/.cache
             ~/.platformio/lib
-          key: pio-venv-deps-${{ hashFiles('platformio.ini') }}
+          key: pio-venv-deps-${{ hashFiles('platformio.ini', 'VERSION') }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -103,16 +110,25 @@ jobs:
       - name: Rename .bin.gz files with env and version
         run: |
           VERSION=$(cat VERSION)
+          # Ensure version always has 'v' prefix
+          if [[ $VERSION != v* ]]; then
+            VERSION="v$VERSION"
+          fi
           for f in .pio/build/${{ matrix.env }}/*.bin.gz; do \
             BASE=$(basename "$f" .bin.gz); \
             mv "$f" ".pio/build/${{ matrix.env }}/${BASE}_${{ matrix.env }}_${VERSION}.bin.gz"; \
           done
 
-      - name: Upload build artifact for ${{ matrix.env }}
+      - name: Record built environment
+        run: echo "${{ matrix.env }}" > built_envs_${{ matrix.env }}.txt
+
+      - name: Upload build artifacts and env file for ${{ matrix.env }}
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-bin-gz-${{ matrix.env }}
-          path: .pio/build/${{ matrix.env }}/*.bin.gz
+          name: build-${{ matrix.env }}
+          path: |
+            .pio/build/${{ matrix.env }}/*.bin.gz
+            built_envs_${{ matrix.env }}.txt
 
   manifest:
     needs: [build]
@@ -121,15 +137,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download all build artifacts
+      - name: Download all build artifacts and env files
         uses: actions/download-artifact@v4
         with:
-          path: firmware_artifacts
+          pattern: build-*
+          path: .pio/build
 
-      - name: Move all .bin.gz files to a single directory
+      - name: List built_envs files
+        run: find . -name 'built_envs_*.txt' -exec ls -l {} \; || echo 'No built_envs_*.txt found'
+
+      - name: Collect all unique envs
+        id: collect_envs
         run: |
-          mkdir -p firmware_bin_gz
-          find firmware_artifacts -name '*.bin.gz' -exec mv {} firmware_bin_gz/ \;
+          find . -name 'built_envs_*.txt' -exec cat {} \; | sort | uniq | tr '\n' ' ' > all_envs.txt
+          echo "ENVS=$(cat all_envs.txt)" >> $GITHUB_ENV
 
       - name: Set manifest environment variables
         run: |
@@ -137,7 +158,30 @@ jobs:
           echo "FIRMWARE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/" >> $GITHUB_ENV
 
       - name: Generate manifest.json for OTA
-        run: python scripts/gen_manifest.py firmware_bin_gz
+        run: |
+          VERSION=$(cat VERSION)
+          # Ensure version always has 'v' prefix
+          if [[ $VERSION != v* ]]; then
+            VERSION="v$VERSION"
+          fi
+          FIRMWARE_TYPE="${FIRMWARE_TYPE:-DeepGlow}"
+          BASE_URL="${FIRMWARE_BASE_URL:-https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/}"
+          tmpfile=$(mktemp)
+          echo '[' > "$tmpfile"
+          first=1
+          for ENV in $ENVS; do
+            FILENAME="firmware_${ENV}_${VERSION}.bin.gz"
+            [ $first -eq 0 ] && echo ',' >> "$tmpfile"
+            echo "  {\"type\": \"${FIRMWARE_TYPE}\", \"env\": \"${ENV}\", \"version\": \"${VERSION}\", \"url\": \"${BASE_URL}${FILENAME}\"}" >> "$tmpfile"
+            first=0
+          done
+          echo ']' >> "$tmpfile"
+          cat "$tmpfile" | jq '.' > manifest.json
+          rm "$tmpfile"
+        env:
+          FIRMWARE_TYPE: ${{ env.FIRMWARE_TYPE }}
+          FIRMWARE_BASE_URL: ${{ env.FIRMWARE_BASE_URL }}
+          ENVS: ${{ env.ENVS }}
 
       - name: Upload manifest.json
         uses: actions/upload-artifact@v4
@@ -153,7 +197,7 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: firmware
+          path: .pio/build
 
       - name: Download manifest.json
         uses: actions/download-artifact@v4
@@ -161,11 +205,19 @@ jobs:
           name: manifest-json
           path: .
 
+      - name: List files and modification times before release
+        run: |
+          echo "Listing firmware files before release:"
+          find .pio/build -type f -name '*.bin.gz' -exec ls -lh {} +
+          echo "Listing manifest.json before release:"
+          ls -lh manifest.json
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            firmware/*/*.bin.gz
+            .pio/build/**/*.bin.gz
             manifest.json
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

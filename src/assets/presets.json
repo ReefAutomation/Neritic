@@ -47,7 +47,18 @@
       "params": {
         "speed": 10,
         "intensity": 255,
-        "colors": ["#0000B405", "#001E50","#000000"]
+        "colors": ["#143C5C", "#FFFFFFFF"]
+      }
+    },
+    {
+      "id": 5,
+      "name": "Lightning Storm",
+      "effect": 4,
+      "enabled": true,
+      "params": {
+        "speed": 20,
+        "intensity": 255,
+        "colors": ["#0A1832", "#FFFFFFFF"]
       }
     }
   ]

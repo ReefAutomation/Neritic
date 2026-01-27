@@ -4,6 +4,7 @@
 #include <stdarg.h>
 
 #ifdef DEBUG_SERIAL
+
 inline void debugPrintln() { Serial.println(); }
 inline void debugPrintln(const char* msg) { Serial.println(msg); }
 inline void debugPrintln(const String& msg) { Serial.println(msg); }
@@ -13,6 +14,14 @@ inline void debugPrintln(unsigned long val) { Serial.println(val); }
 inline void debugPrintln(const IPAddress& ip) { Serial.println(ip); }
 inline void debugPrintln(float val, int digits = 3) { Serial.println(val, digits); }
 inline void debugPrintln(uint32_t val, int base) { Serial.println(val, base); }
+
+// printf-style variadic overload for debugPrintln
+template<typename... Args>
+inline void debugPrintln(const char* fmt, Args... args) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), fmt, args...);
+    Serial.println(buf);
+}
 
 inline void debugPrintIp(uint32_t ip) {
 	IPAddress ipa(ip);
@@ -44,12 +53,13 @@ inline void debugPrintln(int) {}
 inline void debugPrintln(unsigned int) {}
 inline void debugPrintln(unsigned long) {}
 inline void debugPrintln(const IPAddress&) {}
-
 inline void debugPrintIp(uint32_t) {}
-
 inline void debugPrint(const char*) {}
 inline void debugPrint(const String&) {}
 inline void debugPrint(int) {}
 inline void debugPrint(unsigned int) {}
 inline void debugPrint(unsigned long) {}
+// Variadic template fallback for debugPrintln when DEBUG_SERIAL is not set
+template<typename... Args>
+inline void debugPrintln(const char*, Args...) {}
 #endif

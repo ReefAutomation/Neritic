@@ -1,3 +1,24 @@
+// Convert #RRGGBBWW or #RRGGBB to a preview color, blending white channel
+function rgbwHexToPreview(hex) {
+    hex = hex.replace(/^#/, '');
+    let r = 0, g = 0, b = 0, w = 0;
+    if (hex.length === 8) {
+        r = parseInt(hex.slice(0,2),16);
+        g = parseInt(hex.slice(2,4),16);
+        b = parseInt(hex.slice(4,6),16);
+        w = parseInt(hex.slice(6,8),16);
+    } else if (hex.length === 6) {
+        r = parseInt(hex.slice(0,2),16);
+        g = parseInt(hex.slice(2,4),16);
+        b = parseInt(hex.slice(4,6),16);
+    }
+    // If only white, show white
+    if (w > 0 && r === 0 && g === 0 && b === 0) {
+        return `rgb(255,255,255)`;
+    }
+    const blend = c => Math.round(c + (255 - c) * (w / 255));
+    return `rgb(${blend(r)},${blend(g)},${blend(b)})`;
+}
 // Aquarium LED Controller - Web Interface JavaScript
 
 let ws = null;
@@ -118,13 +139,6 @@ function loadEffects() {
             }
             try {
                 let fileToSend = otaFile;
-                // If .gz, decompress in browser using fflate
-                if (otaFile.name.endsWith('.gz')) {
-                    const arrayBuffer = await otaFile.arrayBuffer();
-                    // fflate is loaded globally
-                    const decompressed = fflate.gunzipSync(new Uint8Array(arrayBuffer));
-                    fileToSend = new Blob([decompressed], { type: 'application/octet-stream' });
-                }
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', BASE_URL + '/ota', true);
                 xhr.setRequestHeader('Accept', 'application/json');
@@ -238,6 +252,75 @@ function formatTransitionTime(val) {
     return Math.round(val / 3600) + 'h';
 }
 
+// Helper to create color pickers row
+function createColorPickers(colors, params) {
+    const colorPickersRow = document.getElementById('colorPickersRow');
+    if (!colorPickersRow) return;
+    colorPickersRow.innerHTML = '';
+    if (!colors || !Array.isArray(colors)) return;
+    colors.forEach((color, idx) => {
+        const colorDiv = document.createElement('div');
+        colorDiv.className = 'control-item';
+        const label = document.createElement('label');
+        label.textContent = (idx === 0 ? 'Primary' : idx === 1 ? 'Secondary' : idx === 2 ? 'Tertiary' : `Color ${idx+1}`) + ' Color';
+        // Container for swatch and overlay input
+        const swatchContainer = document.createElement('div');
+        swatchContainer.style.position = 'relative';
+        swatchContainer.style.width = '100%';
+        swatchContainer.style.height = '48px';
+        // Swatch styled to look like a color input
+        const swatch = document.createElement('span');
+        swatch.className = 'color-preview-swatch color-input-lookalike';
+        swatch.style.background = rgbwHexToPreview(color);
+        swatch.style.pointerEvents = 'none';
+        swatch.style.cursor = 'default';
+        // Overlay color input (fully covers swatch, visually hidden but interactable)
+        const input = document.createElement('input');
+        input.type = 'color';
+        input.className = 'color-input color-picker-overlay';
+        input.value = color.length === 9 ? color.slice(0,7) : color;
+        input.id = `colorPicker${idx}`;
+        input.style.opacity = '0';
+        input.style.position = 'absolute';
+        input.style.top = '0';
+        input.style.left = '0';
+        input.style.width = '100%';
+        input.style.height = '100%';
+        input.style.cursor = 'pointer';
+        input.style.margin = '0';
+        input.style.padding = '0';
+        input.style.border = 'none';
+        // When color is picked, update the swatch and state
+        let pendingColor = null;
+        input.addEventListener('input', (e) => {
+            // Only update swatch visually, do not POST
+            let newColors = [...colors];
+            let orig = newColors[idx] || '#000000';
+            let w = (orig.length === 9) ? orig.slice(7,9) : '';
+            newColors[idx] = e.target.value + w;
+            swatch.style.background = rgbwHexToPreview(newColors[idx]);
+            pendingColor = newColors[idx];
+        });
+        input.addEventListener('change', (e) => {
+            // Only POST when picker closes (onchange)
+            let newColors = [...colors];
+            let orig = newColors[idx] || '#000000';
+            let w = (orig.length === 9) ? orig.slice(7,9) : '';
+            newColors[idx] = e.target.value + w;
+            swatch.style.background = rgbwHexToPreview(newColors[idx]);
+            sendState({ params: { colors: newColors } });
+            pendingColor = null;
+        });
+        // Also update swatch if W is changed elsewhere
+        setTimeout(() => { swatch.style.background = rgbwHexToPreview(color); }, 0);
+        swatchContainer.appendChild(swatch);
+        swatchContainer.appendChild(input);
+        label.appendChild(swatchContainer);
+        colorDiv.appendChild(label);
+        colorPickersRow.appendChild(colorDiv);
+    });
+}
+
 // Update UI with state from server
 function updateState(state) {
     const prevPreset = currentState.preset;
@@ -287,45 +370,16 @@ function updateState(state) {
         const speedValue = document.getElementById('speedValue');
         if (speedSlider) speedSlider.value = state.params.speed;
         if (speedValue && speedSlider) speedValue.textContent = state.params.speed + '%';
-
+        
         const intensitySlider = document.getElementById('intensitySlider');
         const intensityValue = document.getElementById('intensityValue');
         if (intensitySlider) intensitySlider.value = state.params.intensity;
-        if (intensityValue) intensityValue.textContent = state.params.intensity;
-
+        if (intensityValue) intensityValue.textContent = state.params.intensity + '%';
+        
         // Dynamically create color pickers
-        const colorPickersRow = document.getElementById('colorPickersRow');
-        if (colorPickersRow) {
-            colorPickersRow.innerHTML = '';
-            if (state.params.colors && Array.isArray(state.params.colors)) {
-                state.params.colors.forEach((color, idx) => {
-                    const colorDiv = document.createElement('div');
-                    colorDiv.className = 'control-item';
-                    const label = document.createElement('label');
-                    label.textContent = (idx === 0 ? 'Primary' : idx === 1 ? 'Secondary' : idx === 2 ? 'Tertiary' : `Color ${idx+1}`) + ' Color';
-                    const input = document.createElement('input');
-                    input.type = 'color';
-                    input.className = 'color-input';
-                    input.value = color;
-                    input.id = `colorPicker${idx}`;
-                    input.addEventListener('change', (e) => {
-                        let colors = [...state.params.colors];
-                        colors[idx] = e.target.value;
-                        sendState({
-                            params: {
-                                ...state.params,
-                                colors
-                            }
-                        });
-                    });
-                    label.appendChild(input);
-                    colorDiv.appendChild(label);
-                    colorPickersRow.appendChild(colorDiv);
-                });
-            }
-        }
+        createColorPickers(state.params.colors, state.params);
     }
-
+    
     // Synchronize clock with backend on first WS message, then advance locally
     if (state.time) {
         if (!clockSynced) {
@@ -347,11 +401,12 @@ function updateState(state) {
             clockSynced = true;
         }
     }
-
+    
     if (state.sunrise) {
         const sunriseTime = document.getElementById('sunriseTime');
         if (sunriseTime) sunriseTime.textContent = state.sunrise;
     }
+    
 
     if (state.sunset) {
         const sunsetTime = document.getElementById('sunsetTime');
@@ -452,110 +507,127 @@ function setupEventListeners() {
             sendState({ effect: parseInt(e.target.value) });
         });
     }
+    // Speed and intensity slider event listeners are now handled exclusively by setupSlider below to avoid duplicate POSTs.
+    // Unified slider setup
+    function setupSlider({
+        id,
+        valueId,
+        min = 0,
+        max = 100,
+        step = 1,
+        initial,
+        format = v => v,
+        onInput,
+        onChange
+    }) {
+        const slider = document.getElementById(id);
+        const valueEl = valueId ? document.getElementById(valueId) : null;
+        if (!slider) return;
+        slider.min = min;
+        slider.max = max;
+        slider.step = step;
+        if (typeof initial !== 'undefined') slider.value = initial;
+        if (valueEl && typeof initial !== 'undefined') valueEl.textContent = format(initial);
+        if (onInput) {
+            slider.addEventListener('input', e => {
+                if (valueEl) valueEl.textContent = format(e.target.value);
+                onInput(e);
+            });
+        }
+        if (onChange) {
+            slider.addEventListener('change', e => {
+                if (valueEl) valueEl.textContent = format(e.target.value);
+                onChange(e);
+            });
+        }
+    }
+
+    // Brightness slider
+    setupSlider({
+        id: 'brightnessSlider',
+        valueId: 'brightnessValue',
+        min: 0,
+        max: 100,
+        step: 1,
+        initial: currentState.brightness,
+        format: v => v + '%',
+        onInput: () => {},
+        onChange: e => {
+            sendState({ brightness: parseInt(e.target.value) });
+        }
+    });
+
+    // Transition time slider
+    setupSlider({
+        id: 'transitionSlider',
+        valueId: 'transitionValue',
+        min: 0,
+        max: 127,
+        step: 1,
+        initial: (() => {
+            if (typeof currentState.transitionTime !== 'undefined') {
+                const ms = Number(currentState.transitionTime);
+                let sec = Math.round(ms / 1000);
+                if (sec <= 59) return sec;
+                else if (sec < 3600) return 59 + Math.round(sec / 60);
+                else return 119 + Math.round(sec / 3600);
+            }
+            return 0;
+        })(),
+        format: v => formatTransitionTime(steppedTransitionValue(v)),
+        onInput: e => {},
+        onChange: e => {
+            let seconds = steppedTransitionValue(e.target.value);
+            sendState({ transitionTime: seconds * 1000 });
+        }
+    });
+
     // Speed slider
-    const speedSlider = document.getElementById('speedSlider');
-    if (speedSlider) {
-        let speedTimeout;
-        speedSlider.addEventListener('input', (e) => {
-            const speedValue = document.getElementById('speedValue');
-            const percent = parseInt(e.target.value);
-            if (speedValue) speedValue.textContent = percent + '%';
-            clearTimeout(speedTimeout);
-            speedTimeout = setTimeout(() => {
-                sendState({ 
-                    params: {
-                        ...currentState.params,
-                        speed: percent
-                    }
-                });
-            }, 300);
-        });
-    }
+    setupSlider({
+        id: 'speedSlider',
+        valueId: 'speedValue',
+        min: 0,
+        max: 100,
+        step: 1,
+        initial: currentState.params && currentState.params.speed,
+        format: v => v + '%',
+        onInput: (() => {
+            let speedTimeout;
+            return e => {
+                clearTimeout(speedTimeout);
+                speedTimeout = setTimeout(() => {
+                    sendState({ params: { speed: parseInt(e.target.value) } });
+                }, 300);
+            };
+        })(),
+        onChange: null
+    });
+
     // Intensity slider
-    const intensitySlider = document.getElementById('intensitySlider');
-    if (intensitySlider) {
-        let intensityTimeout;
-        intensitySlider.addEventListener('input', (e) => {
-            const intensityValue = document.getElementById('intensityValue');
-            if (intensityValue) intensityValue.textContent = e.target.value;
-            clearTimeout(intensityTimeout);
-            intensityTimeout = setTimeout(() => {
-                sendState({ 
-                    params: {
-                        ...currentState.params,
-                        intensity: parseInt(e.target.value)
-                    }
-                });
-            }, 300);
-        });
-    }
-    // Color pickers
-    const color1Picker = document.getElementById('color1Picker');
-    const color2Picker = document.getElementById('color2Picker');
-    const color3Picker = document.getElementById('color3Picker');
-    if (color1Picker) {
-        color1Picker.addEventListener('change', (e) => {
-            const color = e.target.value;
-            let colors = (currentState.params && currentState.params.colors) ? [...currentState.params.colors] : ["#FFFFFF", "#FFFFFF", "#FFA000"];
-            colors[0] = color;
-            sendState({
-                params: {
-                    ...currentState.params,
-                    colors
-                }
-            });
-        });
-    }
-    if (color2Picker) {
-        color2Picker.addEventListener('change', (e) => {
-            const color = e.target.value;
-            let colors = (currentState.params && currentState.params.colors) ? [...currentState.params.colors] : ["#FFFFFF", "#FFFFFF", "#FFA000"];
-            colors[1] = color;
-            sendState({
-                params: {
-                    ...currentState.params,
-                    colors
-                }
-            });
-        });
-    }
-    if (color3Picker) {
-        color3Picker.addEventListener('change', (e) => {
-            const color = e.target.value;
-            let colors = (currentState.params && currentState.params.colors) ? [...currentState.params.colors] : ["#FFFFFF", "#FFFFFF", "#FFA000"];
-            colors[2] = color;
-            sendState({
-                params: {
-                    ...currentState.params,
-                    colors
-                }
-            });
-        });
-    }
-    // Hide secondary/tertiary color picker if not present
-    function updateColorPickersVisibility() {
-        if (color2Picker) {
-            if (currentState.params && currentState.params.colors && currentState.params.colors.length > 1) {
-                color2Picker.parentElement.style.display = '';
-            } else {
-                color2Picker.parentElement.style.display = 'none';
-            }
-        }
-        if (color3Picker) {
-            if (currentState.params && currentState.params.colors && currentState.params.colors.length > 2) {
-                color3Picker.parentElement.style.display = '';
-            } else {
-                color3Picker.parentElement.style.display = 'none';
-            }
-        }
-    }
-    // Call on load and whenever state updates
-    updateColorPickersVisibility();
-    // Also patch updateState to call this after updating currentState
+    setupSlider({
+        id: 'intensitySlider',
+        valueId: 'intensityValue',
+        min: 0,
+        max: 100,
+        step: 1,
+        initial: currentState.params && currentState.params.intensity,
+        format: v => v + '%',
+        onInput: (() => {
+            let intensityTimeout;
+            return e => {
+                clearTimeout(intensityTimeout);
+                intensityTimeout = setTimeout(() => {
+                    sendState({ params: { intensity: parseInt(e.target.value) } });
+                }, 100);
+            };
+        })(),
+        onChange: null
+    });
+    // No-op: color picker visibility is now handled dynamically in createColorPickers
+    // Patch updateState to maintain compatibility, but do nothing
     const origUpdateState = window.updateState;
     window.updateState = function(state) {
         origUpdateState(state);
-        updateColorPickersVisibility();
     };
 }
 
@@ -617,6 +689,20 @@ function loadTimers() {
         .catch(error => console.error('Error loading timers:', error));
 }
 
+function getPresetPreviewStyle(colors) {
+    if (!colors || !Array.isArray(colors) || colors.length === 0) {
+        return 'background: #000000;';
+    }
+    const previewColors = colors.map(c => rgbwHexToPreview(c));
+    if (previewColors.length > 1) {
+        return `background: linear-gradient(135deg, ${previewColors.join(', ')});`;
+    } else if (previewColors.length === 1) {
+        return `background: ${previewColors[0]};`;
+    } else {
+        return 'background: #000000;';
+    }
+}
+
 function displayPresets() {
     const grid = document.getElementById('presetGrid');
     if (!grid) return;
@@ -630,10 +716,9 @@ function displayPresets() {
             card.classList.add('active');
         }
         const effectName = effectNames[preset.effect] || `Effect #${preset.effect}`;
-        // Use only the colors array for preview
-        let colorA = (preset.params && Array.isArray(preset.params.colors) && preset.params.colors[0]) ? preset.params.colors[0] : '#000000';
-        let colorB = (preset.params && Array.isArray(preset.params.colors) && preset.params.colors[1]) ? preset.params.colors[1] : null;
-        let previewStyle = colorB ? `background: linear-gradient(135deg, ${colorA}, ${colorB})` : `background: ${colorA}`;
+        // Use helper for preview style
+        let colorArr = (preset.params && Array.isArray(preset.params.colors)) ? preset.params.colors : [];
+        let previewStyle = getPresetPreviewStyle(colorArr);
         card.innerHTML = `
             <div class="preset-name">${preset.name}</div>
             <div class="preset-info">Effect: ${effectName}</div>
