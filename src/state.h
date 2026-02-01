@@ -3,26 +3,25 @@
 
 #include "config.h"
 
-
 // All internal state uses hex (0-255)
 struct SystemState {
-    bool power = false;
-    uint8_t brightness = 0; // hex (0-255)
-    uint8_t effect = 0;
-    EffectParams params;
-    uint32_t transitionTime; // Set from config/logic only
-    uint8_t preset = 0;
-    bool inTransition = false;
-    int8_t prevEffect = -1;
-    EffectParams prevParams;
+  bool power = false;
+  uint8_t brightness = 0; // hex (0-255)
+  uint8_t effect = 0;
+  EffectParams params;
+  uint32_t transitionTime; // Set from config/logic only
+  uint8_t preset = 0;
+  bool inTransition = false;
+  int8_t prevEffect = -1;
+  EffectParams prevParams;
 };
 
 extern SystemState state;
 void applyPreset(uint8_t presetId, uint8_t brightness);
 void setPower(bool power);
 void setBrightness(uint8_t brightness);
-void setEffect(uint8_t effect, const EffectParams& params);
-void setUserColor(const uint32_t* color, size_t count);
+void setEffect(uint8_t effect, const EffectParams &params);
+void setUserColor(const uint32_t *color, size_t count);
 void updateLEDs();
 
 #endif // STATE_H

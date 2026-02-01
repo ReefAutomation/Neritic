@@ -1,6 +1,10 @@
 ---
 name: Build and Release
 
+permissions:
+  contents: write  # required for creating releases and uploading artifacts
+  actions: read    # required for using actions/checkout, actions/cache, etc.
+
 on:
   push:
     tags:
@@ -32,25 +36,22 @@ jobs:
           pip install --upgrade pip
           pip install platformio intelhex
 
-      - name: Update PlatformIO libraries
-        run: |
-          source .venv/bin/activate
-          pio pkg update
-
       - name: Install PlatformIO libraries (explicit)
         run: |
           source .venv/bin/activate
           pio pkg install
 
-      - name: Cache Python venv and PlatformIO dependencies
+      - name: Cache Python venv, PlatformIO, and node_modules
         id: cache-deps
         uses: actions/cache@v4
         with:
           path: |
             .venv
+            .pio
             ~/.platformio/.cache
             ~/.platformio/lib
-          key: pio-venv-deps-${{ hashFiles('platformio.ini', 'VERSION') }}
+            src/preact/node_modules
+          key: cache-deps
 
   build:
     needs: deps
@@ -61,10 +62,6 @@ jobs:
     outputs:
       envs: ${{ toJson(matrix.env) }}
     steps:
-      - name: Clean all build output directories (prevent stale artifacts)
-        run: |
-          rm -rf .pio/build
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -73,19 +70,24 @@ jobs:
         with:
           path: |
             .venv
+            .pio
             ~/.platformio/.cache
             ~/.platformio/lib
-          key: pio-venv-deps-${{ hashFiles('platformio.ini', 'VERSION') }}
+          key: cache-deps
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: Install npm dependencies
+        run: |
+          npm ci
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Activate venv and ensure PlatformIO
-        run: |
-          source .venv/bin/activate
-          pip install --upgrade pip
 
       - name: Build firmware for ${{ matrix.env }} (with retry)
         run: |

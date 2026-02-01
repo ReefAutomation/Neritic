@@ -4,6 +4,11 @@
 
 DeepGlow provides a RESTful JSON API and WebSocket interface for real-time control and monitoring.
 
+**Value Ranges & Conversion:**
+- All brightness, speed, and intensity values are always 0–100 percent in API and config files. Conversion to 0–255 for hardware is handled internally.
+- Colors are always 24-bit RGB hex strings (e.g., "#FF00FF") or integers (0–16777215).
+
+
 **Base URL**: `http://[device-ip]/api`
 
 **WebSocket**: `ws://[device-ip]/ws`
@@ -30,49 +35,50 @@ Get current system state.
 ```json
 {
   "power": true,
-  "brightness": 180,
+  "brightness": 80,
   "effect": 1,
+  "preset": 2,
   "transitionTime": 5000,
-  "currentPreset": 2,
   "time": "14:32:05",
   "sunrise": "06:23",
   "sunset": "18:45",
   "params": {
-    "speed": 128,
-    "intensity": 150,
-    "color1": 65535,
-    "color2": 16776960
+    "speed": 30,
+    "intensity": 50,
+    "colors": ["#FF0000", "#00FF00"]
   }
 }
 ```
 
-**Fields**:
+**Fields:**
 - `power` (boolean): System power state
-- `brightness` (0-255): Current brightness level
-- `effect` (0-6): Current effect ID
-- `transitionTime` (ms): Default transition duration
-- `currentPreset` (0-15): Active preset ID
+- `brightness` (0–100): Current brightness (percent)
+- `effect` (integer): Current effect ID
+- `preset` (integer): Active preset ID
+- `transitionTime` (ms): Transition duration
 - `time` (string): Current time (HH:MM:SS)
 - `sunrise` (string): Calculated sunrise time
 - `sunset` (string): Calculated sunset time
-- `params` (object): Current effect parameters
+- `params` (object): Effect parameters
+  - `speed` (0–100): Effect speed (percent)
+  - `intensity` (0–100): Effect intensity (percent)
+  - `colors` (array): Array of color hex strings
 
 #### POST /api/state
 
 Update system state with safety enforcement.
 
-**Request Body**:
+**Request Body:**
 ```json
 {
   "power": true,
-  "brightness": 200,
+  "brightness": 80,
   "effect": 2,
   "transitionTime": 10000,
   "params": {
-    "speed": 150,
-    "intensity": 200,
-    "color1": 16711680,
-    "color2": 65280
+    "speed": 60,
+    "intensity": 40,
+    "colors": ["#FF0000", "#0000FF"]
   }
 }
 ```
@@ -84,8 +90,8 @@ Update system state with safety enforcement.
 }
 ```
 
-**Safety Notes**:
-- Brightness capped at configured maximum
+**Safety Notes:**
+- Brightness capped at configured maximum (percent)
 - Transition time enforced minimum
 - Invalid values rejected with 400 error
 
@@ -103,32 +109,28 @@ Get all configured presets.
   "presets": [
     {
       "id": 0,
-      "name": "Morning Sun",
-      "brightness": 180,
-      "effect": 3,
+      "name": "Off",
+      "effect": 0,
       "enabled": true,
       "params": {
-        "speed": 80,
-        "intensity": 200,
-        "color1": 16744448,
-        "color2": 16776960
+        "speed": 30,
+        "colors": ["#000000"]
       }
     },
     {
       "id": 1,
-      "name": "Daylight",
-      "brightness": 200,
-      "effect": 0,
+      "name": "Sunrise",
+      "effect": 1,
       "enabled": true,
       "params": {
-        "speed": 128,
-        "intensity": 128,
-        "color1": 16777215,
-        "color2": 16777215
+        "speed": 30,
+        "colors": ["#FF0F00", "#FF5500", "#FFA000"]
       }
     }
+    // ...
   ]
 }
+```
 ```
 
 #### POST /api/preset
@@ -146,16 +148,14 @@ Apply or save a preset.
 **Save Preset Request**:
 ```json
 {
-  "id": 7,
+  "id": 3,
   "name": "Custom Sunset",
-  "brightness": 120,
   "effect": 2,
   "enabled": true,
   "params": {
     "speed": 60,
-    "intensity": 150,
-    "color1": 16744192,
-    "color2": 16711935
+    "intensity": 40,
+    "colors": ["#FF0050", "#B400FF", "#280078"]
   }
 }
 ```
@@ -178,22 +178,47 @@ Get system configuration.
 **Response** (200 OK):
 ```json
 {
+  "network": {
+    "ssid": "",
+    "hostname": "AquariumLED",
+    "apPassword": ""
+  },
   "led": {
-    "pin": 2,
-    "count": 60,
-    "type": "WS2812B"
+    "pin": 13,
+    "count": 34,
+    "type": "SK6812",
+    "colorOrder": "GRB",
+    "relayPin": 2,
+    "relayActiveHigh": true
   },
   "safety": {
-    "minTransitionTime": 5000,
-    "maxBrightness": 200
+    "maxBrightness": 80,
+    "minTransitionTime": 5000
   },
   "time": {
     "ntpServer": "pool.ntp.org",
-    "timezoneOffset": -5,
-    "latitude": 40.7128,
-    "longitude": -74.0060,
+    "timezone": "Etc/UTC",
+    "latitude": 0.0,
+    "longitude": 0.0,
     "dstEnabled": true
-  }
+  },
+  "transitionTimes": {
+    "powerOn": 60000,
+    "schedule": 3600000,
+    "manual": 10000,
+    "effect": 10000
+  },
+  "timers": [
+    {
+      "enabled": true,
+      "type": 0,
+      "hour": 0,
+      "minute": 0,
+      "presetId": 0,
+      "brightness": 0
+    }
+    // ...
+  ]
 }
 ```
 
@@ -201,18 +226,18 @@ Get system configuration.
 
 Update configuration.
 
-**Request Body**:
+**Request Body:**
 ```json
 {
   "led": {
     "count": 120
   },
   "safety": {
-    "maxBrightness": 180,
+    "maxBrightness": 90,
     "minTransitionTime": 8000
   },
   "time": {
-    "timezoneOffset": -8,
+    "timezone": "America/Los_Angeles",
     "latitude": 47.6062,
     "longitude": -122.3321
   }
@@ -226,7 +251,7 @@ Update configuration.
 }
 ```
 
-**Notes**:
+**Notes:**
 - Some changes require reboot (LED pin, type)
 - Configuration persisted to flash
 - Invalid values rejected
@@ -247,55 +272,51 @@ Get all timers.
       "id": 0,
       "enabled": true,
       "type": 0,
-      "hour": 8,
+      "hour": 7,
       "minute": 0,
-      "days": 127,
-      "offset": 0,
-      "presetId": 0
+      "presetId": 1,
+      "brightness": 60
     },
     {
       "id": 1,
       "enabled": true,
-      "type": 1,
-      "hour": 0,
+      "type": 0,
+      "hour": 11,
       "minute": 0,
-      "days": 127,
-      "offset": 30,
-      "presetId": 0
+      "presetId": 2,
+      "brightness": 100
     }
+    // ...
   ]
 }
 ```
 
-**Timer Fields**:
-- `id` (0-9): Timer identifier
+**Timer Fields:**
+- `id` (integer): Timer identifier
 - `enabled` (boolean): Timer active state
-- `type` (0-2): Timer type
+- `type` (integer): Timer type
   - 0: Regular (specific time)
   - 1: Sunrise-based
   - 2: Sunset-based
-- `hour` (0-23): Hour (regular timers)
-- `minute` (0-59): Minute (regular timers)
-- `days` (0-127): Bitmask of active days
-  - Bit 0 = Sunday, Bit 6 = Saturday
-  - 127 = all days (0b1111111)
-  - 62 = weekdays (0b0111110)
-- `offset` (-720 to 720): Minutes offset (sun timers)
-- `presetId` (0-15): Preset to apply
+- `hour` (0–23): Hour (regular timers)
+- `minute` (0–59): Minute (regular timers)
+- `presetId` (integer): Preset to apply
+- `brightness` (0–100): Timer brightness (percent)
 
 #### POST /api/timer
 
 Update a timer.
 
-**Request Body**:
+**Request Body:**
 ```json
 {
   "id": 2,
   "enabled": true,
-  "type": 2,
-  "offset": -30,
-  "days": 127,
-  "presetId": 3
+  "type": 0,
+  "hour": 19,
+  "minute": 0,
+  "presetId": 3,
+  "brightness": 60
 }
 ```
 
@@ -368,27 +389,24 @@ Currently, WebSocket is read-only. Use REST API for commands.
 
 ## Color Format
 
-Colors are 24-bit RGB integers (0x000000 to 0xFFFFFF).
+Colors are 24-bit RGB hex strings ("#RRGGBB") or integers (0–16777215).
 
-**Examples**:
-- Red: `0xFF0000` (16711680)
-- Green: `0x00FF00` (65280)
-- Blue: `0x0000FF` (255)
-- White: `0xFFFFFF` (16777215)
-- Cyan: `0x00FFFF` (65535)
-- Magenta: `0xFF00FF` (16711935)
-- Yellow: `0xFFFF00` (16776960)
+**Examples:**
+- Red: "#FF0000"
+- Green: "#00FF00"
+- Blue: "#0000FF"
+- White: "#FFFFFF"
+- Cyan: "#00FFFF"
+- Magenta: "#FF00FF"
+- Yellow: "#FFFF00"
 
-**Conversion**:
+**Conversion:**
 ```javascript
-// Hex to integer
-const color = parseInt("00FFFF", 16); // 65535
+// Hex string to integer
+const color = parseInt("FF00FF", 16); // 16711935
 
-// RGB to integer
-const color = (r << 16) | (g << 8) | b;
-
-// Integer to hex
-const hex = color.toString(16).padStart(6, '0');
+// RGB to hex string
+const hex = '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
 ```
 
 ---
@@ -418,7 +436,7 @@ Server-side error.
 
 ```json
 {
-  "error": "Internal Error"
+  "error": "Internal server error"
 }
 ```
 

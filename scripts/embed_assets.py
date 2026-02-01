@@ -3,28 +3,43 @@
 
 # PlatformIO pre-build script: embed assets as .inc files
 # Import("env")
+
 import os
 import subprocess
 import sys
-import urllib.request
 import tempfile
 import re
 import configparser
 import argparse
+import logging
+from SCons.Script import DefaultEnvironment
 
-# Skip script if PlatformIO target is erase, or clean
-pio_targets = os.environ.get('PIOENV', '') + ' ' + ' '.join(sys.argv)
-if any(x in pio_targets for x in ['erase', 'clean', 'buildfs', 'uploadfs']):
-	print('embed_assets.py: Skipping script for erase/clean target.')
-	sys.exit(0)
+env = DefaultEnvironment()
+
+# Setup logging
+logging.basicConfig(
+	level=logging.INFO,
+	format='[%(levelname)s] %(message)s'
+)
+
 
 # Use project root as base (PlatformIO sets cwd to project root)
-ASSET_DIR = os.path.join(os.getcwd(), 'src/assets')
+ASSET_DIR_DIST = os.path.join(os.getcwd(), 'dist')
+ASSET_DIR_SRC = os.path.join(os.getcwd(), 'src/defaults')
 OUT_DIR = os.path.join(os.getcwd(), 'src/inc')
+ASSETS = [
+	(ASSET_DIR_DIST, 'index.html', 'index_html.inc'),
+	(ASSET_DIR_DIST, 'index.js', 'index_js.inc'),
+	(ASSET_DIR_DIST, 'style.css', 'style_css.inc'),
+	(ASSET_DIR_SRC, 'config.json', 'config_default.inc'),
+	(ASSET_DIR_SRC, 'presets.json', 'presets_json.inc'),
+	(ASSET_DIR_SRC, 'timezones.json', 'timezones_json.inc'),
+	('DYNAMIC', 'app_js.inc'),
+]
+
 
 # Ensure output directory exists
 os.makedirs(OUT_DIR, exist_ok=True)
-
 
 
 # Only delete and regenerate .inc files for assets that have changed, unless force is True
@@ -38,126 +53,22 @@ def asset_needs_update(src_path, inc_path, force=False):
 	return src_mtime > inc_mtime
 
 
-
-
-
-# Ensure html-minifier-terser and terser are available once at the start
-def ensure_html_minifier():
-	try:
-		subprocess.run(['npx', 'html-minifier-terser', '--version'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, input='')
-	except Exception:
-		print('html-minifier-terser not found. Installing...')
-		subprocess.check_call(['npm', 'install', 'html-minifier-terser@6.1.0'])
-		print('html-minifier-terser installed.')
-
-def ensure_terser():
-	try:
-		subprocess.run(['npx', 'terser', '--version'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, input='')
-	except Exception:
-		print('terser not found. Installing...')
-		subprocess.check_call(['npm', 'install', 'terser@5.44.1'])
-		print('terser installed.')
-
-ensure_html_minifier()
-ensure_terser()
-
-
-# Add config.json as config_default.inc (no minification)
-ASSETS = [
-	('index.html', 'index_html.inc'),
-	('wifi.html', 'wifi_html.inc'),
-	('app.js', 'app_js.inc'),
-	('style.css', 'style_css.inc'),
-	('config.html', 'config_html.inc'),
-	('config.js', 'config_js.inc'),
-	('config.json', 'config_default.inc'),
-	('timezones.json', 'timezones_json.inc'),
-	('presets.json', 'presets_json.inc'),
-]
-
-
 def minify_asset(infile, ext, do_minify=True):
-	def minify_with_html_minifier(infile, ext):
-		with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix=ext) as tmp_in:
-			with open(infile, 'r', encoding='utf-8') as f:
-				tmp_in.write(f.read())
-			tmp_in.flush()
-			tmp_in_path = tmp_in.name
-		tmp_out_path = tmp_in_path + '.min'
-		args = ['npx', 'html-minifier-terser', tmp_in_path, '-o', tmp_out_path]
-		# Add options based on file type
-		if ext == '.html':
-			args += [
-				'--collapse-whitespace', '--remove-comments', '--minify-js', '--minify-css'
-			]
-		elif ext == '.css':
-			args += ['--minify-css']
-		try:
-			subprocess.run(args, check=True)
-			with open(tmp_out_path, 'r', encoding='utf-8') as f:
-				minified = f.read()
-			os.remove(tmp_in_path)
-			os.remove(tmp_out_path)
-			return minified
-		except Exception as e:
-			print(f"ERROR: html-minifier-terser failed for {infile}: {e}", file=sys.stderr)
-			sys.exit(1)
-	def minify_with_terser(infile):
-		with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix='.js') as tmp_in:
-			with open(infile, 'r', encoding='utf-8') as f:
-				tmp_in.write(f.read())
-			tmp_in.flush()
-			tmp_in_path = tmp_in.name
-		tmp_out_path = tmp_in_path + '.min'
-		args = ['npx', 'terser', tmp_in_path, '-o', tmp_out_path, '--compress', '--mangle']
-		try:
-			subprocess.run(args, check=True)
-			with open(tmp_out_path, 'r', encoding='utf-8') as f:
-				minified = f.read()
-			os.remove(tmp_in_path)
-			os.remove(tmp_out_path)
-			return minified
-		except Exception as e:
-			print(f"ERROR: Terser failed for {infile}: {e}", file=sys.stderr)
-			sys.exit(1)
-	if do_minify:
-		if ext == '.js':
-			return minify_with_terser(infile)
-		elif ext in ('.html', '.css'):
-			return minify_with_html_minifier(infile, ext)
+	# No extra minification; use Vite output as-is
 	with open(infile, 'r', encoding='utf-8') as f:
 		return f.read()
 
 def to_inc(infile, outfile, do_minify=True):
 	try:
-		infile_path = os.path.join(ASSET_DIR, infile)
+		infile_path = infile  # infile is now absolute path
 		outfile_path = os.path.join(OUT_DIR, outfile)
 		var_base = os.path.splitext(outfile)[0]  # e.g., index_html
 		var_name = f"web_{var_base}"
-		print(f'Embedding: {infile_path} -> {outfile_path} (var: {var_name})')
+		logging.info(f'Embedding: {infile_path} -> {outfile_path} (var: {var_name}')
 		if not os.path.exists(infile_path):
-			print(f'ERROR: Source file not found: {infile_path}', file=sys.stderr)
+			logging.error(f'Source file not found: {infile_path}')
 			return False
-		ext = os.path.splitext(infile)[1]
-		def minify_js_with_terser(infile):
-			with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix='.js') as tmp_in:
-				with open(infile, 'r', encoding='utf-8') as f:
-					tmp_in.write(f.read())
-				tmp_in.flush()
-				tmp_in_path = tmp_in.name
-			tmp_out_path = tmp_in_path + '.min'
-			try:
-				subprocess.run([
-					'npx', 'terser', tmp_in_path, '-o', tmp_out_path, '--compress', '--mangle'
-				], check=True)
-				with open(tmp_out_path, 'r', encoding='utf-8') as f:
-					minified = f.read()
-				os.remove(tmp_in_path)
-				os.remove(tmp_out_path)
-				return minified
-			except Exception as e:
-				print(f"ERROR: Terser minification failed for {infile}: {e}", file=sys.stderr)
-				sys.exit(1)
+		ext = os.path.splitext(infile_path)[1]
 		minified = minify_asset(infile_path, ext, do_minify)
 		with tempfile.NamedTemporaryFile('w+', delete=False, encoding='utf-8', suffix=ext) as tmp:
 			tmp.write(minified)
@@ -172,7 +83,7 @@ def to_inc(infile, outfile, do_minify=True):
 		array_decl_re = re.compile(r'^unsigned char\s+(\w+)\[\]\s*=\s*\{', re.MULTILINE)
 		match = array_decl_re.search(xxd_content)
 		if not match:
-			print(f'ERROR: Could not find array declaration in {outfile_path}', file=sys.stderr)
+			logging.error(f'Could not find array declaration in {outfile_path}')
 			return False
 		var_name = match.group(1)
 		# Extract array and length variable
@@ -181,7 +92,7 @@ def to_inc(infile, outfile, do_minify=True):
 		array_match = array_decl_re.search(xxd_content)
 		len_match = len_decl_re.search(xxd_content)
 		if not array_match or not len_match:
-			print(f'ERROR: Could not extract array or length in {outfile_path}', file=sys.stderr)
+			logging.error(f'Could not extract array or length in {outfile_path}')
 			return False
 		array_decl = array_match.group(1)
 		len_decl = len_match.group(1)
@@ -199,45 +110,84 @@ def to_inc(infile, outfile, do_minify=True):
 				out.write(branch_else)
 		os.remove(xxd_tmp_path)
 		os.remove(tmp_path)
-		print(f'Success: {outfile_path}')
+		logging.info(f'Success: {outfile_path}')
 		return True
 	except Exception as e:
-		print(f'ERROR: Failed to embed {infile_path}: {e}', file=sys.stderr)
+		logging.error(f'Failed to embed {infile}: {e}')
 		return False
 
 
-minify_opt = os.environ.get('PLATFORMIO_MINIFY')
-if minify_opt is None:
-	config = configparser.ConfigParser()
-	config.read(os.path.join(os.getcwd(), 'platformio.ini'))
-	minify_opt = config.get('common', 'minify', fallback='true')
-do_minify = minify_opt.lower() in ('1', 'true', 'yes', 'on')
+def main():
+	if env.IsCleanTarget():
+		return
 
 
+	# Run npm build before embedding assets
+	try:
+		logging.info('Running npm run build to generate dist assets...')
+		subprocess.run(['npm', 'run', 'build'], check=True)
+		logging.info('npm build completed.')
+	except Exception as e:
+		logging.error(f'npm build failed: {e}')
+		sys.exit(1)
+
+	minify_opt = os.environ.get('PLATFORMIO_MINIFY')
+	if minify_opt is None:
+		config = configparser.ConfigParser()
+		config.read(os.path.join(os.getcwd(), 'platformio.ini'))
+		minify_opt = config.get('common', 'minify', fallback='true')
+	do_minify = minify_opt.lower() in ('1', 'true', 'yes', 'on')
 
 
-# Add force parameter via environment variable or command line
-parser = argparse.ArgumentParser()
-parser.add_argument('--force', action='store_true', help='Force regeneration of all .inc files')
-args, unknown = parser.parse_known_args()
-force = args.force or os.environ.get('EMBED_ASSETS_FORCE', '0') in ('1', 'true', 'yes', 'on')
+	# Add force parameter via environment variable or command line
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--force', action='store_true', help='Force regeneration of all .inc files')
+	args, unknown = parser.parse_known_args()
+	force = args.force or os.environ.get('EMBED_ASSETS_FORCE', '0') in ('1', 'true', 'yes', 'on')
+	all_ok = True
+	# Find hashed JS and CSS files
+	dist_assets = ASSET_DIR_DIST
+	js_files = [f for f in os.listdir(dist_assets) if re.match(r'index-.*\.js$', f)]
+	css_files = [f for f in os.listdir(dist_assets) if re.match(r'index-.*\.css$', f)]
+	app_js_files = [f for f in os.listdir(dist_assets) if re.match(r'app-.*\.js$', f)]
 
-all_ok = True
-for src, dst in ASSETS:
-	src_path = os.path.join(ASSET_DIR, src)
-	inc_path = os.path.join(OUT_DIR, dst)
-	if asset_needs_update(src_path, inc_path, force=force):
-		if os.path.exists(inc_path):
-			try:
-				os.remove(inc_path)
-			except Exception as e:
-				print(f'WARNING: Could not delete {inc_path}: {e}')
-		ok = to_inc(src, dst, do_minify)
-		all_ok = all_ok and ok
+	# Use the first match (should only be one per build)
+	index_js = js_files[0] if js_files else None
+	style_css = css_files[0] if css_files else None
+	app_js = app_js_files[0] if app_js_files else None
+
+	for asset in ASSETS:
+		if asset[0] == 'DYNAMIC':
+			# Map dynamic assets
+			if asset[1] == 'index_js.inc' and index_js:
+				src_path = os.path.join(dist_assets, index_js)
+				inc_path = os.path.join(OUT_DIR, 'index_js.inc')
+			elif asset[1] == 'style_css.inc' and style_css:
+				src_path = os.path.join(dist_assets, style_css)
+				inc_path = os.path.join(OUT_DIR, 'style_css.inc')
+			elif asset[1] == 'app_js.inc' and app_js:
+				src_path = os.path.join(dist_assets, app_js)
+				inc_path = os.path.join(OUT_DIR, 'app_js.inc')
+			else:
+				continue
+		else:
+			asset_dir, src, dst = asset
+			src_path = os.path.join(asset_dir, src)
+			inc_path = os.path.join(OUT_DIR, dst)
+		if asset_needs_update(src_path, inc_path, force=force):
+			if os.path.exists(inc_path):
+				try:
+					os.remove(inc_path)
+				except Exception as e:
+					logging.warning(f'Could not delete {inc_path}: {e}')
+			ok = to_inc(src_path, os.path.basename(inc_path), do_minify)
+			all_ok = all_ok and ok
+		else:
+			logging.info(f'Skipping unchanged asset: {os.path.basename(src_path)}')
+	if all_ok:
+		logging.info('Web assets embedded as .inc files.')
 	else:
-		print(f'Skipping unchanged asset: {src}')
-if all_ok:
-	print('Web assets embedded as .inc files.')
-else:
-	print('Some assets failed to embed. See errors above.', file=sys.stderr)
-	sys.exit(1)
+		logging.error('Some assets failed to embed. See errors above.')
+		sys.exit(1)
+
+main()
