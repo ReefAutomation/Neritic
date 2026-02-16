@@ -1,3 +1,4 @@
+#define DEEPGLOW_REPO_URL "https://github.com/kabroxiko/DeepGlow"
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
@@ -34,6 +35,24 @@ volatile bool otaInProgress = false;
 volatile bool otaRequested = false;
 // Global flag for OTA ACK handshake
 volatile bool otaAckReceived = false;
+
+// Fetch the latest manifest JSON from the remote repository (returns empty string on failure)
+String fetchRemoteManifestJson() {
+  const char *manifestUrl = DEEPGLOW_REPO_URL "/releases/latest/download/manifest.json";
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, manifestUrl);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  int httpCode = http.GET();
+  if (httpCode != HTTP_CODE_OK) {
+    http.end();
+    return "";
+  }
+  String payload = http.getString();
+  http.end();
+  return payload;
+}
 
 void setupArduinoOTA(const char *hostname) {
 #ifdef ESP32
@@ -97,8 +116,7 @@ static bool gzWriteCallback(unsigned char *buff, size_t buffsize) {
 // Fetch the latest firmware URL for this environment from GitHub
 String getLatestFirmwareUrl(String &latestVersion) {
   // Download manifest.json from the latest release
-  const char *manifestUrl = "https://github.com/kabroxiko/DeepGlow/releases/"
-                            "latest/download/manifest.json";
+  const char *manifestUrl = DEEPGLOW_REPO_URL "/releases/latest/download/manifest.json";
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;

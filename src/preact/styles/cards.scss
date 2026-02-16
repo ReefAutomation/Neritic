@@ -1,0 +1,43 @@
+// Preset grid and card styles
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+.preset-card {
+  background: var(--bg-light);
+  border: 2px solid rgba(102, 204, 255, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+.preset-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px var(--shadow);
+  border-color: var(--primary-color);
+}
+.preset-card.active {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 20px rgba(0, 204, 170, 0.4);
+}
+.preset-name {
+  font-weight: 700;
+  margin-bottom: 8px;
+  font-size: 1rem;
+  color: #fff;
+  text-shadow:
+    0 1px 4px #000a,
+    0 0 2px #00ccff44;
+}
+.preset-info {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.preset-color-preview {
+  height: 32px;
+  border-radius: 6px;
+  margin-top: 8px;
+}

@@ -1,0 +1,49 @@
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-confirm {
+  background: var(--bg-light);
+  border-radius: 10px;
+  padding: 2em 2.5em 1.5em 2.5em;
+  min-width: 320px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
+  text-align: center;
+  position: relative;
+  color: #fff;
+  border: 2px solid #00cc88;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.modal-confirm .modal-title {
+  font-weight: 600;
+  font-size: 1.15em;
+  margin-bottom: 10px;
+  color: #fff;
+}
+.modal-confirm .modal-version {
+  margin-bottom: 16px;
+  color: #fff;
+}
+.modal-confirm .modal-version span {
+  font-weight: 500;
+  color: #00cc88;
+}
+.modal-confirm .modal-desc {
+  margin-bottom: 18px;
+  color: #fff;
+}
+.modal-confirm .modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}

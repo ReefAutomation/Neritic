@@ -2,6 +2,7 @@
 import { h, render } from "preact";
 import { App } from "./App.jsx";
 import { WifiSetup } from "./WifiSetup.jsx";
+import './style.scss';
 
 function getPage() {
   const path = globalThis.location.pathname;

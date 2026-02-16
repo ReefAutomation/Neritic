@@ -1,0 +1,16 @@
+// Sun times and sun time row styles
+.sun-times {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--bg-light);
+  border-radius: 8px;
+}
+.sun-time {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 1.1rem;
+}

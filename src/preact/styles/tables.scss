@@ -1,0 +1,29 @@
+// Table and schedule table styles
+.schedule-table {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(102, 204, 255, 0.1);
+}
+th {
+  color: var(--secondary-color);
+  font-weight: 600;
+}
+tr:hover {
+  background: var(--bg-light);
+}
+.timer-enabled {
+  color: var(--success);
+}
+.timer-disabled {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}

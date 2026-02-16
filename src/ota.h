@@ -17,6 +17,9 @@ void handleOTAUpdate(AsyncWebServerRequest *request, unsigned char *data,
 #ifdef ESP32
 extern "C" void otaTask(void *parameter = nullptr);
 #endif
-// Fetch the latest firmware URL for this environment from GitHub (returns empty
-// string on failure)
+
+// Fetch the latest manifest JSON from the remote repository (returns empty string on failure)
+String fetchRemoteManifestJson();
+
+// Fetch the latest firmware URL for this environment from GitHub (returns empty string on failure)
 String getLatestFirmwareUrl(String &latestVersion);

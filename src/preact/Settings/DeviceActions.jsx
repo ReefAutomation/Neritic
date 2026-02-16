@@ -1,9 +1,14 @@
 import { getBaseUrl } from "../baseUrl.js";
 import { useState } from "preact/hooks";
+import { Modal } from "../Modal.jsx";
 
-export function DeviceActions({ config, showToast, loaded, setConfig }) {
+export function DeviceActions({ showToast }) {
   const [modal, setModal] = useState(null); // null | 'reboot' | 'reset'
   const [pending, setPending] = useState(false);
+  let actionLabel = "";
+  if (pending) actionLabel = "Please wait...";
+  else if (modal === "reboot") actionLabel = "Reboot";
+  else actionLabel = "Factory Reset";
 
   const handleAction = async (type) => {
     setPending(true);
@@ -14,17 +19,19 @@ export function DeviceActions({ config, showToast, loaded, setConfig }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ command: "reboot" }),
         });
-        showToast("Device rebooting...", "info");
+        showToast("Device rebooting...", { type: "info" });
       } else if (type === "reset") {
         await fetch(getBaseUrl() + "/api/factory_reset", { method: "POST" });
-        showToast("Factory reset initiated. Device will reboot.", "info");
+        showToast("Factory reset initiated. Device will reboot.", {
+          type: "info",
+        });
       }
     } catch (e) {
       // Log the error for debugging
       console.error("Device action failed:", e);
       showToast(
         type === "reboot" ? "Reboot failed!" : "Factory reset failed!",
-        "error",
+        { type: "error" },
       );
     } finally {
       setPending(false);
@@ -43,72 +50,28 @@ export function DeviceActions({ config, showToast, loaded, setConfig }) {
           Factory Reset
         </button>
       </div>
-      {modal && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            background: "rgba(0,0,0,0.4)",
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 8,
-              padding: 24,
-              minWidth: 320,
-              boxShadow: "0 2px 16px rgba(0,0,0,0.2)",
-              textAlign: "center",
-              color: "#222",
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>
-              {modal === "reboot" ? "Reboot Device" : "Factory Reset"}
-            </h3>
-            <p>
-              {modal === "reboot"
-                ? "Are you sure you want to reboot the device?"
-                : "Factory reset will erase all settings. Continue?"}
-            </p>
-            <div
-              style={{
-                display: "flex",
-                gap: 12,
-                justifyContent: "center",
-                marginTop: 24,
-              }}
-            >
-              <button
-                class="btn btn-secondary"
-                onClick={() => setModal(null)}
-                disabled={pending}
-              >
-                Cancel
-              </button>
-              <button
-                class={
-                  modal === "reboot" ? "btn btn-warning" : "btn btn-danger"
-                }
-                onClick={() => handleAction(modal)}
-                disabled={pending}
-              >
-                {(() => {
-                  if (pending) return "Please wait...";
-                  if (modal === "reboot") return "Reboot";
-                  return "Factory Reset";
-                })()}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={!!modal}
+        title={modal === "reboot" ? "Reboot Device" : "Factory Reset"}
+        description={modal === "reboot"
+          ? "Are you sure you want to reboot the device?"
+          : "Factory reset will erase all settings. Continue?"}
+        onClose={() => !pending && setModal(null)}
+        actions={[
+          {
+            label: "Cancel",
+            onClick: () => setModal(null),
+            className: "btn btn-secondary",
+            disabled: pending,
+          },
+          {
+            label: actionLabel,
+            onClick: () => handleAction(modal),
+            className: modal === "reboot" ? "btn btn-warning" : "btn btn-danger",
+            disabled: pending,
+          },
+        ]}
+      />
     </section>
   );
 }

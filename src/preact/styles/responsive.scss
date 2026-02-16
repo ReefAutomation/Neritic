@@ -1,0 +1,24 @@
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+  }
+
+  .header h1 {
+    font-size: 1.5rem;
+  }
+
+  .control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preset-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .sun-times {
+    flex-direction: column;
+    gap: 12px;
+  }
+}

@@ -62,18 +62,8 @@ void Scheduler::begin() {
   bool staConnected = (WiFi.getMode() == WIFI_MODE_STA && WiFi.isConnected()) ||
                       (WiFi.getMode() == WIFI_MODE_APSTA && WiFi.isConnected());
 #endif
-  debugPrint("[Scheduler::begin] WiFi mode: ");
-#if defined(ESP8266)
-  debugPrintln(WiFi.getMode());
-#else
-  debugPrintln((int)WiFi.getMode());
-#endif
-  debugPrint("[Scheduler::begin] WiFi connected: ");
-  debugPrintln(WiFi.isConnected());
   if (staConnected) {
     updateNTP();
-  } else {
-    debugPrintln("[Scheduler::begin] Not connected as STA, skipping initial NTP update.");
   }
 }
 
@@ -116,7 +106,6 @@ void Scheduler::updateNTP() {
   if (_config) {
     String ntpServer = _config->time.ntpServer;
     if (ntpServer.length() == 0 || ntpServer == "null") {
-      debugPrintln("No NTP server configured, skipping NTP update.");
       return;
     }
   }
@@ -130,12 +119,10 @@ void Scheduler::updateNTP() {
                  (WiFi.getMode() == WIFI_MODE_APSTA && WiFi.isConnected());
 #endif
   if (!staConnected) {
-    debugPrintln("Not connected as STA, skipping NTP update.");
     return;
   }
   _timeClient->forceUpdate();
   _lastNTPUpdate = millis();
-  debugPrintln("NTP time updated");
 }
 
 bool Scheduler::isTimeValid() {

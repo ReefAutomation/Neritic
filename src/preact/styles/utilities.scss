@@ -1,0 +1,25 @@
+.icon-glow-hover:hover path {
+  filter: drop-shadow(0 0 3px #66ccff) drop-shadow(0 0 6px #b3eaff);
+}
+
+.active-timer-row {
+  background: linear-gradient(90deg, #0074d9 0%, #00cc88 100%);
+  color: #fff;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(0, 116, 217, 0.1);
+}
+
+.system-actions {
+  margin-top: 2em;
+  display: flex;
+  gap: 1em;
+  align-items: center;
+}
+
+.system-status {
+  min-width: 120px;
+  margin-left: 1em;
+  color: var(--text-secondary, #888);
+  font-size: 1em;
+  font-style: italic;
+}

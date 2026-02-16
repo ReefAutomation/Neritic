@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from "preact/hooks";
 import { getBaseUrl } from "./baseUrl.js";
 import { initializeWebSocket } from "./websocket.js";
-import { Toast, useToast } from "./Toast.jsx";
-import { Home } from "./Home.jsx";
-import { Config } from "./Config.jsx";
+import { ToastContainer, useToast } from "./Toast.jsx";
+import { useTabs, getHandshakeType, Tabs } from "./Tabs.jsx";
 
 function sendState(updates) {
   fetch(getBaseUrl() + "/api/state", {
@@ -19,75 +18,32 @@ export function App() {
   // Home state (move up so it's available for all hooks)
   const [state, setState] = useState({});
   // Toast state
-  const [toast, setToast] = useToast();
+  const [toasts, showToast, hideToast] = useToast();
 
   // Toast helper (App-level, always use this)
-  function showToast(message, type = "info", duration = 4000) {
-    // Defensive: If message is a toast-like object, flatten
-    if (
-      typeof message === "object" &&
-      message !== null &&
-      Object.hasOwn(message, "message") &&
-      Object.hasOwn(message, "type") &&
-      Object.hasOwn(message, "visible")
-    ) {
-      message = message.message || JSON.stringify(message);
-    }
+  function showToastHelper(message, opts = {}) {
     let msg = message;
     if (typeof msg === "object" && msg !== null) {
       msg = msg.message || JSON.stringify(msg);
     }
     if (!msg || String(msg).trim() === "") return;
-    setToast({ message: msg, type, visible: true });
-    setTimeout(
-      () => setToast((t) => ({ ...t, visible: false, message: "" })),
-      duration,
-    );
+    const type = opts.type || "info";
+    const hideDelay = opts.hideDelay || 4000;
+    return showToast(msg, { ...opts, type, hideDelay });
   }
-  // Tab state from URL hash, fallback to localStorage, then home
-  const getInitialTab = () => {
-    if (globalThis.location.hash === "#config") return "config";
-    if (globalThis.location.hash === "#home") return "home";
-    let saved;
-    try {
-      saved = localStorage.getItem("deepglow_tab");
-    } catch (e) {
-      console.error("Error accessing localStorage for deepglow_tab:", e);
-    }
-    if (saved === "config" || saved === "home") return saved;
-    return "home";
-  };
-  const [tab, setTab] = useState(getInitialTab);
-  // Update tab when hash changes
-  useEffect(() => {
-    const onHashChange = () => {
-      if (globalThis.location.hash === "#config") setTab("config");
-      else setTab("home");
-    };
-    globalThis.addEventListener("hashchange", onHashChange);
-    return () => globalThis.removeEventListener("hashchange", onHashChange);
-  }, []);
-  // Persist tab to localStorage and URL hash on change
-  useEffect(() => {
-    try {
-      if (tab === "config") {
-        localStorage.setItem("deepglow_tab", "config");
-        globalThis.location.hash = "#config";
-      } else {
-        localStorage.setItem("deepglow_tab", "home");
-        globalThis.location.hash = "#home";
-      }
-    } catch {}
-  }, [tab]);
+
+  // Tabs logic (migrated)
+  const [tab, setTab] = useTabs();
+
   // Shared WebSocket connection
   const wsRef = useRef(null);
-  const [wsReady, setWsReady] = useState(false);
-  const [wsError, setWsError] = useState(null);
+  const [setWsReady] = useState(false);
+  const [setWsError] = useState(null);
 
   // Create the WebSocket connection only once
   useEffect(() => {
     wsRef.current = initializeWebSocket({
-      handshake: { type: tab === "config" ? "ota_client" : "state" },
+      handshake: getHandshakeType(tab),
       onMessage: (data) => {
         setState((prev) => ({ ...prev, ...data }));
         if (data.preset !== undefined) setActivePreset(data.preset);
@@ -105,10 +61,12 @@ export function App() {
             }
           }
           if (data.status === "success") {
-            showToast("OTA update successful! Device will reboot.", "success");
+            showToast("OTA update successful! Device will reboot.", {
+              type: "success",
+            });
             setTimeout(() => globalThis.location.reload(), 7000);
           } else if (data.status === "error") {
-            showToast("OTA update failed: " + data.message, "error");
+            showToast("OTA update failed: " + data.message, { type: "error" });
           }
         }
       },
@@ -137,12 +95,11 @@ export function App() {
     };
   }, []);
 
-  // Only send handshake/subscription message on tab change
+  // Send handshake/subscription message on tab change
   useEffect(() => {
-    wsRef.current?.readyState === 1 &&
-      wsRef.current.send(
-        JSON.stringify({ type: tab === "config" ? "ota_client" : "state" }),
-      );
+    if (wsRef.current?.readyState === 1) {
+      wsRef.current.send(JSON.stringify(getHandshakeType(tab)));
+    }
   }, [tab]);
   // Home state
   const [presets, setPresets] = useState([]);
@@ -159,6 +116,13 @@ export function App() {
     presets: false,
     config: false,
   });
+
+  // Keep timers in sync with config.timers
+  useEffect(() => {
+    if (config && Array.isArray(config.timers)) {
+      setTimers(config.timers);
+    }
+  }, [config?.timers]);
 
   // Toast helper
   // Duplicate showToast removed (already defined above)
@@ -206,66 +170,29 @@ export function App() {
     });
   }, []);
 
-  // Tab UI
-  // ...existing code...
-
-  // Defensive normalization: if toast.message is an object (unexpected),
-  // convert to a display string and prefer any nested `type`.
-  const [_displayMessage, _displayType] = (() => {
-    const msg = toast.message;
-    if (typeof msg === "object" && msg !== null) {
-      let messageStr;
-      if (typeof msg.message === "string") {
-        messageStr = msg.message;
-      } else {
-        try {
-          messageStr = JSON.stringify(msg);
-        } catch (e) {
-          console.error("Error stringifying toast message:", e);
-          messageStr = String(msg);
-        }
-      }
-      const typeStr = typeof msg.type === "string" ? msg.type : toast.type;
-      return [messageStr, typeStr];
-    }
-    return [msg, toast.type];
-  })();
-
   return (
     <div>
-      <Toast
-        message={_displayMessage}
-        type={_displayType}
-        visible={toast.visible}
+      <ToastContainer toasts={toasts} onDismiss={hideToast} />
+      <Tabs
+        tab={tab}
+        setTab={setTab}
+        state={state}
+        presets={presets}
+        timers={timers}
+        effects={effects}
+        activePreset={activePreset}
+        ledBarRef={ledBarRef}
+        sendState={sendState}
+        config={config}
+        setActivePreset={setActivePreset}
+        timezones={timezones}
+        sunTimes={sunTimes}
+        showToast={showToastHelper}
+        hideToast={hideToast}
+        loaded={loaded}
+        setConfig={setConfig}
+        otaProgress={otaProgress}
       />
-      {tab === "home" ? (
-        <Home
-          wsError={wsError}
-          wsReady={wsReady}
-          state={state}
-          presets={presets}
-          timers={timers}
-          effects={effects}
-          activePreset={activePreset}
-          ledBarRef={ledBarRef}
-          sendState={sendState}
-          setTab={setTab}
-          config={config}
-          setActivePreset={setActivePreset}
-        />
-      ) : (
-        <Config
-          config={config}
-          timezones={timezones}
-          sunTimes={sunTimes}
-          showToast={showToast}
-          loaded={loaded}
-          setTab={setTab}
-          presets={presets || []}
-          setConfig={setConfig}
-          otaProgress={otaProgress}
-        />
-      )}
     </div>
   );
 }

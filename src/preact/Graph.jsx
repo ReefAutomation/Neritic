@@ -37,8 +37,20 @@ function getRampStepPoints(events, transitionDuration, minutesPerDay) {
     const prevEvent = events[prevIdx];
     const nextIdx = (i + 1) % n;
     const nextEvent = events[nextIdx];
-    const rampEnd = calcRampEnd(event.time, transitionDuration, minutesPerDay, nextEvent.time);
-    const startBrightness = calcStartBrightness(event, prevEvent, events, prevIdx, minutesPerDay, transitionDuration);
+    const rampEnd = calcRampEnd(
+      event.time,
+      transitionDuration,
+      minutesPerDay,
+      nextEvent.time,
+    );
+    const startBrightness = calcStartBrightness(
+      event,
+      prevEvent,
+      events,
+      prevIdx,
+      minutesPerDay,
+      transitionDuration,
+    );
     if (!points.length || points.at(-1).time !== event.time) {
       points.push({ time: event.time, brightness: startBrightness });
     }
@@ -52,23 +64,39 @@ function getRampStepPoints(events, transitionDuration, minutesPerDay) {
 function calcRampEnd(tCurr, transitionDuration, minutesPerDay, tNext) {
   let rampEnd = tCurr + transitionDuration;
   if (rampEnd > minutesPerDay) rampEnd -= minutesPerDay;
-  const tCurrToNext = tNext > tCurr ? tNext - tCurr : minutesPerDay - tCurr + tNext;
+  const tCurrToNext =
+    tNext > tCurr ? tNext - tCurr : minutesPerDay - tCurr + tNext;
   if (transitionDuration > tCurrToNext) rampEnd = tNext;
   return rampEnd;
 }
 
-function calcStartBrightness(event, prevEvent, events, prevIdx, minutesPerDay, transitionDuration) {
+function calcStartBrightness(
+  event,
+  prevEvent,
+  events,
+  prevIdx,
+  minutesPerDay,
+  transitionDuration,
+) {
   const tCurr = event.time;
   const tPrev = prevEvent.time;
-  const prevIntendedEnd = tPrev + transitionDuration > minutesPerDay ? tPrev + transitionDuration - minutesPerDay : tPrev + transitionDuration;
+  const prevIntendedEnd =
+    tPrev + transitionDuration > minutesPerDay
+      ? tPrev + transitionDuration - minutesPerDay
+      : tPrev + transitionDuration;
   const prevTargetIdx = (prevIdx - 1 + events.length) % events.length;
   const bPrevTarget = events[prevTargetIdx].brightness;
-  const prevRampDuration = prevIntendedEnd > tPrev ? prevIntendedEnd - tPrev : minutesPerDay - tPrev + prevIntendedEnd;
-  const timeFromPrevToCurr = tCurr > tPrev ? tCurr - tPrev : minutesPerDay - tPrev + tCurr;
+  const prevRampDuration =
+    prevIntendedEnd > tPrev
+      ? prevIntendedEnd - tPrev
+      : minutesPerDay - tPrev + prevIntendedEnd;
+  const timeFromPrevToCurr =
+    tCurr > tPrev ? tCurr - tPrev : minutesPerDay - tPrev + tCurr;
   let startBrightness = prevEvent.brightness;
   if (timeFromPrevToCurr < prevRampDuration && prevRampDuration > 0) {
     const frac = timeFromPrevToCurr / prevRampDuration;
-    startBrightness = prevEvent.brightness + (bPrevTarget - prevEvent.brightness) * (1 - frac);
+    startBrightness =
+      prevEvent.brightness + (bPrevTarget - prevEvent.brightness) * (1 - frac);
   }
   return startBrightness;
 }
@@ -102,15 +130,18 @@ function buildFlatChartData(state) {
   };
 }
 
-function buildTimerChartData(events, config, minutesPerDay, timers, presets, rgbwHexToPreview) {
+function buildTimerChartData(
+  events,
+  config,
+  minutesPerDay,
+  timers,
+  presets,
+  rgbwHexToPreview,
+) {
   let transitionDuration = config.transitionTimes.schedule / 1000 / 60;
   transitionDuration = Math.max(0.01, transitionDuration);
   transitionDuration = Math.round(transitionDuration * 100) / 100;
-  let points = getRampStepPoints(
-    events,
-    transitionDuration,
-    minutesPerDay,
-  );
+  let points = getRampStepPoints(events, transitionDuration, minutesPerDay);
   const n = events.length;
   const firstEvent = events[0];
   const lastEvent = events[n - 1];

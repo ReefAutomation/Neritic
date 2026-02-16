@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "preact/hooks";
+import { useState, useEffect } from "preact/hooks";
 
 function sortTimers(timers) {
   return [...timers].sort((a, b) => {
@@ -6,21 +6,21 @@ function sortTimers(timers) {
     if (a.type === 1 || a.type === 2) return -1;
     if (b.type === 1 || b.type === 2) return 1;
     // Otherwise, sort by hour then minute
-    return (a.hour ?? 0) * 60 + (a.minute ?? 0) - ((b.hour ?? 0) * 60 + (b.minute ?? 0));
+    return (
+      (a.hour ?? 0) * 60 +
+      (a.minute ?? 0) -
+      ((b.hour ?? 0) * 60 + (b.minute ?? 0))
+    );
   });
 }
 
 export function Schedule({ config, setConfig, presets, sunTimes }) {
-  // Always sort timers on first mount and when config.timers changes (e.g. after config upload/reset)
   const [displayTimers, setDisplayTimers] = useState(() =>
-    Array.isArray(config?.timers) ? sortTimers(config.timers) : []
+    Array.isArray(config?.timers) ? sortTimers(config.timers) : [],
   );
   useEffect(() => {
-    if (Array.isArray(config?.timers)) {
-      // Only update if timers are different (by reference or length)
-      if (config.timers !== displayTimers && config.timers.length !== displayTimers.length) {
-        setDisplayTimers(sortTimers(config.timers));
-      }
+    if (Array.isArray(config?.timers) && config.timers !== displayTimers) {
+      setDisplayTimers(sortTimers(config.timers));
     }
   }, [config?.timers]);
 
@@ -65,8 +65,8 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                     </td>
                     {/* Type radio group */}
                     <td>
-                      {['Regular', 'Sunrise', 'Sunset'].map((label, val) => (
-                        <label style={{ marginRight: '0.5em' }} key={label}>
+                      {["Regular", "Sunrise", "Sunset"].map((label, val) => (
+                        <label style={{ marginRight: "0.5em" }} key={label}>
                           <input
                             type="radio"
                             name={`type_${timer.id || idx}`}
@@ -97,13 +97,13 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                     <td>
                       {(() => {
                         if (timer.type === 1)
-                          return <span>{sunTimes.sunrise || ''}</span>;
+                          return <span>{sunTimes.sunrise || ""}</span>;
                         if (timer.type === 2)
-                          return <span>{sunTimes.sunset || ''}</span>;
+                          return <span>{sunTimes.sunset || ""}</span>;
                         return (
                           <input
                             type="time"
-                            value={`${String(timer.hour).padStart(2, '0')}:${String(timer.minute).padStart(2, '0')}`}
+                            value={`${String(timer.hour).padStart(2, "0")}:${String(timer.minute).padStart(2, "0")}`}
                             onInput={(e) => {
                               const [h, m] = e.target.value
                                 .split(":")
@@ -151,7 +151,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                         min="0"
                         max="100"
                         value={timer.brightness}
-                        style={{ width: '60px' }}
+                        style={{ width: "60px" }}
                         onInput={(e) => {
                           const val = Math.max(
                             0,

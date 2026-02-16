@@ -24,7 +24,8 @@ export function PresetsCard({ presets, effects, activePreset, applyPreset }) {
           return (
             <button
               className={
-                "preset-card" + (Object.is(activePreset, preset.id) ? " active" : "")
+                "preset-card" +
+                (Object.is(activePreset, preset.id) ? " active" : "")
               }
               key={preset.id}
               type="button"

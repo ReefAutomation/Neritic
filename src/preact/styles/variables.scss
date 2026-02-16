@@ -1,0 +1,17 @@
+@import url('https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap');
+:root {
+  --primary-color: #0099cc;
+  --secondary-color: #66ccff;
+  --accent-color: #00ccaa;
+  --bg-dark: #0a1628;
+  --bg-medium: #152538;
+  --bg-light: #1e3447;
+  --text-primary: #ffffff;
+  --text-secondary: #a0b8cc;
+  --success: #00cc88;
+  --warning: #ffaa00;
+  --danger: #ff4466;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --gradient-ocean: linear-gradient(135deg, #0a1628 0%, #1e3447 100%);
+  --gradient-card: linear-gradient(135deg, #152538 0%, #1a2d40 100%);
+}

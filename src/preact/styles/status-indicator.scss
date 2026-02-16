@@ -1,0 +1,15 @@
+.status-indicator {
+  font-size: 1.5rem;
+  color: var(--success);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
