@@ -1,0 +1,113 @@
+// Table and schedule table styles
+.schedule-table {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(102, 204, 255, 0.1);
+}
+th {
+  color: var(--secondary-color);
+  font-weight: 600;
+}
+tr:hover {
+  background: var(--bg-light);
+}
+.timer-enabled {
+  color: var(--success);
+}
+.timer-disabled {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+@media (max-width: 768px) {
+  .schedule-table {
+    overflow-x: visible;
+  }
+
+  .schedule-table table,
+  .schedule-table thead,
+  .schedule-table tbody,
+  .schedule-table tr,
+  .schedule-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .schedule-table thead {
+    display: none;
+  }
+
+  .schedule-table tr {
+    background: var(--bg-light);
+    border: 1px solid rgba(102, 204, 255, 0.15);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 12px;
+  }
+
+  .schedule-table td {
+    border-bottom: none;
+    padding: 8px 0;
+  }
+
+  .schedule-table td::before {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--secondary-color);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .schedule-table td:nth-child(1)::before {
+    content: 'Enabled';
+  }
+
+  .schedule-table td:nth-child(2)::before {
+    content: 'Type';
+  }
+
+  .schedule-table td:nth-child(3)::before {
+    content: 'Time';
+  }
+
+  .schedule-table td:nth-child(4)::before {
+    content: 'Preset';
+  }
+
+  .schedule-table td:nth-child(5)::before {
+    content: 'Brightness (%)';
+  }
+
+  .schedule-table td:nth-child(6)::before {
+    content: 'Actions';
+  }
+
+  .schedule-table td:nth-child(2) label {
+    display: block;
+    margin-right: 0 !important;
+    margin-bottom: 4px;
+  }
+
+  .schedule-table td input[type='time'],
+  .schedule-table td select,
+  .schedule-table td input[type='number'],
+  .schedule-table td button {
+    width: 100% !important;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .schedule-table > .btn {
+    width: 100%;
+    margin-right: 0 !important;
+  }
+}

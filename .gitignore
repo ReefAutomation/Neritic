@@ -59,3 +59,6 @@ docs/_build/
 docs/.doctrees/
 
 lib/
+
+# ESP-IDF managed components (generated from idf_component.yml + lock file)
+managed_components/

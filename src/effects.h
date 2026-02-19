@@ -3,7 +3,6 @@
 
 #include "config.h"
 #include "state.h"
-#include <Arduino.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>

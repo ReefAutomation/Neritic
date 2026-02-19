@@ -1,6 +1,5 @@
 #pragma once
 #include "config.h"
-#include <ArduinoJson.h>
 #include <vector>
 
 // Preset management API

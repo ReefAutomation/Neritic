@@ -1,6 +1,9 @@
 #include "effects.h"
 #include "bus_manager.h"
 #include "colors.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "state.h"
 #include "transition.h"
 #include <array>
@@ -19,6 +22,7 @@ extern Configuration config;
 volatile uint8_t g_effectSpeed = 1;
 std::vector<uint32_t> *g_effectBuffer = nullptr;
 static size_t g_ledCount = 0;
+static SemaphoreHandle_t g_renderMutex = nullptr;
 
 // === Typedefs ===
 typedef void (*EffectFrameGen)();
@@ -49,12 +53,12 @@ static uint32_t color_blend(uint32_t color1, uint32_t color2, uint8_t blend) {
 
 // === Frame generator functions ===
 void effect_solid() {
+  if (!g_effectBuffer)
+    return;
   uint32_t c = color[0];
   uint8_t r, g, b, w;
   unpack_rgbw(c, r, g, b, w);
   scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-  if (!g_effectBuffer)
-    return;
   for (size_t i = 0; i < g_ledCount; ++i) {
     (*g_effectBuffer)[i] = pack_rgbw(r, g, b, w);
   }
@@ -82,7 +86,7 @@ void effect_sunrise() {
   if (blendBuffer.size() != g_ledCount)
     blendBuffer.assign(g_ledCount, stops[0]);
   // Timing and speed
-  uint32_t now = millis();
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
   uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
   uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
   // Intensity modifier: scale blendSpeed
@@ -117,9 +121,7 @@ void effect_sunrise() {
 REGISTER_EFFECT(1, "Sunrise", effect_sunrise)
 
 void effect_sunset() {
-  if (!g_effectBuffer)
-    return;
-  if (g_ledCount == 0)
+  if (!g_effectBuffer || g_ledCount == 0)
     return;
   size_t colorCount = state.params.colors.size();
   std::vector<uint32_t> stops;
@@ -129,7 +131,7 @@ void effect_sunset() {
         (uint32_t)strtoul(cstr + (cstr[0] == '#' ? 1 : 0), nullptr, 16));
   }
   // Calculate counter based on speed
-  uint32_t now = millis();
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
   uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
   uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
   uint32_t counter = 0;
@@ -187,9 +189,7 @@ void effect_sunset() {
 REGISTER_EFFECT(2, "Sunset", effect_sunset)
 
 void effect_moonlight() {
-  if (!g_effectBuffer)
-    return;
-  if (g_ledCount == 0)
+  if (!g_effectBuffer || g_ledCount == 0)
     return;
 
   // Underwater moonlight: soft blue base, moving caustic highlight, gentle
@@ -198,7 +198,7 @@ void effect_moonlight() {
   // Highlight color: brighter blue/cyan
   uint8_t highR = 40, highG = 120, highB = 255, highW = 0;
 
-  uint32_t now = millis();
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
   // Map speed param (1-255) to a practical, visible range
   uint8_t userSpeed = state.params.speed > 0 ? state.params.speed : 30;
   // At speed=1: 1 cycle per 8s; at speed=255: 1 cycle per 1s
@@ -244,19 +244,12 @@ REGISTER_EFFECT(3, "Moonlight", effect_moonlight)
 
 // Lightning effect: emulates a storm seen from underwater
 void effect_lightning() {
-  // Debug: print speed and delay info
-  static uint8_t lastDebugSpeed = 0;
-  static uint32_t lastDebugDelay = 0;
   static uint8_t lastSpeed = 0;
-  if (!g_effectBuffer)
-    return;
-  if (g_ledCount == 0)
+  if (!g_effectBuffer || g_ledCount == 0)
     return;
 
   static uint32_t lastFlash = 0;
   static bool inBurst = false;
-  static uint32_t burstStart = 0;
-  static uint32_t burstDuration = 0;
   static uint32_t burstFlashCount = 0;
   static uint32_t burstFlashIdx = 0;
   static uint32_t flashStart = 0;
@@ -273,7 +266,7 @@ void effect_lightning() {
     return (rngSeed & 0xFFFFFF) / float(0xFFFFFF);
   };
 
-  uint32_t now = millis();
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
   // Use preset colors: first is base, last is flash, middle (if present) is
   // highlight
   uint8_t baseR = 0, baseG = 0, baseB = 0, baseW = 0;
@@ -295,11 +288,6 @@ void effect_lightning() {
   // Recalculate delay immediately if speed changes
   uint8_t userSpeed = state.params.speed > 0 ? state.params.speed : 1;
   if (userSpeed != lastSpeed) {
-    // Clamp to [1,255]
-    if (userSpeed < 1)
-      userSpeed = 1;
-    if (userSpeed > 255)
-      userSpeed = 255;
     uint32_t maxDelay = 60000; // 60s
     uint32_t minDelay = 5000;  // 5s
     float t = (userSpeed - 1) / 254.0f;
@@ -312,8 +300,6 @@ void effect_lightning() {
   if (!inBurst && now - lastFlash > nextDelay) {
     // Start a burst (lightning event)
     inBurst = true;
-    burstStart = now;
-    burstDuration = 180 + (uint32_t)(randf() * 220); // 180-400ms burst
     burstFlashCount = 2 + (uint32_t)(randf() * 4);   // 2-5 flashes per burst
     burstFlashIdx = 0;
     flashTime = now;
@@ -326,7 +312,8 @@ void effect_lightning() {
         0.5f + 0.5f * (intensity / 255.0f); // max intensity 0.5-1.0
     flashIntensity = minFlash + (maxFlash - minFlash) * randf();
     // Pick a random set of LEDs for the flash
-    flashLen = std::max(1U, (uint32_t)(1 + randf() * (g_ledCount - 1)));
+    flashLen =
+        std::max((uint32_t)1, (uint32_t)(1 + randf() * (g_ledCount - 1)));
     flashStart = (uint32_t)(randf() * g_ledCount);
     lastFlash = now;
   }
@@ -343,7 +330,8 @@ void effect_lightning() {
         float minFlash = 0.1f + 0.7f * (intensity / 255.0f);
         float maxFlash = 0.5f + 0.5f * (intensity / 255.0f);
         flashIntensity = minFlash + (maxFlash - minFlash) * randf();
-        flashLen = std::max(1U, (uint32_t)(1 + randf() * (g_ledCount - 1)));
+        flashLen =
+            std::max((uint32_t)1, (uint32_t)(1 + randf() * (g_ledCount - 1)));
         flashStart = (uint32_t)(randf() * g_ledCount);
       } else {
         inBurst = false;
@@ -394,6 +382,13 @@ void renderEffectToBuffer(uint8_t effectId, const EffectParams &params,
                           std::vector<uint32_t> &buffer, size_t ledCount,
                           const std::array<uint32_t, 8> &colors,
                           size_t colorCount, uint8_t brightness) {
+  if (g_renderMutex == nullptr) {
+    g_renderMutex = xSemaphoreCreateMutex();
+  }
+  if (g_renderMutex) {
+    xSemaphoreTake(g_renderMutex, portMAX_DELAY);
+  }
+
   // Save current global state
   auto old_state = state;
   std::array<uint32_t, 8> old_color = color;
@@ -423,6 +418,10 @@ void renderEffectToBuffer(uint8_t effectId, const EffectParams &params,
   state.brightness = old_brightness;
   g_effectBuffer = old_g_effectBuffer;
   g_ledCount = old_g_ledCount;
+
+  if (g_renderMutex) {
+    xSemaphoreGive(g_renderMutex);
+  }
 }
 
 uint32_t getEffectDelayMs(const EffectParams &params) {

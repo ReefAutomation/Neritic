@@ -1,69 +1,75 @@
-# 🐠 DeepGlow - Standalone Aquarium LED Controller
+# DeepGlow
 
-DeepGlow is a robust, open-source aquarium lighting controller for ESP32/ESP8266 microcontrollers. It provides automated, fish-safe LED control with advanced scheduling, custom effects, and a modern web interface. Designed for reliability and flexibility, DeepGlow supports a wide range of addressable LEDs and offers both beginner-friendly setup and advanced customization.
+Standalone ESP-IDF based aquarium LED controller for ESP32-family boards.
 
-## Project Highlights
-- **Fish Safety:** Gradual transitions, maximum brightness caps, and sunrise/sunset simulation protect aquatic life.
-- **Native Effects:** Full support for WS2812FX effects, custom presets, and color arrays.
-- **Scheduling:** NTP time sync, sun-based timers, day-of-week selection, and boot recovery.
-- **Web Interface:** Responsive SPA for real-time control, preset management, and configuration (mobile & desktop).
-- **Modular Firmware:** Easily extend or customize with C++ and Python scripts.
+DeepGlow provides:
+- Real-time LED control with smooth transitions
+- Presets, timers, sunrise/sunset scheduling, and safety limits
+- Embedded web UI + REST API + WebSocket updates
+- OTA update support
 
-## Hardware Requirements
-- ESP32 or ESP8266 board (2MB+ flash recommended)
-- Addressable LED strip: WS2812B, SK6812, APA102, up to 512 LEDs
-- 5V power supply (adequate for LED count)
-- Optional: relay module for power switching
+## Supported Environments
 
-## Supported LED Types
-- WS2812B (NeoPixel)
-- SK6812 (RGBW)
-- APA102 (DotStar)
+From `platformio.ini`:
 
-## Wiring Overview
-- Default data pin: GPIO2 (ESP8266/ESP32)
-- Use level shifter (74HCT245) for reliability
-- Add 470Ω resistor to data line, 1000µF capacitor across LED power
-- Relay module optional for safety/scheduling
+- `esp32d` (default)
+- `esp32d_debug`
+- `esp32`
+- `esp32_debug`
+- `esp32c3`
+- `esp32c3_debug`
+- `esp32s3`
+- `esp32s3_debug`
+- `esp32c6`
+- `esp32c6_debug`
 
-## Aquarium Safety Features
-- Minimum transition times (5s+)
-- Maximum brightness enforcement
-- Acclimation period for new tanks
-- Safe effect recommendations
+## Quick Start
 
-## Web Interface Features
-- Real-time WebSocket updates
-- Visual preset management
-- Schedule dashboard
-- Configuration panel
+1. Install PlatformIO (CLI or VS Code extension)
+2. Clone this repository
+3. Build firmware
+4. Upload filesystem assets
+5. Upload firmware
 
-## Quick Installation
-1. Install PlatformIO (VS Code extension or CLI)
-2. Clone the DeepGlow repository
-3. Build firmware for your board
-4. Upload filesystem and firmware
-5. Connect to device AP and configure WiFi
-
-### Example Commands
 ```bash
-pip install platformio
-# Clone repository
 git clone <your-repo-url>
 cd DeepGlow
-# Build for ESP32
+
+# Build (default env: esp32d)
+pio run
+
+# Build explicit environment
 pio run -e esp32d_debug
-# Upload filesystem
-pio run -t uploadfs -e esp32d_debug
-# Upload firmware
-pio run -t upload -e esp32d_debug
+
+# Upload filesystem and firmware
+pio run -e esp32d_debug -t uploadfs
+pio run -e esp32d_debug -t upload
+
+# Serial monitor
+pio device monitor -b 115200
 ```
 
-## Documentation
-- [Installation & Setup](docs/INSTALLATION.md)
-- [Configuration](docs/CONFIGURATION.md)
-- [API Reference](docs/API.md)
-- [Preset Effects](docs/PRESET_EFFECTS.md)
-- [Fish Safety Guidelines](docs/SAFETY_GUIDELINES.md)
+## Default Runtime Access
 
-For wiring diagrams, troubleshooting, and advanced usage, see the [docs](docs/) folder.
+- AP hostname / SSID default: `AquariumLED`
+- AP setup page: `http://192.168.4.1`
+- REST base path: `/api/*`
+- WebSocket endpoint: `/ws`
+
+## Documentation
+
+- [Installation](docs/INSTALLATION.md)
+- [Quick Start](docs/QUICKSTART.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [API](docs/API.md)
+- [Preset Effects](docs/PRESET_EFFECTS.md)
+- [Wiring](docs/WIRING.md)
+- [Safety Guidelines](docs/SAFETY_GUIDELINES.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [ESP32-C6 Notes](docs/ESP32C6_SUPPORT.md)
+
+## Notes
+
+- Brightness, speed, and intensity exposed by API/UI are percentage values (`0-100`).
+- Internal LED values are converted to `0-255` in firmware.
+- Filesystem is LittleFS and static assets are embedded during build.

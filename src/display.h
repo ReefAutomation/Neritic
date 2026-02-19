@@ -9,5 +9,7 @@
 #define TFT_BLK 25 // Backlight
 #define TFT_DRIVER ST7735S
 
+#ifdef DISPLAY_ENABLED
 void setup_display();
 void display_status(const char *preset, bool power, const char *ip);
+#endif

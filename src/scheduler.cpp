@@ -1,42 +1,267 @@
-
 #include "scheduler.h"
 #include "config.h"
-#include "debug.h"
+#include "esp_log.h"
+#include "esp_sntp.h"
+#include "esp_timer.h"
+#include "network.h"
 #include <math.h>
-#if defined(ESP8266)
-#include <ESP8266WiFi.h>
-#else
-#include <WiFi.h>
-#endif
+#include <string>
+#include <time.h>
+
+static const char *TAG = "scheduler";
+
+static unsigned long getEpochTime() { return (unsigned long)time(NULL); }
+
+Scheduler::Scheduler(Configuration *config) {
+  _config = config;
+  Scheduler::_instance = this;
+}
+
+void Scheduler::begin() {
+  if (!_config)
+    return;
+  if (_config->time.ntpServer.empty() || _config->time.ntpServer == "null")
+    return;
+  esp_sntp_stop();
+  esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+  esp_sntp_setservername(0, _config->time.ntpServer.c_str());
+  sntp_set_sync_interval(NTP_UPDATE_INTERVAL);
+  // Register SNTP sync notification callback
+  sntp_set_time_sync_notification_cb([](struct timeval *tv) {
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    char buf[32];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    ESP_LOGI("scheduler", "SNTP sync notification: system time set to %s", buf);
+    // Set persistent time valid flag
+    if (Scheduler::_instance)
+      Scheduler::_instance->_timeValid = true;
+  });
+  esp_sntp_init();
+  _lastNTPUpdate = (uint64_t)(esp_timer_get_time() / 1000ULL);
+  ESP_LOGI(TAG, "SNTP initialized with server: %s",
+           _config->time.ntpServer.c_str());
+}
+
+Scheduler *Scheduler::_instance = nullptr;
+void Scheduler::updateNTP() {
+  if (!_config)
+    return;
+  if (_config->time.ntpServer.empty() || _config->time.ntpServer == "null")
+    return;
+  if (!networkIsStaConnected())
+    return;
+  esp_sntp_stop();
+  esp_sntp_setservername(0, _config->time.ntpServer.c_str());
+  esp_sntp_init();
+  _lastNTPUpdate = (uint64_t)(esp_timer_get_time() / 1000ULL);
+  ESP_LOGI(TAG, "NTP updated");
+}
+
+bool Scheduler::isTimeValid() {
+  if (_config &&
+      (_config->time.ntpServer.empty() || _config->time.ntpServer == "null")) {
+    return true;
+  }
+  return _timeValid;
+}
+
+uint8_t Scheduler::getCurrentHour() {
+  long tzOffset = _config ? _config->getTimezoneOffsetSeconds() : 0;
+  unsigned long epoch = getEpochTime() + (unsigned long)tzOffset;
+  return (epoch / 3600) % 24;
+}
+
+uint8_t Scheduler::getCurrentMinute() {
+  long tzOffset = _config ? _config->getTimezoneOffsetSeconds() : 0;
+  unsigned long epoch = getEpochTime() + (unsigned long)tzOffset;
+  return (epoch / 60) % 60;
+}
+
+int Scheduler::getCurrentTimeInMinutes() {
+  return timeToMinutes(getCurrentHour(), getCurrentMinute());
+}
+
+std::string Scheduler::getCurrentTime() {
+  long tzOffset = _config ? _config->getTimezoneOffsetSeconds() : 0;
+  unsigned long epoch = getEpochTime() + (unsigned long)tzOffset;
+  char buf[9];
+  snprintf(buf, sizeof(buf), "%02d:%02d:%02d", (int)((epoch / 3600) % 24),
+           (int)((epoch / 60) % 60), (int)(epoch % 60));
+  return std::string(buf);
+}
+
+int Scheduler::timeToMinutes(uint8_t hour, uint8_t minute) {
+  return (int)hour * 60 + (int)minute;
+}
+
+bool Scheduler::isTimerActive(const Timer &timer, uint8_t /* dayOfWeek */) {
+  return timer.enabled;
+}
+
+int Scheduler::getTimerMinutes(const Timer &timer) {
+  switch (timer.type) {
+  case TIMER_REGULAR:
+    return timeToMinutes(timer.hour, timer.minute);
+  case TIMER_SUNRISE:
+    return _sunriseMinutes;
+  case TIMER_SUNSET:
+    return _sunsetMinutes;
+  default:
+    return -1;
+  }
+}
+
+void Scheduler::update() {
+  static bool sunCalcDone = false;
+  if (_sunriseMinutes == -1 ||
+      (getCurrentHour() == 0 && getCurrentMinute() == 0 && !sunCalcDone)) {
+    calculateSunTimes();
+    sunCalcDone = true;
+  }
+  if (getCurrentHour() != 0 || getCurrentMinute() != 0) {
+    sunCalcDone = false;
+  }
+}
+
+void Scheduler::calculateSunTimes() {
+  if (!_config ||
+      (_config->time.latitude == 0.0 && _config->time.longitude == 0.0)) {
+    _sunriseMinutes = 6 * 60;
+    _sunsetMinutes = 18 * 60;
+    return;
+  }
+  _sunriseMinutes = calculateSunriseMinutes();
+  _sunsetMinutes = calculateSunsetMinutes();
+}
+
+int Scheduler::calculateSunriseMinutes() {
+  float lat = (float)(_config->time.latitude * M_PI / 180.0);
+  int dayOfYear = (int)((getEpochTime() / 86400) % 365);
+  float dec = 0.409f * sinf(2.0f * (float)M_PI / 365.0f * dayOfYear - 1.39f);
+  float cosHA = -tanf(lat) * tanf(dec);
+  if (cosHA < -1.0f)
+    cosHA = -1.0f;
+  if (cosHA > 1.0f)
+    cosHA = 1.0f;
+  float ha = acosf(cosHA);
+  int m = (int)((12.0f - ha * 12.0f / (float)M_PI) * 60.0f);
+  if (m < 4 * 60)
+    m = 4 * 60;
+  if (m > 10 * 60)
+    m = 10 * 60;
+  return m;
+}
+
+int Scheduler::calculateSunsetMinutes() {
+  float lat = (float)(_config->time.latitude * M_PI / 180.0);
+  int dayOfYear = (int)((getEpochTime() / 86400) % 365);
+  float dec = 0.409f * sinf(2.0f * (float)M_PI / 365.0f * dayOfYear - 1.39f);
+  float cosHA = -tanf(lat) * tanf(dec);
+  if (cosHA < -1.0f)
+    cosHA = -1.0f;
+  if (cosHA > 1.0f)
+    cosHA = 1.0f;
+  float ha = acosf(cosHA);
+  int m = (int)((12.0f + ha * 12.0f / (float)M_PI) * 60.0f);
+  if (m < 16 * 60)
+    m = 16 * 60;
+  if (m > 22 * 60)
+    m = 22 * 60;
+  return m;
+}
+
+std::string Scheduler::getSunriseTime() {
+  if (_sunriseMinutes == -1)
+    return "N/A";
+  int m = (_sunriseMinutes < 0)
+              ? 0
+              : (_sunriseMinutes > 1439 ? 1439 : _sunriseMinutes);
+  int h = m / 60, mm = m % 60;
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%02d:%02d", h, mm);
+  return std::string(buf);
+}
+
+std::string Scheduler::getSunsetTime() {
+  if (_sunsetMinutes == -1)
+    return "N/A";
+  int m = (_sunsetMinutes < 0)
+              ? 0
+              : (_sunsetMinutes > 1439 ? 1439 : _sunsetMinutes);
+  int h = m / 60, mm = m % 60;
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%02d:%02d", h, mm);
+  return std::string(buf);
+}
+
+int8_t Scheduler::getCurrentScheduledPreset() {
+  if (!isTimeValid())
+    return -1;
+  int cur = getCurrentTimeInMinutes();
+  int8_t best = -1;
+  int bestM = -1;
+  for (size_t i = 0; i < _config->timers.size(); i++) {
+    if (!isTimerActive(_config->timers[i], 0))
+      continue;
+    int m = getTimerMinutes(_config->timers[i]);
+    if (m == -1)
+      continue;
+    if (_config->timers[i].presetId >= _config->getPresetCount())
+      continue;
+    if (m <= cur && m > bestM) {
+      bestM = m;
+      best = (int8_t)_config->timers[i].presetId;
+    }
+  }
+  if (best == -1) {
+    int latM = -1;
+    for (size_t i = 0; i < _config->timers.size(); i++) {
+      if (!isTimerActive(_config->timers[i], 0))
+        continue;
+      int m = getTimerMinutes(_config->timers[i]);
+      if (m == -1)
+        continue;
+      if (_config->timers[i].presetId >= _config->getPresetCount())
+        continue;
+      if (m > latM) {
+        latM = m;
+        best = (int8_t)_config->timers[i].presetId;
+      }
+    }
+  }
+  return best;
+}
 
 const Timer *Scheduler::getActiveTimer() {
   if (!isTimeValid())
     return nullptr;
-  int currentMinutes = getCurrentTimeInMinutes();
+  int cur = getCurrentTimeInMinutes();
   const Timer *best = nullptr;
-  int bestMinutes = -1;
+  int bestM = -1;
   for (const auto &t : _config->timers) {
     if (!isTimerActive(t, 0))
       continue;
-    int timerMinutes = getTimerMinutes(t);
-    if (timerMinutes == -1)
+    int m = getTimerMinutes(t);
+    if (m == -1)
       continue;
-    if (timerMinutes <= currentMinutes && timerMinutes > bestMinutes) {
-      bestMinutes = timerMinutes;
+    if (m <= cur && m > bestM) {
+      bestM = m;
       best = &t;
     }
   }
-  // If no timer has triggered today, select the last timer of the previous day
   if (!best) {
-    int latestMinutes = -1;
+    int latM = -1;
     for (const auto &t : _config->timers) {
       if (!isTimerActive(t, 0))
         continue;
-      int timerMinutes = getTimerMinutes(t);
-      if (timerMinutes == -1)
+      int m = getTimerMinutes(t);
+      if (m == -1)
         continue;
-      if (timerMinutes > latestMinutes) {
-        latestMinutes = timerMinutes;
+      if (m > latM) {
+        latM = m;
         best = &t;
       }
     }
@@ -44,331 +269,31 @@ const Timer *Scheduler::getActiveTimer() {
   return best;
 }
 
-Scheduler::Scheduler(Configuration *config) {
-  _config = config;
-  int tzOffset = 0;
-  if (_config)
-    tzOffset = _config->getTimezoneOffsetSeconds();
-  _timeClient = new NTPClient(_ntpUDP, _config->time.ntpServer.c_str(),
-                              tzOffset, NTP_UPDATE_INTERVAL);
-}
-
-void Scheduler::begin() {
-  _timeClient->begin();
-#if defined(ESP8266)
-  bool staConnected = (WiFi.getMode() == WIFI_STA && WiFi.isConnected()) ||
-                      (WiFi.getMode() == WIFI_AP_STA && WiFi.isConnected());
-#else
-  bool staConnected = (WiFi.getMode() == WIFI_MODE_STA && WiFi.isConnected()) ||
-                      (WiFi.getMode() == WIFI_MODE_APSTA && WiFi.isConnected());
-#endif
-  if (staConnected) {
-    updateNTP();
-  }
-}
-
-int Scheduler::getCurrentTimeInMinutes() {
-  return timeToMinutes(getCurrentHour(), getCurrentMinute());
-}
-
-void Scheduler::update() {
-  // Only allow NTP logic if STA is connected
-#if defined(ESP8266)
-  bool staConnected = (WiFi.getMode() == WIFI_STA && WiFi.isConnected()) ||
-                      (WiFi.getMode() == WIFI_AP_STA && WiFi.isConnected());
-#else
-  bool staConnected = (WiFi.getMode() == WIFI_MODE_STA && WiFi.isConnected()) ||
-                      (WiFi.getMode() == WIFI_MODE_APSTA && WiFi.isConnected());
-#endif
-  if (staConnected) {
-    uint32_t interval =
-        isTimeValid() ? NTP_UPDATE_INTERVAL : NTP_RETRY_INTERVAL;
-    if (millis() - _lastNTPUpdate > interval) {
-      updateNTP();
-    }
-    _timeClient->update();
-  }
-  // Calculate sun times only once per day at midnight or on first update
-  static bool sunTimesCalculated = false;
-  if (_sunriseMinutes == -1 ||
-      (getCurrentHour() == 0 && getCurrentMinute() == 0 &&
-       !sunTimesCalculated)) {
-    calculateSunTimes();
-    sunTimesCalculated = true;
-  }
-  // Reset flag after midnight
-  if (getCurrentHour() != 0 || getCurrentMinute() != 0) {
-    sunTimesCalculated = false;
-  }
-}
-
-void Scheduler::updateNTP() {
-  if (_config) {
-    String ntpServer = _config->time.ntpServer;
-    if (ntpServer.length() == 0 || ntpServer == "null") {
-      return;
-    }
-  }
-  // Disable NTP update if not connected as STA (no internet)
-  bool staConnected = false;
-#if defined(ESP8266)
-  staConnected = (WiFi.getMode() == WIFI_STA && WiFi.isConnected()) ||
-                 (WiFi.getMode() == WIFI_AP_STA && WiFi.isConnected());
-#else
-  staConnected = (WiFi.getMode() == WIFI_MODE_STA && WiFi.isConnected()) ||
-                 (WiFi.getMode() == WIFI_MODE_APSTA && WiFi.isConnected());
-#endif
-  if (!staConnected) {
-    return;
-  }
-  _timeClient->forceUpdate();
-  _lastNTPUpdate = millis();
-}
-
-bool Scheduler::isTimeValid() {
-  if (_config) {
-    String ntpServer = _config->time.ntpServer;
-    if (ntpServer.length() == 0 || ntpServer == "null") {
-      // Fallback: treat time as valid if NTP is disabled
-      return true;
-    }
-  }
-  return _timeClient->isTimeSet();
-}
-
 uint8_t Scheduler::getScheduledBrightness(int8_t presetId, int currentMinutes) {
-  int mostRecentMinutes = -1;
+  int mostRecentM = -1;
   uint8_t mostRecentBrightness = 100;
   for (const auto &t : _config->timers) {
-    if (!t.enabled)
+    if (!t.enabled || t.presetId != (uint8_t)presetId)
       continue;
-    if (t.presetId != presetId)
+    int m = getTimerMinutes(t);
+    if (m == -1)
       continue;
-    int timerMinutes = getTimerMinutes(t);
-    if (timerMinutes == -1)
-      continue;
-    if (timerMinutes <= currentMinutes && timerMinutes > mostRecentMinutes) {
-      mostRecentMinutes = timerMinutes;
+    if (m <= currentMinutes && m > mostRecentM) {
+      mostRecentM = m;
       mostRecentBrightness = t.brightness;
     }
   }
-  // If no timer has triggered today, select the last timer of the previous day
-  if (mostRecentMinutes == -1) {
-    int latestMinutes = -1;
-    uint8_t latestBrightness = 100;
+  if (mostRecentM == -1) {
+    int latM = -1;
     for (const auto &t : _config->timers) {
-      if (!t.enabled)
+      if (!t.enabled || t.presetId != (uint8_t)presetId)
         continue;
-      if (t.presetId != presetId)
-        continue;
-      int timerMinutes = getTimerMinutes(t);
-      if (timerMinutes == -1)
-        continue;
-      if (timerMinutes > latestMinutes) {
-        latestMinutes = timerMinutes;
-        latestBrightness = t.brightness;
+      int m = getTimerMinutes(t);
+      if (m != -1 && m > latM) {
+        latM = m;
+        mostRecentBrightness = t.brightness;
       }
     }
-    mostRecentBrightness = latestBrightness;
   }
   return mostRecentBrightness;
-}
-
-String Scheduler::getCurrentTime() {
-  // Get the current epoch time (UTC)
-  unsigned long epoch = _timeClient->getEpochTime();
-  int tzOffset = 0;
-  if (_config)
-    tzOffset = _config->getTimezoneOffsetSeconds();
-  epoch += tzOffset;
-  // Calculate hours, minutes, seconds in local time
-  int hours = (epoch / 3600) % 24;
-  int minutes = (epoch / 60) % 60;
-  int seconds = epoch % 60;
-  char buffer[9];
-  snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", hours, minutes, seconds);
-  return String(buffer);
-}
-
-uint8_t Scheduler::getCurrentHour() {
-  unsigned long epoch = _timeClient->getEpochTime();
-  int tzOffset = 0;
-  if (_config)
-    tzOffset = _config->getTimezoneOffsetSeconds();
-  epoch += tzOffset;
-  return (epoch / 3600) % 24;
-}
-
-uint8_t Scheduler::getCurrentMinute() {
-  unsigned long epoch = _timeClient->getEpochTime();
-  int tzOffset = 0;
-  if (_config)
-    tzOffset = _config->getTimezoneOffsetSeconds();
-  epoch += tzOffset;
-  return (epoch / 60) % 60;
-}
-
-// Simplified sunrise calculation using sine approximation
-void Scheduler::calculateSunTimes() {
-  if (_config->time.latitude == 0.0 && _config->time.longitude == 0.0) {
-    // Default times if location not set
-    _sunriseMinutes = 6 * 60; // 6:00 AM
-    _sunsetMinutes = 18 * 60; // 6:00 PM
-    return;
-  }
-
-  _sunriseMinutes = calculateSunriseMinutes();
-  _sunsetMinutes = calculateSunsetMinutes();
-}
-
-int Scheduler::calculateSunriseMinutes() {
-  // Simplified calculation - in production, use a proper astronomy library
-  // This is a basic approximation
-  float lat = _config->time.latitude * PI / 180.0;
-
-  // Day of year approximation
-  unsigned long epochTime = _timeClient->getEpochTime();
-  int dayOfYear = (epochTime / 86400) % 365;
-
-  // Solar declination approximation
-  float declination = 0.409 * sin(2 * PI / 365.0 * dayOfYear - 1.39);
-
-  // Hour angle
-  float hourAngle = acos(-tan(lat) * tan(declination));
-
-  // Sunrise time in hours
-  float sunriseHour = 12.0 - (hourAngle * 12.0 / PI);
-
-  // Convert to minutes since midnight
-  int minutes = (int)(sunriseHour * 60);
-
-  // Clamp to reasonable values
-  if (minutes < 4 * 60)
-    minutes = 4 * 60; // Not before 4 AM
-  if (minutes > 10 * 60)
-    minutes = 10 * 60; // Not after 10 AM
-
-  return minutes;
-}
-
-int Scheduler::calculateSunsetMinutes() {
-  // Simplified calculation
-  float lat = _config->time.latitude * PI / 180.0;
-
-  unsigned long epochTime = _timeClient->getEpochTime();
-  int dayOfYear = (epochTime / 86400) % 365;
-
-  float declination = 0.409 * sin(2 * PI / 365.0 * dayOfYear - 1.39);
-  float hourAngle = acos(-tan(lat) * tan(declination));
-
-  // Sunset time in hours
-  float sunsetHour = 12.0 + (hourAngle * 12.0 / PI);
-
-  int minutes = (int)(sunsetHour * 60);
-
-  // Clamp to reasonable values
-  if (minutes < 16 * 60)
-    minutes = 16 * 60; // Not before 4 PM
-  if (minutes > 22 * 60)
-    minutes = 22 * 60; // Not after 10 PM
-
-  return minutes;
-}
-
-String Scheduler::getSunriseTime() {
-  if (_sunriseMinutes == -1)
-    return "N/A";
-
-  char buffer[6];
-  sprintf(buffer, "%02d:%02d", _sunriseMinutes / 60, _sunriseMinutes % 60);
-  return String(buffer);
-}
-
-String Scheduler::getSunsetTime() {
-  if (_sunsetMinutes == -1)
-    return "N/A";
-
-  char buffer[6];
-  sprintf(buffer, "%02d:%02d", _sunsetMinutes / 60, _sunsetMinutes % 60);
-  return String(buffer);
-}
-
-int Scheduler::timeToMinutes(uint8_t hour, uint8_t minute) {
-  return hour * 60 + minute;
-}
-
-bool Scheduler::isTimerActive(const Timer &timer, uint8_t dayOfWeek) {
-  // For aquariums, all timers are active every day if enabled
-  return timer.enabled;
-}
-
-int Scheduler::getTimerMinutes(const Timer &timer) {
-  int minutes = -1;
-
-  switch (timer.type) {
-  case TIMER_REGULAR:
-    minutes = timeToMinutes(timer.hour, timer.minute);
-    break;
-
-  case TIMER_SUNRISE:
-    if (_sunriseMinutes != -1) {
-      minutes = _sunriseMinutes;
-    }
-    break;
-
-  case TIMER_SUNSET:
-    if (_sunsetMinutes != -1) {
-      minutes = _sunsetMinutes;
-    }
-    break;
-  }
-
-  return minutes;
-}
-
-int8_t Scheduler::getCurrentScheduledPreset() {
-  if (!isTimeValid())
-    return -1;
-
-  int currentMinutes = timeToMinutes(getCurrentHour(), getCurrentMinute());
-  int8_t mostRecentPreset = -1;
-  int mostRecentMinutes = -1;
-  int minutesInDay = 24 * 60;
-  // Find the most recent timer that should have triggered (today)
-  for (size_t i = 0; i < _config->timers.size(); i++) {
-    if (!isTimerActive(_config->timers[i], 0))
-      continue;
-    int timerMinutes = getTimerMinutes(_config->timers[i]);
-    if (timerMinutes == -1)
-      continue;
-    if (_config->timers[i].presetId >= _config->getPresetCount())
-      continue;
-    if (timerMinutes <= currentMinutes) {
-      if (timerMinutes > mostRecentMinutes) {
-        mostRecentMinutes = timerMinutes;
-        mostRecentPreset = _config->timers[i].presetId;
-      }
-    }
-  }
-  // If no timer has triggered today, select the last timer of the previous day
-  // (highest timerMinutes overall)
-  if (mostRecentPreset == -1) {
-    int latestMinutes = -1;
-    int8_t latestPreset = -1;
-    for (size_t i = 0; i < _config->timers.size(); i++) {
-      if (!isTimerActive(_config->timers[i], 0))
-        continue;
-      int timerMinutes = getTimerMinutes(_config->timers[i]);
-      if (timerMinutes == -1)
-        continue;
-      if (_config->timers[i].presetId >= _config->getPresetCount())
-        continue;
-      if (timerMinutes > latestMinutes) {
-        latestMinutes = timerMinutes;
-        latestPreset = _config->timers[i].presetId;
-      }
-    }
-    mostRecentPreset = latestPreset;
-  }
-  return mostRecentPreset;
 }

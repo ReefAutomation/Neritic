@@ -2,17 +2,24 @@
   "name": "deepglow-ui-preact",
   "version": "1.0.0",
   "description": "Preact UI for Aquarium LED Controller",
-  "main": "src/preact/index.js",
+  "main": "web/index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint web/**/*.jsx web/**/*.js"
   },
   "dependencies": {
     "@preact/preset-vite": "^2.10.3",
     "preact": "^10.19.2"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.3",
+    "eslint": "^9.39.2",
+    "eslint-config-preact": "^2.0.0",
+    "eslint-plugin-react": "^7.37.5",
+    "prettier": "^3.8.1",
+    "rollup": "^3.29.5",
     "sass": "^1.97.3",
     "vite": "^7.3.1"
   }

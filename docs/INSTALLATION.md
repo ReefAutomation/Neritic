@@ -1,35 +1,66 @@
 # Installation
 
-## Prerequisites
-- ESP32 or ESP8266 board
-- Addressable LED strip (WS2812B, SK6812, APA102)
-- PlatformIO (VS Code extension or CLI)
-- 5V power supply
+## Requirements
 
-## Steps
-1. Install PlatformIO in VS Code or via CLI
-2. Clone the DeepGlow repository
-3. Build firmware for your board
-4. Upload filesystem (web interface)
-5. Upload firmware
-6. Connect to device AP and configure WiFi
+- macOS, Linux, or Windows
+- Python 3.10+
+- USB cable for your board
+- 5V LED power supply sized for your strip
+- PlatformIO CLI or VS Code PlatformIO extension
 
-## Quick Commands
+## 1) Clone the repository
+
 ```bash
-pip install platformio
-# Clone repository
 git clone <your-repo-url>
 cd DeepGlow
-# Build for ESP32
-aio run -e esp32d_debug
-# Upload filesystem
-pio run -t uploadfs -e esp32d_debug
-# Upload firmware
-pio run -t upload -e esp32d_debug
 ```
 
-## Initial Setup
-- Power on device
-- Connect to AP "AquariumLED"
-- Open browser to 192.168.4.1
-- Configure WiFi and timezone
+## 2) Select your PlatformIO environment
+
+Available environments:
+
+- `esp32d` (default)
+- `esp32d_debug`
+- `esp32`, `esp32_debug`
+- `esp32c3`, `esp32c3_debug`
+- `esp32s3`, `esp32s3_debug`
+- `esp32c6`, `esp32c6_debug`
+
+## 3) Build
+
+```bash
+# Default environment (esp32d)
+pio run
+
+# Example: explicit debug build
+pio run -e esp32d_debug
+```
+
+## 4) Upload assets + firmware
+
+```bash
+# Upload LittleFS web assets
+pio run -e esp32d_debug -t uploadfs
+
+# Upload firmware
+pio run -e esp32d_debug -t upload
+```
+
+## 5) Monitor serial output
+
+```bash
+pio device monitor -b 115200
+```
+
+## 6) First configuration
+
+1. Connect to AP SSID `AquariumLED`
+2. Open `http://192.168.4.1`
+3. Set Wi-Fi credentials and timezone
+4. Save and allow reboot
+
+## Common install issues
+
+- `command not found: pio` → install PlatformIO CLI and re-open terminal
+- Build succeeds but UI is missing → run `uploadfs` again
+- Board not found on upload → set upload port in `platformio.ini` or pass `--upload-port`

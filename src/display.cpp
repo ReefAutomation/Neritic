@@ -1,4 +1,7 @@
+#ifdef DISPLAY_ENABLED
 #include "config.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "transition.h"
 #include <TFT_eSPI.h>
 
@@ -14,7 +17,7 @@ void setup_display() {
 
   // No border for landscape (rotation 3)
   tft.fillScreen(TFT_BLACK);
-  delay(400);
+  vTaskDelay(pdMS_TO_TICKS(400));
   // Draw a simple fish logo (centered for landscape)
   int logo_r = 12;
   int logo_cx = TFT_HEIGHT / 2;
@@ -25,7 +28,7 @@ void setup_display() {
   tft.fillCircle(logo_cx + 6, logo_cy - 3, 2, TFT_YELLOW);       // Highlight
   tft.fillCircle(logo_cx - 7, logo_cy - 2, 2, TFT_BLACK);        // Eye
   tft.drawPixel(logo_cx - 9, logo_cy - 2, TFT_WHITE);            // Eye sparkle
-  delay(700);
+  vTaskDelay(pdMS_TO_TICKS(700));
   // Clean and show the rest, all within 80px height
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_CYAN, TFT_BLACK);
@@ -45,13 +48,13 @@ void setup_display() {
   // Loading bar at the bottom (y=70)
   for (int i = 10; i < TFT_HEIGHT - 10; ++i) {
     tft.drawPixel(i, 70, TFT_BLUE);
-    delay(2);
+    vTaskDelay(pdMS_TO_TICKS(2));
   }
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   w = tft.textWidth("Loading...");
   tft.setCursor((TFT_HEIGHT - w) / 2, 60);
   tft.println("Loading...");
-  delay(500);
+  vTaskDelay(pdMS_TO_TICKS(500));
 }
 
 void display_status(const char *preset, bool power, const char *ip) {
@@ -65,3 +68,4 @@ void display_status(const char *preset, bool power, const char *ip) {
   tft.printf("Bri: %3d%%\n", hexToPercent(targetBrightness));
   tft.printf("IP: %s\n", ip);
 }
+#endif

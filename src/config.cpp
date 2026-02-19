@@ -5,372 +5,635 @@ using std::vector;
 #include "inc/config_default.inc"
 #include "inc/timezones_json.inc"
 
-#include "debug.h"
-#include <ArduinoJson.h>
-#include <LittleFS.h>
+#include <cJSON.h>
+#include "esp_littlefs.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
-#define FILESYSTEM LittleFS
+static const char *TAG = "config";
 
-// Serialize the current configuration to a JSON string for API
-String Configuration::toJsonString() {
-  StaticJsonDocument<4096> doc;
-  JsonObject ledObj = doc.createNestedObject("led");
-  ledObj["pin"] = led.pin;
-  ledObj["count"] = led.count;
-  ledObj["type"] = led.type;
-  ledObj["colorOrder"] = led.colorOrder;
-  ledObj["relayPin"] = led.relayPin;
-  ledObj["relayActiveHigh"] = led.relayActiveHigh;
+#define FS_BASE "/data"
+#define CONFIG_BACKUP_FILE "/config.json.bak"
 
-  JsonObject safetyObj = doc.createNestedObject("safety");
-  safetyObj["minTransitionTime"] = safety.minTransitionTime;
-  safetyObj["maxBrightness"] = hexToPercent(safety.maxBrightness);
+static bool s_fs_mounted = false;
 
-  JsonObject timeObj = doc.createNestedObject("time");
-  timeObj["ntpServer"] = time.ntpServer;
-  timeObj["timezone"] = time.timezone;
-  timeObj["latitude"] = time.latitude;
-  timeObj["longitude"] = time.longitude;
-  timeObj["dstEnabled"] = time.dstEnabled;
+static bool ensureFilesystemMounted() {
+  if (esp_littlefs_mounted("spiffs")) {
+    s_fs_mounted = true;
+    return true;
+  }
+  if (s_fs_mounted)
+    return true;
+  esp_vfs_littlefs_conf_t conf = {};
+  conf.base_path = FS_BASE;
+  conf.partition_label = "spiffs";
+  conf.format_if_mount_failed = true;
+  conf.dont_mount = false;
+  esp_err_t ret = esp_vfs_littlefs_register(&conf);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "LittleFS mount failed: %s", esp_err_to_name(ret));
+    return false;
+  }
+  s_fs_mounted = true;
+  return true;
+}
 
-  JsonObject netObj = doc.createNestedObject("network");
-  netObj["hostname"] = network.hostname;
-  netObj["apPassword"] = network.apPassword;
-  netObj["ssid"] = network.ssid;
+static std::string fsPath(const char *path) {
+  return std::string(FS_BASE) + path;
+}
 
-  JsonObject tObj = doc.createNestedObject("transitionTimes");
-  tObj["powerOn"] = transitionTimes.powerOn;
-  tObj["schedule"] = transitionTimes.schedule;
-  tObj["manual"] = transitionTimes.manual;
-  tObj["effect"] = transitionTimes.effect;
+static bool fileExists(const std::string &path) {
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+}
 
-  JsonArray timersArray = doc.createNestedArray("timers");
+static bool readFileToString(const std::string &path, std::string &content) {
+  FILE *f = fopen(path.c_str(), "r");
+  if (!f)
+    return false;
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz < 0) {
+    fclose(f);
+    return false;
+  }
+  content.clear();
+  content.reserve((size_t)sz);
+  char buf[256];
+  size_t n = 0;
+  while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+    content.append(buf, n);
+  fclose(f);
+  return true;
+}
+
+static bool writeStringToFile(const std::string &path,
+                              const std::string &content) {
+  FILE *f = fopen(path.c_str(), "w");
+  if (!f)
+    return false;
+  size_t written = fwrite(content.data(), 1, content.size(), f);
+  fflush(f);
+  fclose(f);
+  vTaskDelay(pdMS_TO_TICKS(10));
+  return written == content.size();
+}
+
+static cJSON *tryParseConfigJson(const std::string &content) {
+  if (content.empty())
+    return nullptr;
+
+  cJSON *parsed = cJSON_Parse(content.c_str());
+  if (parsed)
+    return parsed;
+
+  size_t firstBrace = content.find('{');
+  size_t lastBrace = content.rfind('}');
+  if (firstBrace != std::string::npos && lastBrace != std::string::npos &&
+      lastBrace > firstBrace) {
+    std::string candidate =
+        content.substr(firstBrace, lastBrace - firstBrace + 1);
+    parsed = cJSON_Parse(candidate.c_str());
+    if (parsed) {
+      ESP_LOGW(TAG,
+               "Recovered config by trimming leading/trailing garbage bytes");
+      return parsed;
+    }
+  }
+
+  size_t ledKey = content.find("\"led\"");
+  if (ledKey != std::string::npos && lastBrace != std::string::npos &&
+      lastBrace > ledKey) {
+    std::string candidate =
+        "{" + content.substr(ledKey, lastBrace - ledKey + 1);
+    parsed = cJSON_Parse(candidate.c_str());
+    if (parsed) {
+      ESP_LOGW(TAG,
+               "Recovered config by dropping corrupted JSON prefix before \"led\"");
+      return parsed;
+    }
+  }
+
+  return nullptr;
+}
+
+static const cJSON *jsonObjectItemConst(const cJSON *obj, const char *key) {
+  if (!cJSON_IsObject(obj))
+    return nullptr;
+  return cJSON_GetObjectItemCaseSensitive((cJSON *)obj, key);
+}
+
+static cJSON *jsonObjectItem(cJSON *obj, const char *key) {
+  if (!cJSON_IsObject(obj))
+    return nullptr;
+  return cJSON_GetObjectItemCaseSensitive(obj, key);
+}
+
+static const char *jsonStringOr(const cJSON *obj, const char *key,
+                                const char *fallback) {
+  const cJSON *item = jsonObjectItemConst(obj, key);
+  if (cJSON_IsString(item) && item->valuestring)
+    return item->valuestring;
+  return fallback;
+}
+
+static int jsonIntOr(const cJSON *obj, const char *key, int fallback) {
+  const cJSON *item = jsonObjectItemConst(obj, key);
+  if (cJSON_IsNumber(item))
+    return item->valueint;
+  if (cJSON_IsBool(item))
+    return cJSON_IsTrue(item) ? 1 : 0;
+  return fallback;
+}
+
+static double jsonDoubleOr(const cJSON *obj, const char *key, double fallback) {
+  const cJSON *item = jsonObjectItemConst(obj, key);
+  if (cJSON_IsNumber(item))
+    return item->valuedouble;
+  return fallback;
+}
+
+static bool jsonBoolOr(const cJSON *obj, const char *key, bool fallback) {
+  const cJSON *item = jsonObjectItemConst(obj, key);
+  if (cJSON_IsBool(item))
+    return cJSON_IsTrue(item);
+  if (cJSON_IsNumber(item))
+    return item->valueint != 0;
+  return fallback;
+}
+
+static void mergeJson(cJSON *dst, const cJSON *src) {
+  if (!cJSON_IsObject(dst) || !cJSON_IsObject(src))
+    return;
+
+  for (const cJSON *item = src->child; item; item = item->next) {
+    const char *key = item->string;
+    if (!key)
+      continue;
+
+    cJSON *dstItem = cJSON_GetObjectItemCaseSensitive(dst, key);
+    if (!dstItem) {
+      cJSON_AddItemToObject(dst, key, cJSON_Duplicate(item, 1));
+      continue;
+    }
+
+    if (cJSON_IsNull(dstItem)) {
+      cJSON_ReplaceItemInObjectCaseSensitive(dst, key, cJSON_Duplicate(item, 1));
+      continue;
+    }
+
+    if (cJSON_IsObject(dstItem) && cJSON_IsObject(item))
+      mergeJson(dstItem, item);
+  }
+}
+
+static void debugDumpFileContents(const char *path) {
+  if (!ensureFilesystemMounted()) {
+    ESP_LOGW(TAG, "Config dump skipped: filesystem not mounted");
+    return;
+  }
+
+  std::string fp = fsPath(path);
+  std::string content;
+  if (!readFileToString(fp, content)) {
+    ESP_LOGW(TAG, "Config dump: file not found at %s", fp.c_str());
+    return;
+  }
+
+  ESP_LOGI(TAG, "===== BOOT CONFIG DUMP START (%s, %u bytes) =====", path,
+           (unsigned)content.size());
+  if (content.empty()) {
+    ESP_LOGI(TAG, "<empty>");
+  } else {
+    const size_t chunkSize = 180;
+    for (size_t i = 0; i < content.size(); i += chunkSize) {
+      size_t len = chunkSize;
+      if (i + len > content.size())
+        len = content.size() - i;
+      std::string chunk = content.substr(i, len);
+      ESP_LOGI(TAG, "%s", chunk.c_str());
+    }
+  }
+  ESP_LOGI(TAG, "===== BOOT CONFIG DUMP END (%s) =====", path);
+}
+
+std::string Configuration::toJsonString() {
+  cJSON *doc = cJSON_CreateObject();
+  if (!doc)
+    return "{}";
+
+  cJSON *ledObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "led", ledObj);
+  cJSON_AddNumberToObject(ledObj, "pin", led.pin);
+  cJSON_AddNumberToObject(ledObj, "count", led.count);
+  cJSON_AddStringToObject(ledObj, "type", led.type.c_str());
+  cJSON_AddStringToObject(ledObj, "colorOrder", led.colorOrder.c_str());
+  cJSON_AddNumberToObject(ledObj, "relayPin", led.relayPin);
+  cJSON_AddBoolToObject(ledObj, "relayActiveHigh", led.relayActiveHigh);
+
+  cJSON *safetyObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "safety", safetyObj);
+  cJSON_AddNumberToObject(safetyObj, "minTransitionTime",
+                          safety.minTransitionTime);
+  cJSON_AddNumberToObject(safetyObj, "maxBrightness",
+                          hexToPercent(safety.maxBrightness));
+
+  cJSON *timeObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "time", timeObj);
+  cJSON_AddStringToObject(timeObj, "ntpServer", time.ntpServer.c_str());
+  cJSON_AddStringToObject(timeObj, "timezone", time.timezone.c_str());
+  cJSON_AddNumberToObject(timeObj, "latitude", time.latitude);
+  cJSON_AddNumberToObject(timeObj, "longitude", time.longitude);
+  cJSON_AddBoolToObject(timeObj, "dstEnabled", time.dstEnabled);
+
+  cJSON *netObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "network", netObj);
+  cJSON_AddStringToObject(netObj, "hostname", network.hostname.c_str());
+  cJSON_AddStringToObject(netObj, "apPassword", network.apPassword.c_str());
+  cJSON_AddStringToObject(netObj, "ssid", network.ssid.c_str());
+
+  cJSON *tObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "transitionTimes", tObj);
+  cJSON_AddNumberToObject(tObj, "powerOn", transitionTimes.powerOn);
+  cJSON_AddNumberToObject(tObj, "schedule", transitionTimes.schedule);
+  cJSON_AddNumberToObject(tObj, "manual", transitionTimes.manual);
+  cJSON_AddNumberToObject(tObj, "effect", transitionTimes.effect);
+
+  cJSON *timersArray = cJSON_CreateArray();
+  cJSON_AddItemToObject(doc, "timers", timersArray);
   for (size_t i = 0; i < timers.size(); i++) {
     const auto &t = timers[i];
-    JsonObject timerObj = timersArray.createNestedObject();
-    timerObj["id"] = i;
-    timerObj["enabled"] = t.enabled;
-    timerObj["type"] = t.type;
-    timerObj["hour"] = t.hour;
-    timerObj["minute"] = t.minute;
-    timerObj["presetId"] = t.presetId;
-    timerObj["brightness"] = hexToPercent(t.brightness);
+    cJSON *timerObj = cJSON_CreateObject();
+    cJSON_AddItemToArray(timersArray, timerObj);
+    cJSON_AddNumberToObject(timerObj, "id", (int)i);
+    cJSON_AddBoolToObject(timerObj, "enabled", t.enabled);
+    cJSON_AddNumberToObject(timerObj, "type", (int)t.type);
+    cJSON_AddNumberToObject(timerObj, "hour", t.hour);
+    cJSON_AddNumberToObject(timerObj, "minute", t.minute);
+    cJSON_AddNumberToObject(timerObj, "presetId", t.presetId);
+    cJSON_AddNumberToObject(timerObj, "brightness", hexToPercent(t.brightness));
   }
-  String output;
-  serializeJson(doc, output);
+
+  char *printed = cJSON_PrintUnformatted(doc);
+  std::string output = printed ? printed : "{}";
+  if (printed)
+    cJSON_free(printed);
+  cJSON_Delete(doc);
   return output;
 }
-// Ensure filesystem is mounted before any file operation
-static bool ensureFilesystemMounted() {
-  static bool mounted = false;
-  if (!mounted) {
-    if (!FILESYSTEM.begin()) {
-      if (!FILESYSTEM.format()) {
-        return false;
-      }
-      if (!FILESYSTEM.begin()) {
-        return false;
-      }
-    }
-    mounted = true;
+
+bool Configuration::loadFromFile(const char *path, cJSON **docOut) {
+  if (!docOut)
+    return false;
+  if (!ensureFilesystemMounted())
+    return false;
+  std::string fp = fsPath(path);
+  std::string content;
+  if (!readFileToString(fp, content) || content.empty())
+    return false;
+  cJSON *doc = tryParseConfigJson(content);
+  if (!doc) {
+    ESP_LOGW(TAG, "Failed to parse %s", path);
+    return false;
   }
+  *docOut = doc;
   return true;
 }
 
-// Recursively merge src into dst, filling missing/null fields from src
-void mergeJson(JsonVariant dst, JsonVariantConst src) {
-  JsonObject dstObj = dst.as<JsonObject>();
-  JsonObjectConst srcObj = src.as<JsonObjectConst>();
-  if (srcObj.isNull() || dstObj.isNull())
-    return;
-  for (JsonPairConst kv : srcObj) {
-    const char *key = kv.key().c_str();
-    if (!dstObj.containsKey(key) || dstObj[key].isNull()) {
-      dstObj[key] = kv.value();
-    } else if (kv.value().is<JsonObjectConst>() &&
-               dstObj[key].is<JsonObject>()) {
-      mergeJson(dstObj[key], kv.value());
+bool Configuration::saveToFile(const char *path, const cJSON *doc) {
+  if (!ensureFilesystemMounted())
+    return false;
+
+  char *printed = cJSON_PrintUnformatted((cJSON *)doc);
+  if (!printed)
+    return false;
+  std::string out = printed;
+  cJSON_free(printed);
+
+  std::string fp = fsPath(path);
+
+  if (strcmp(path, CONFIG_FILE) == 0) {
+    std::string tmpPath = fp + ".tmp";
+    std::string bakPath = fsPath(CONFIG_BACKUP_FILE);
+
+    if (!writeStringToFile(tmpPath, out)) {
+      ESP_LOGE(TAG, "Failed writing temp config file: %s", tmpPath.c_str());
+      return false;
     }
-  }
-}
 
-// Loads config file and converts percent to hex for internal use
-bool Configuration::loadFromFile(const char *path, JsonDocument &doc) {
-  if (!ensureFilesystemMounted())
-    return false;
-  File file = FILESYSTEM.open(path, "r");
-  if (!file) {
-    return false;
-  }
-  DeserializationError error = deserializeJson(doc, file);
-  file.close();
-  if (error) {
-    return false;
-  }
-  return true;
-}
+    std::string verifyContent;
+    cJSON *verifyDoc = nullptr;
+    if (!readFileToString(tmpPath, verifyContent) ||
+        !(verifyDoc = tryParseConfigJson(verifyContent))) {
+      ESP_LOGE(TAG, "Temp config validation failed, keeping current config");
+      remove(tmpPath.c_str());
+      return false;
+    }
+    cJSON_Delete(verifyDoc);
 
-// Saves config file, converting hex to percent for human-readable storage
-bool Configuration::saveToFile(const char *path, const JsonDocument &doc) {
-  if (!ensureFilesystemMounted())
-    return false;
-  File file = FILESYSTEM.open(path, "w");
-  if (!file) {
-    return false;
+    if (fileExists(fp)) {
+      remove(bakPath.c_str());
+      if (rename(fp.c_str(), bakPath.c_str()) != 0) {
+        ESP_LOGE(TAG, "Failed to rotate config backup (%d)", errno);
+        remove(tmpPath.c_str());
+        return false;
+      }
+    }
+
+    if (rename(tmpPath.c_str(), fp.c_str()) != 0) {
+      ESP_LOGE(TAG, "Failed to activate new config (%d), restoring backup",
+               errno);
+      remove(tmpPath.c_str());
+      if (fileExists(bakPath))
+        rename(bakPath.c_str(), fp.c_str());
+      return false;
+    }
+
+    return true;
   }
-  size_t written = serializeJson(doc, file);
-  file.flush();
-  file.close();
-  delay(10);
-  return written > 0;
+
+  return writeStringToFile(fp, out);
 }
 
 bool Configuration::load() {
-  // Load defaults from config_default.inc
-  StaticJsonDocument<2048> doc;
-  StaticJsonDocument<2048> defaultsDoc;
-  DeserializationError errDefault =
-      deserializeJson(defaultsDoc, web_config_default, web_config_default_len);
-  if (errDefault) {
+  debugDumpFileContents(CONFIG_FILE);
+  debugDumpFileContents(CONFIG_BACKUP_FILE);
+
+  std::string defaultsContent((const char *)web_config_default,
+                              (size_t)web_config_default_len);
+  cJSON *defaultsDoc = cJSON_Parse(defaultsContent.c_str());
+  if (!defaultsDoc) {
     setDefaults();
     return false;
   }
 
+  cJSON *doc = nullptr;
   bool updated = false;
-  bool loadedFromFile = loadFromFile(CONFIG_FILE, doc);
+
+  bool loadedFromFile = loadFromFile(CONFIG_FILE, &doc);
   if (!loadedFromFile) {
-    doc = defaultsDoc;
-    updated = true;
+    ESP_LOGW(TAG, "Primary config invalid, trying backup: %s",
+             CONFIG_BACKUP_FILE);
+    bool loadedFromBackup = loadFromFile(CONFIG_BACKUP_FILE, &doc);
+    if (loadedFromBackup) {
+      ESP_LOGW(TAG, "Recovered configuration from backup");
+      mergeJson(doc, defaultsDoc);
+      updated = true;
+    } else {
+      doc = cJSON_Duplicate(defaultsDoc, 1);
+      updated = true;
+    }
   } else {
-    // Deep merge: fill missing/null fields from defaults
     mergeJson(doc, defaultsDoc);
-    saveToFile(CONFIG_FILE, doc);
     updated = true;
   }
 
-  // (copy the field assignment logic from before, but now doc is always
-  // complete) LED Configuration
-  if (doc.containsKey("led")) {
-    JsonObject ledObj = doc["led"];
-    led.pin = ledObj["pin"];
-    led.count = ledObj["count"];
-    led.type = ledObj["type"].as<String>();
-    led.colorOrder = ledObj["colorOrder"].as<String>();
-    led.relayPin = ledObj["relayPin"];
-    led.relayActiveHigh = ledObj["relayActiveHigh"];
+  cJSON *ledObj = jsonObjectItem(doc, "led");
+  if (cJSON_IsObject(ledObj)) {
+    led.pin = (uint8_t)jsonIntOr(ledObj, "pin", led.pin);
+    led.count = (uint16_t)jsonIntOr(ledObj, "count", led.count);
+    led.type = jsonStringOr(ledObj, "type", "WS2812B");
+    led.colorOrder = jsonStringOr(ledObj, "colorOrder", "GRB");
+    led.relayPin = jsonIntOr(ledObj, "relayPin", led.relayPin);
+    led.relayActiveHigh =
+        jsonBoolOr(ledObj, "relayActiveHigh", led.relayActiveHigh);
   }
-  // Safety Configuration
-  if (doc.containsKey("safety")) {
-    JsonObject safetyObj = doc["safety"];
-    safety.minTransitionTime = safetyObj["minTransitionTime"];
-    int percent = safetyObj["maxBrightness"];
+
+  cJSON *safetyObj = jsonObjectItem(doc, "safety");
+  if (cJSON_IsObject(safetyObj)) {
+    safety.minTransitionTime =
+        (uint32_t)jsonIntOr(safetyObj, "minTransitionTime",
+                            (int)safety.minTransitionTime);
+    int percent = jsonIntOr(safetyObj, "maxBrightness",
+                            hexToPercent(safety.maxBrightness));
     safety.maxBrightness = percentToHex(percent);
   }
-  // Transition Times
-  if (doc.containsKey("transitionTimes")) {
-    JsonObject tObj = doc["transitionTimes"];
-    transitionTimes.powerOn = tObj["powerOn"];
-    transitionTimes.schedule = tObj["schedule"];
-    transitionTimes.manual = tObj["manual"];
-    transitionTimes.effect = tObj["effect"];
-  }
-  // Network Configuration
-  if (doc.containsKey("network")) {
-    JsonObject netObj = doc["network"];
-    if (netObj.containsKey("hostname"))
-      network.hostname = netObj["hostname"].as<String>();
-    if (netObj.containsKey("apPassword"))
-      network.apPassword = netObj["apPassword"].as<String>();
-    if (netObj.containsKey("ssid"))
-      network.ssid = netObj["ssid"].as<String>();
-    if (netObj.containsKey("password"))
-      network.password = netObj["password"].as<String>();
-  }
-  // Time Configuration
-  if (doc.containsKey("time")) {
-    JsonObject timeObj = doc["time"];
-    time.ntpServer = timeObj["ntpServer"].as<String>();
-    time.timezone = timeObj["timezone"].as<String>();
-    time.latitude = timeObj["latitude"].as<double>();
-    time.longitude = timeObj["longitude"].as<double>();
-    time.dstEnabled = timeObj["dstEnabled"];
-  }
-  // Timers
-  if (doc.containsKey("timers")) {
-    JsonArray timersArray = doc["timers"];
-    loadTimersFromJson(timersArray);
+
+  cJSON *tObj = jsonObjectItem(doc, "transitionTimes");
+  if (cJSON_IsObject(tObj)) {
+    transitionTimes.powerOn =
+        (uint32_t)jsonIntOr(tObj, "powerOn", transitionTimes.powerOn);
+    transitionTimes.schedule =
+        (uint32_t)jsonIntOr(tObj, "schedule", transitionTimes.schedule);
+    transitionTimes.manual =
+        (uint32_t)jsonIntOr(tObj, "manual", transitionTimes.manual);
+    transitionTimes.effect =
+        (uint32_t)jsonIntOr(tObj, "effect", transitionTimes.effect);
   }
 
-  if (updated) {
-    saveToFile(CONFIG_FILE, doc);
+  cJSON *netObj = jsonObjectItem(doc, "network");
+  if (cJSON_IsObject(netObj)) {
+    network.hostname = jsonStringOr(netObj, "hostname", "deepglow");
+    network.apPassword = jsonStringOr(netObj, "apPassword", "");
+    network.ssid = jsonStringOr(netObj, "ssid", "");
+    network.password = jsonStringOr(netObj, "password", "");
   }
+  ESP_LOGI(TAG, "Config load: ssid='%s' len=%u", network.ssid.c_str(),
+           (unsigned)network.ssid.size());
+
+  cJSON *timeObj = jsonObjectItem(doc, "time");
+  if (cJSON_IsObject(timeObj)) {
+    time.ntpServer = jsonStringOr(timeObj, "ntpServer", "pool.ntp.org");
+    time.timezone = jsonStringOr(timeObj, "timezone", "UTC");
+    time.latitude = jsonDoubleOr(timeObj, "latitude", 0.0);
+    time.longitude = jsonDoubleOr(timeObj, "longitude", 0.0);
+    time.dstEnabled = jsonBoolOr(timeObj, "dstEnabled", false);
+  }
+
+  loadTimersFromJson(jsonObjectItem(doc, "timers"));
+
+  if (updated)
+    saveToFile(CONFIG_FILE, doc);
+
+  cJSON_Delete(doc);
+  cJSON_Delete(defaultsDoc);
   return true;
 }
 
 bool Configuration::save() {
-  StaticJsonDocument<2048> doc;
+  cJSON *doc = cJSON_CreateObject();
+  if (!doc)
+    return false;
 
-  // LED Configuration
-  JsonObject ledObj = doc.createNestedObject("led");
-  ledObj["pin"] = led.pin;
-  ledObj["count"] = led.count;
-  ledObj["type"] = led.type;
-  ledObj["colorOrder"] = led.colorOrder;
-  ledObj["relayPin"] = led.relayPin;
-  ledObj["relayActiveHigh"] = led.relayActiveHigh;
+  cJSON *ledObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "led", ledObj);
+  cJSON_AddNumberToObject(ledObj, "pin", led.pin);
+  cJSON_AddNumberToObject(ledObj, "count", led.count);
+  cJSON_AddStringToObject(ledObj, "type", led.type.c_str());
+  cJSON_AddStringToObject(ledObj, "colorOrder", led.colorOrder.c_str());
+  cJSON_AddNumberToObject(ledObj, "relayPin", led.relayPin);
+  cJSON_AddBoolToObject(ledObj, "relayActiveHigh", led.relayActiveHigh);
 
-  // Safety Configuration
-  JsonObject safetyObj = doc.createNestedObject("safety");
-  safetyObj["minTransitionTime"] = safety.minTransitionTime;
-  safetyObj["maxBrightness"] = hexToPercent(safety.maxBrightness);
+  cJSON *safetyObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "safety", safetyObj);
+  cJSON_AddNumberToObject(safetyObj, "minTransitionTime",
+                          safety.minTransitionTime);
+  cJSON_AddNumberToObject(safetyObj, "maxBrightness",
+                          hexToPercent(safety.maxBrightness));
 
-  // Transition Times
-  JsonObject tObj = doc.createNestedObject("transitionTimes");
-  tObj["powerOn"] = transitionTimes.powerOn;
-  tObj["schedule"] = transitionTimes.schedule;
-  tObj["manual"] = transitionTimes.manual;
-  tObj["effect"] = transitionTimes.effect;
+  cJSON *tObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "transitionTimes", tObj);
+  cJSON_AddNumberToObject(tObj, "powerOn", transitionTimes.powerOn);
+  cJSON_AddNumberToObject(tObj, "schedule", transitionTimes.schedule);
+  cJSON_AddNumberToObject(tObj, "manual", transitionTimes.manual);
+  cJSON_AddNumberToObject(tObj, "effect", transitionTimes.effect);
 
-  // Network Configuration
-  JsonObject netObj = doc.createNestedObject("network");
-  netObj["hostname"] = network.hostname;
-  netObj["apPassword"] = network.apPassword;
-  netObj["ssid"] = network.ssid;
-  // DO NOT return password in API response (omit in API, but save to file)
-  netObj["password"] = network.password;
+  cJSON *netObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "network", netObj);
+  cJSON_AddStringToObject(netObj, "hostname", network.hostname.c_str());
+  cJSON_AddStringToObject(netObj, "apPassword", network.apPassword.c_str());
+  cJSON_AddStringToObject(netObj, "ssid", network.ssid.c_str());
+  cJSON_AddStringToObject(netObj, "password", network.password.c_str());
 
-  // Time Configuration
-  JsonObject timeObj = doc.createNestedObject("time");
-  timeObj["ntpServer"] = time.ntpServer;
-  timeObj["timezone"] = time.timezone;
-  timeObj["latitude"] = time.latitude;
-  timeObj["longitude"] = time.longitude;
-  timeObj["dstEnabled"] = time.dstEnabled;
+  cJSON *timeObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "time", timeObj);
+  cJSON_AddStringToObject(timeObj, "ntpServer", time.ntpServer.c_str());
+  cJSON_AddStringToObject(timeObj, "timezone", time.timezone.c_str());
+  cJSON_AddNumberToObject(timeObj, "latitude", time.latitude);
+  cJSON_AddNumberToObject(timeObj, "longitude", time.longitude);
+  cJSON_AddBoolToObject(timeObj, "dstEnabled", time.dstEnabled);
 
-  // Timers
-  JsonArray timersArray = doc.createNestedArray("timers");
+  cJSON *timersArray = cJSON_CreateArray();
+  cJSON_AddItemToObject(doc, "timers", timersArray);
   for (size_t i = 0; i < timers.size(); i++) {
-    JsonObject timerObj = timersArray.createNestedObject();
-    timerObj["enabled"] = timers[i].enabled;
-    timerObj["type"] = timers[i].type;
-    timerObj["hour"] = timers[i].hour;
-    timerObj["minute"] = timers[i].minute;
-    timerObj["presetId"] = timers[i].presetId;
-    timerObj["brightness"] = hexToPercent(timers[i].brightness);
+    cJSON *timerObj = cJSON_CreateObject();
+    cJSON_AddItemToArray(timersArray, timerObj);
+    cJSON_AddBoolToObject(timerObj, "enabled", timers[i].enabled);
+    cJSON_AddNumberToObject(timerObj, "type", (int)timers[i].type);
+    cJSON_AddNumberToObject(timerObj, "hour", timers[i].hour);
+    cJSON_AddNumberToObject(timerObj, "minute", timers[i].minute);
+    cJSON_AddNumberToObject(timerObj, "presetId", timers[i].presetId);
+    cJSON_AddNumberToObject(timerObj, "brightness",
+                            hexToPercent(timers[i].brightness));
   }
 
-  return saveToFile(CONFIG_FILE, doc);
-}
-
-// Update only fields present in the received JSON (partial update)
-// Example usage: config.partialUpdate(docFromFrontend);
-void Configuration::partialUpdate(const JsonObject &update) {
-  if (update.containsKey("led")) {
-    JsonObject ledObj = update["led"];
-    if (ledObj.containsKey("pin"))
-      led.pin = ledObj["pin"];
-    if (ledObj.containsKey("count"))
-      led.count = ledObj["count"];
-    if (ledObj.containsKey("type"))
-      led.type = ledObj["type"].as<String>();
-    if (ledObj.containsKey("colorOrder"))
-      led.colorOrder = ledObj["colorOrder"].as<String>();
-    if (ledObj.containsKey("relayPin"))
-      led.relayPin = ledObj["relayPin"];
-    if (ledObj.containsKey("relayActiveHigh"))
-      led.relayActiveHigh = ledObj["relayActiveHigh"];
-  }
-  if (update.containsKey("safety")) {
-    JsonObject safetyObj = update["safety"];
-    if (safetyObj.containsKey("minTransitionTime"))
-      safety.minTransitionTime = safetyObj["minTransitionTime"];
-    if (safetyObj.containsKey("maxBrightness")) {
-      int percent = safetyObj["maxBrightness"];
-      safety.maxBrightness = percentToHex(percent);
-    }
-  }
-  if (update.containsKey("transitionTimes")) {
-    JsonObject tObj = update["transitionTimes"];
-    if (tObj.containsKey("powerOn"))
-      transitionTimes.powerOn = tObj["powerOn"];
-    if (tObj.containsKey("schedule"))
-      transitionTimes.schedule = tObj["schedule"];
-    if (tObj.containsKey("manual"))
-      transitionTimes.manual = tObj["manual"];
-    if (tObj.containsKey("effect"))
-      transitionTimes.effect = tObj["effect"];
-  }
-  if (update.containsKey("network")) {
-    JsonObject netObj = update["network"];
-    if (netObj.containsKey("hostname"))
-      network.hostname = netObj["hostname"].as<String>();
-    if (netObj.containsKey("apPassword"))
-      network.apPassword = netObj["apPassword"].as<String>();
-    if (netObj.containsKey("ssid"))
-      network.ssid = netObj["ssid"].as<String>();
-    // Only update password if present and non-empty
-    if (netObj.containsKey("password")) {
-      String newPass = netObj["password"].as<String>();
-      if (!newPass.isEmpty())
-        network.password = newPass;
-    }
-  }
-  if (update.containsKey("time")) {
-    JsonObject timeObj = update["time"];
-    if (timeObj.containsKey("ntpServer"))
-      time.ntpServer = timeObj["ntpServer"].as<String>();
-    if (timeObj.containsKey("timezone"))
-      time.timezone = timeObj["timezone"].as<String>();
-    if (timeObj.containsKey("latitude"))
-      time.latitude = timeObj["latitude"].as<double>();
-    if (timeObj.containsKey("longitude"))
-      time.longitude = timeObj["longitude"].as<double>();
-    if (timeObj.containsKey("dstEnabled"))
-      time.dstEnabled = timeObj["dstEnabled"];
-  }
-  if (update.containsKey("timers")) {
-    JsonArray timersArray = update["timers"];
-    timers.clear();
-    for (size_t i = 0; i < timersArray.size(); i++) {
-      JsonObject timerObj = timersArray[i];
-      Timer t;
-      t.enabled = timerObj["enabled"];
-      t.type = (TimerType)timerObj["type"];
-      t.hour = timerObj["hour"];
-      t.minute = timerObj["minute"];
-      t.presetId = timerObj["presetId"];
-      // Convert percent to hex at config boundary
-      uint8_t percent = timerObj["brightness"] | 100;
-      t.brightness = percentToHex(percent);
-      timers.push_back(t);
-    }
-  }
-}
-
-// Factory reset: delete config file and restore defaults
-bool Configuration::factoryReset() {
-  bool ok = true;
-  if (FILESYSTEM.exists(CONFIG_FILE)) {
-    ok = FILESYSTEM.remove(CONFIG_FILE);
-  }
-  setDefaults();
-  save();
+  bool ok = saveToFile(CONFIG_FILE, doc);
+  cJSON_Delete(doc);
   return ok;
 }
 
-// Helper to load timers from a JsonArray
-void Configuration::loadTimersFromJson(JsonArray timersArray) {
+void Configuration::partialUpdate(const cJSON *update) {
+  if (!cJSON_IsObject(update))
+    return;
+
+  const cJSON *ledObj = jsonObjectItemConst(update, "led");
+  if (cJSON_IsObject(ledObj)) {
+    if (jsonObjectItemConst(ledObj, "pin"))
+      led.pin = (uint8_t)jsonIntOr(ledObj, "pin", led.pin);
+    if (jsonObjectItemConst(ledObj, "count"))
+      led.count = (uint16_t)jsonIntOr(ledObj, "count", led.count);
+    if (jsonObjectItemConst(ledObj, "type"))
+      led.type = jsonStringOr(ledObj, "type", led.type.c_str());
+    if (jsonObjectItemConst(ledObj, "colorOrder"))
+      led.colorOrder =
+          jsonStringOr(ledObj, "colorOrder", led.colorOrder.c_str());
+    if (jsonObjectItemConst(ledObj, "relayPin"))
+      led.relayPin = jsonIntOr(ledObj, "relayPin", led.relayPin);
+    if (jsonObjectItemConst(ledObj, "relayActiveHigh"))
+      led.relayActiveHigh =
+          jsonBoolOr(ledObj, "relayActiveHigh", led.relayActiveHigh);
+  }
+
+  const cJSON *safetyObj = jsonObjectItemConst(update, "safety");
+  if (cJSON_IsObject(safetyObj)) {
+    if (jsonObjectItemConst(safetyObj, "minTransitionTime"))
+      safety.minTransitionTime =
+          (uint32_t)jsonIntOr(safetyObj, "minTransitionTime",
+                              (int)safety.minTransitionTime);
+    if (jsonObjectItemConst(safetyObj, "maxBrightness")) {
+      int percent = jsonIntOr(safetyObj, "maxBrightness", 100);
+      safety.maxBrightness = percentToHex(percent);
+    }
+  }
+
+  const cJSON *tObj = jsonObjectItemConst(update, "transitionTimes");
+  if (cJSON_IsObject(tObj)) {
+    if (jsonObjectItemConst(tObj, "powerOn"))
+      transitionTimes.powerOn =
+          (uint32_t)jsonIntOr(tObj, "powerOn", transitionTimes.powerOn);
+    if (jsonObjectItemConst(tObj, "schedule"))
+      transitionTimes.schedule =
+          (uint32_t)jsonIntOr(tObj, "schedule", transitionTimes.schedule);
+    if (jsonObjectItemConst(tObj, "manual"))
+      transitionTimes.manual =
+          (uint32_t)jsonIntOr(tObj, "manual", transitionTimes.manual);
+    if (jsonObjectItemConst(tObj, "effect"))
+      transitionTimes.effect =
+          (uint32_t)jsonIntOr(tObj, "effect", transitionTimes.effect);
+  }
+
+  const cJSON *netObj = jsonObjectItemConst(update, "network");
+  if (cJSON_IsObject(netObj)) {
+    if (jsonObjectItemConst(netObj, "hostname"))
+      network.hostname =
+          jsonStringOr(netObj, "hostname", network.hostname.c_str());
+    if (jsonObjectItemConst(netObj, "apPassword"))
+      network.apPassword =
+          jsonStringOr(netObj, "apPassword", network.apPassword.c_str());
+    if (jsonObjectItemConst(netObj, "ssid"))
+      network.ssid = jsonStringOr(netObj, "ssid", network.ssid.c_str());
+    if (jsonObjectItemConst(netObj, "password")) {
+      const char *newPass = jsonStringOr(netObj, "password", "");
+      if (newPass && strlen(newPass) > 0)
+        network.password = newPass;
+    }
+  }
+
+  const cJSON *timeObj = jsonObjectItemConst(update, "time");
+  if (cJSON_IsObject(timeObj)) {
+    if (jsonObjectItemConst(timeObj, "ntpServer"))
+      time.ntpServer =
+          jsonStringOr(timeObj, "ntpServer", time.ntpServer.c_str());
+    if (jsonObjectItemConst(timeObj, "timezone"))
+      time.timezone = jsonStringOr(timeObj, "timezone", time.timezone.c_str());
+    if (jsonObjectItemConst(timeObj, "latitude"))
+      time.latitude = jsonDoubleOr(timeObj, "latitude", time.latitude);
+    if (jsonObjectItemConst(timeObj, "longitude"))
+      time.longitude = jsonDoubleOr(timeObj, "longitude", time.longitude);
+    if (jsonObjectItemConst(timeObj, "dstEnabled"))
+      time.dstEnabled = jsonBoolOr(timeObj, "dstEnabled", time.dstEnabled);
+  }
+
+  const cJSON *timersArray = jsonObjectItemConst(update, "timers");
+  if (cJSON_IsArray(timersArray))
+    loadTimersFromJson(timersArray);
+}
+
+bool Configuration::factoryReset() {
+  if (!ensureFilesystemMounted())
+    return false;
+  std::string fp = fsPath(CONFIG_FILE);
+  remove(fp.c_str());
+  setDefaults();
+  save();
+  return true;
+}
+
+void Configuration::loadTimersFromJson(const cJSON *timersArray) {
+  if (!cJSON_IsArray(timersArray))
+    return;
+
   timers.clear();
-  for (size_t i = 0; i < timersArray.size(); i++) {
-    JsonObject timerObj = timersArray[i];
+  cJSON *timerObj = nullptr;
+  cJSON_ArrayForEach(timerObj, timersArray) {
+    if (!cJSON_IsObject(timerObj))
+      continue;
     Timer t;
-    t.enabled = timerObj["enabled"];
-    t.type = (TimerType)timerObj["type"];
-    t.hour = timerObj["hour"];
-    t.minute = timerObj["minute"];
-    t.presetId = timerObj["presetId"];
-    t.brightness = percentToHex(timerObj["brightness"] | 100);
+    t.enabled = jsonBoolOr(timerObj, "enabled", false);
+    t.type = (TimerType)jsonIntOr(timerObj, "type", (int)TIMER_REGULAR);
+    t.hour = (uint8_t)jsonIntOr(timerObj, "hour", 0);
+    t.minute = (uint8_t)jsonIntOr(timerObj, "minute", 0);
+    t.presetId = (uint8_t)jsonIntOr(timerObj, "presetId", 0);
+    t.brightness = percentToHex((uint8_t)jsonIntOr(timerObj, "brightness", 100));
     timers.push_back(t);
   }
 }
@@ -381,57 +644,68 @@ void Configuration::setDefaults() {
   network = NetworkConfig();
   time = TimeConfig();
 
-  // Initialize timers from web_config_default
-  StaticJsonDocument<2048> defaultsDoc;
-  DeserializationError errDefault =
-      deserializeJson(defaultsDoc, web_config_default, web_config_default_len);
-  if (!errDefault && defaultsDoc.containsKey("timers")) {
-    JsonArray timersArray = defaultsDoc["timers"];
-    loadTimersFromJson(timersArray);
+  std::string defaultsContent((const char *)web_config_default,
+                              (size_t)web_config_default_len);
+  cJSON *defaultsDoc = cJSON_Parse(defaultsContent.c_str());
+  if (defaultsDoc) {
+    loadTimersFromJson(jsonObjectItem(defaultsDoc, "timers"));
+    cJSON_Delete(defaultsDoc);
   }
   savePresets(presets);
 }
 
-// Update location from GPS data
 void Configuration::updateLocationFromGPS(float lat, float lon, bool valid) {
   time.latitude = lat;
   time.longitude = lon;
 }
 
-// Get timezone offset in seconds (stub, needs library for real implementation)
 int Configuration::getTimezoneOffsetSeconds() {
-  // Use embedded timezone JSON asset for lookup, and add DST if enabled
-  StaticJsonDocument<4096> tzDoc;
-  DeserializationError err =
-      deserializeJson(tzDoc, web_timezones_json, web_timezones_json_len);
-  if (err)
+  std::string tzContent((const char *)web_timezones_json,
+                        (size_t)web_timezones_json_len);
+  cJSON *tzDoc = cJSON_Parse(tzContent.c_str());
+  if (!cJSON_IsArray(tzDoc)) {
+    if (tzDoc)
+      cJSON_Delete(tzDoc);
     return 0;
-  for (JsonObject tz : tzDoc.as<JsonArray>()) {
-    if (tz["name"] == time.timezone) {
-      double offset = tz["offset"];
+  }
+
+  cJSON *tz = nullptr;
+  cJSON_ArrayForEach(tz, tzDoc) {
+    if (!cJSON_IsObject(tz))
+      continue;
+    const char *name = jsonStringOr(tz, "name", "");
+    if (time.timezone == name) {
+      double offset = jsonDoubleOr(tz, "offset", 0.0);
       int offsetSeconds = (int)(offset * 3600);
-      // Add 1 hour if DST is enabled
-      if (time.dstEnabled) {
+      if (time.dstEnabled)
         offsetSeconds += 3600;
-      }
+      cJSON_Delete(tzDoc);
       return offsetSeconds;
     }
   }
+  cJSON_Delete(tzDoc);
   return 0;
 }
 
-// Return a vector of all timezone names from the embedded asset
-std::vector<String> Configuration::getSupportedTimezones() {
-  std::vector<String> timezones;
-  StaticJsonDocument<4096> tzDoc;
-  DeserializationError err =
-      deserializeJson(tzDoc, web_timezones_json, web_timezones_json_len);
-  if (err)
+std::vector<std::string> Configuration::getSupportedTimezones() {
+  std::vector<std::string> timezones;
+  std::string tzContent((const char *)web_timezones_json,
+                        (size_t)web_timezones_json_len);
+  cJSON *tzDoc = cJSON_Parse(tzContent.c_str());
+  if (!cJSON_IsArray(tzDoc)) {
+    if (tzDoc)
+      cJSON_Delete(tzDoc);
     return timezones;
-  for (JsonObject tz : tzDoc.as<JsonArray>()) {
-    if (tz.containsKey("name")) {
-      timezones.push_back(tz["name"].as<String>());
-    }
   }
+
+  cJSON *tz = nullptr;
+  cJSON_ArrayForEach(tz, tzDoc) {
+    if (!cJSON_IsObject(tz))
+      continue;
+    const char *n = jsonStringOr(tz, "name", nullptr);
+    if (n)
+      timezones.push_back(n);
+  }
+  cJSON_Delete(tzDoc);
   return timezones;
 }

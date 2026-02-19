@@ -1,25 +1,36 @@
-# Fish Safety Guidelines
+# Safety Guidelines
 
-## Brightness Levels
-- Daytime: 70-78/100 (%)
-- Evening: 40-60/100 (%)
-- Night/Moonlight: 8-20/100 (%)
+These recommendations prioritize fish health and electrical safety.
 
-## Acclimation Period
-1. Day 1-3: Max brightness 39/100 (%)
-2. Day 4-7: Max brightness 59/100 (%)
-3. Day 8+: Full brightness 78/100 (%)
+## Lighting safety
 
-## Effect Guidelines
-- Avoid: Rapid flashing or strobing effects
-- Safe: Slow waves, gentle ripples, gradual color changes
-- Best: Sunrise simulation for morning, moonlight for night
+- Avoid instant large brightness jumps
+- Keep `minTransitionTime` at `5000 ms` or higher
+- Start new tanks at reduced max brightness
+- Prefer sunrise/sunset style effects over strobes
 
-## Transition Times
-- Minimum: 5 seconds (enforced)
-- Recommended: 10-30 seconds for manual changes
-- Sunrise/sunset: 30-60 minutes
+## Suggested brightness plan
 
-## Speed & Intensity
-- Speed: 0–100 (%)
-- Intensity: 0–100 (%)
+- Day: `65-80%`
+- Evening: `35-60%`
+- Night/moonlight: `5-20%`
+
+Acclimation example:
+- Days 1-3: cap at `40%`
+- Days 4-7: cap at `60%`
+- Day 8+: increase gradually to target
+
+## Electrical safety
+
+- Use an adequate 5V PSU with headroom
+- Keep controller and supply dry and ventilated
+- Use common ground between ESP and LED supply
+- Add inline data resistor (`~470Ω`)
+- Add bulk capacitor (`~1000µF`) across LED power rails
+- Use GFCI/RCD protection near aquariums
+
+## Runtime safeguards to configure
+
+- `safety.maxBrightness`
+- `safety.minTransitionTime`
+- conservative timer brightness values for early/late hours

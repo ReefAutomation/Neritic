@@ -1,7 +1,8 @@
 #pragma once
-#include "debug.h"
 #include <memory>
+#include <numeric>
 #include <stdint.h>
+#include <string>
 #include <vector>
 
 // Abstract base class for all bus types
@@ -37,11 +38,15 @@ protected:
 // BusManager holds all buses and routes calls
 class BusManager {
 public:
+  static bool ledsReady;
+  static void setLedsReady(bool ready);
+  void beginFrame();
+  void endFrame();
   void turnOffLEDs();
-  BusNeoPixel *getNeoPixelBus();
+  BusNeoPixel *getLedBus();
   void addBus(std::unique_ptr<Bus> bus) { buses.push_back(std::move(bus)); }
-  void setupStrip(const String &type, const String &colorOrder, uint8_t pin,
-                  uint16_t count);
+  void setupStrip(const std::string &type, const std::string &colorOrder,
+                  uint8_t pin, uint16_t count);
   void cleanupStrip();
   void show() {
     for (auto &bus : buses)
@@ -73,8 +78,9 @@ public:
   }
   uint16_t totalLength() const {
     uint16_t sum = 0;
-    for (const auto &bus : buses)
+    for (const auto &bus : buses) {
       sum += bus->getLength();
+    }
     return sum;
   }
   // Update pixel count for all buses (returns total)

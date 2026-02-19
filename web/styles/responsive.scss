@@ -1,0 +1,10 @@
+@media (max-width: 768px) {
+  .control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sun-times {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
