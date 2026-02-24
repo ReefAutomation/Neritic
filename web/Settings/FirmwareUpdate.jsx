@@ -21,6 +21,20 @@ export function FirmwareUpdate({
     setOtaFileName('');
   };
 
+  // Helper to extract version from various data formats
+  const extractVersion = (data) => {
+    const latestArr = data?.latest;
+    if (Array.isArray(latestArr)) {
+      const entry = latestArr.find((e) => e.version);
+      return entry ? entry.version : null;
+    }
+    if (Array.isArray(data)) {
+      const entry = data.find((e) => e.version);
+      return entry ? entry.version : null;
+    }
+    return data?.version || data?.Version || data?.tag || null;
+  };
+
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [latestVersion, setLatestVersion] = useState(null);
@@ -42,17 +56,7 @@ export function FirmwareUpdate({
         showToast(data.error, { type: 'error' });
         return;
       }
-      const latestArr = data?.latest;
-      let version = null;
-      if (Array.isArray(latestArr)) {
-        const entry = latestArr.find((e) => e.version);
-        version = entry ? entry.version : null;
-      } else if (Array.isArray(data)) {
-        const entry = data.find((e) => e.version);
-        version = entry ? entry.version : null;
-      } else {
-        version = data?.version || data?.Version || data?.tag || null;
-      }
+      const version = extractVersion(data);
       setLatestVersion(version);
       setShowModal(true);
       if (toastId) showToast(null, null, toastId);
