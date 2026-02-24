@@ -177,6 +177,21 @@ function buildTimerChartData(
   return { pointsForChart, minutesArray, bgColors };
 }
 
+// Parses the device time string and returns the current time as fractional
+// minutes since midnight, or null if the time is unknown / not yet synced.
+// Falls back to the browser clock when the device reports '--:--'.
+function parseActualMinutes(time) {
+  if (time && time !== '--:--' && /^\d{2}:\d{2}(:\d{2})?$/.test(time)) {
+    const parts = time.split(':').map(Number);
+    return parts[0] * 60 + parts[1] + (parts[2] || 0) / 60;
+  }
+  if (time !== '--:--') {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  }
+  return null;
+}
+
 export function Graph({ state, timers, presets, config }) {
   const brightnessGraphRef = useRef(null);
   useEffect(() => {
@@ -210,15 +225,8 @@ export function Graph({ state, timers, presets, config }) {
             .sort((a, b) => a.time - b.time)
         : [];
 
-      // Calculate actual time in minutes
-      let actualMinutes = null;
-      if (state?.time && state.time !== '--:--' && /^\d{2}:\d{2}(:\d{2})?$/.test(state.time)) {
-        const parts = state.time.split(':').map(Number);
-        actualMinutes = parts[0] * 60 + parts[1] + (parts[2] || 0) / 60;
-      } else if (state?.time !== '--:--') {
-        const now = new Date();
-        actualMinutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-      }
+      // Calculate actual time in minutes from device clock (or browser fallback)
+      const actualMinutes = parseActualMinutes(state?.time);
 
       // Chart.js plugin for vertical red line at actual time
       const actualTimeLinePlugin = {

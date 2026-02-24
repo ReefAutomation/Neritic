@@ -109,11 +109,7 @@ def to_inc(infile, outfile):
 		else:
 			macro_block = (
 				"#ifndef WEB_PROGMEM\n"
-				"#if defined(ESP8266) || defined(ARDUINO_ARCH_AVR)\n"
-				"#define WEB_PROGMEM PROGMEM\n"
-				"#else\n"
 				"#define WEB_PROGMEM\n"
-				"#endif\n"
 				"#endif\n"
 			)
 			# Insert 'WEB_PROGMEM' before '='

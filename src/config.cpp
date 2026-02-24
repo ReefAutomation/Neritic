@@ -499,7 +499,7 @@ int Configuration::getTimezoneOffsetSeconds() {
 // Return a vector of all timezone names from the embedded asset
 std::vector<std::string> Configuration::getSupportedTimezones() {
   std::vector<std::string> timezones;
-  StaticJsonDocument<4096> tzDoc;
+  DynamicJsonDocument tzDoc(4096);
   DeserializationError err =
       deserializeJson(tzDoc, web_timezones_json, web_timezones_json_len);
   if (err)

@@ -1,7 +1,7 @@
 # Installation
 
 ## Prerequisites
-- ESP32 or ESP8266 board
+- ESP32 board
 - Addressable LED strip (WS2812B, SK6812, APA102)
 - PlatformIO (VS Code extension or CLI)
 - 5V power supply

@@ -20,6 +20,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
 #if defined(ESP_IDF_VERSION_MAJOR)
 #include <ArduinoJson.h>
 #endif
@@ -141,6 +144,45 @@ std::string getLatestFirmwareUrl(std::string &latestVersion) {
     #endif
 }
 
+// ── uzlib source callbacks ────────────────────────────────────────────────────
+// uzlib_get_byte() in this build only uses readSourceByte (when source==NULL).
+// source_read_cb and source_limit are ignored — use readSourceByte + buffering.
+
+static void nopLog(const char *fmt, ...) { (void)fmt; }
+
+// Remote HTTP source
+static esp_http_client_handle_t s_stream_client = nullptr;
+static unsigned char s_http_buf[4096];
+static int           s_http_pos = 0, s_http_len = 0;
+
+static unsigned int httpReadSourceByte(TINF_DATA *d, unsigned char *out) {
+    if (s_http_pos >= s_http_len) {
+        int rd = esp_http_client_read(s_stream_client,
+                                       (char *)s_http_buf, sizeof(s_http_buf));
+        if (rd <= 0) return (unsigned int)-1;
+        s_http_len = rd; s_http_pos = 0;
+    }
+    *out = s_http_buf[s_http_pos++];
+    return 0;
+}
+
+// Local file source
+static FILE         *s_gz_file        = nullptr;
+static unsigned char s_file_buf[4096];
+static int           s_file_pos        = 0, s_file_len = 0;
+static int           s_file_read_total = 0;   // tracks input bytes consumed (for progress)
+
+static unsigned int fileReadSourceByte(TINF_DATA *d, unsigned char *out) {
+    if (s_file_pos >= s_file_len) {
+        s_file_len = (int)fread(s_file_buf, 1, sizeof(s_file_buf), s_gz_file);
+        s_file_pos = 0;
+        if (s_file_len <= 0) return (unsigned int)-1;
+    }
+    *out = s_file_buf[s_file_pos++];
+    s_file_read_total++;
+    return 0;
+}
+
 // ── gz write callback – uses esp_ota_ops ──────────────────────────────────────
 static esp_ota_handle_t     s_ota_handle    = 0;
 static const esp_partition_t *s_ota_part    = nullptr;
@@ -174,7 +216,7 @@ static bool gzWriteCallback(unsigned char *buff, size_t buffsize) {
     return true;
 }
 
-// ── Remote gz OTA ──────────────────────────────────────────────────────────────
+// ── Remote gz OTA: streaming HTTP → uzlib → flash ─────────────────────────────
 bool performGzOtaUpdate(std::string &errorOut) {
     otaInProgress = true;
     s_ota_started = false;
@@ -192,100 +234,75 @@ bool performGzOtaUpdate(std::string &errorOut) {
     }
     ESP_LOGI(TAG, "Firmware URL: %s", firmwareUrl.c_str());
 
-    // Download firmware blob into memory (up to 2 MB)
     esp_http_client_config_t cfg = {};
     cfg.url               = firmwareUrl.c_str();
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.method            = HTTP_METHOD_GET;
     cfg.timeout_ms        = 30000;
-    cfg.buffer_size       = 4096;
+    cfg.buffer_size       = 8192;
 
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) { otaInProgress = false; errorOut = "http init failed"; broadcastOtaStatus("error", errorOut, -1); return false; }
-
-    if (esp_http_client_open(client, 0) != ESP_OK) {
-        esp_http_client_cleanup(client);
-        otaInProgress = false; errorOut = "http open failed"; broadcastOtaStatus("error", errorOut, -1); return false;
+    s_stream_client = esp_http_client_init(&cfg);
+    if (!s_stream_client) {
+        otaInProgress = false; errorOut = "http init failed";
+        broadcastOtaStatus("error", errorOut, -1); return false;
     }
-    int64_t clen = esp_http_client_fetch_headers(client);
-    int code     = esp_http_client_get_status_code(client);
+    if (esp_http_client_open(s_stream_client, 0) != ESP_OK) {
+        esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
+        otaInProgress = false; errorOut = "http open failed";
+        broadcastOtaStatus("error", errorOut, -1); return false;
+    }
+    int64_t clen = esp_http_client_fetch_headers(s_stream_client);
+    int code     = esp_http_client_get_status_code(s_stream_client);
     if (code != 200 || clen <= 0) {
-        esp_http_client_close(client); esp_http_client_cleanup(client);
+        esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
         otaInProgress = false; errorOut = "HTTP error " + std::to_string(code);
         broadcastOtaStatus("error", errorOut, -1); return false;
     }
-    s_ota_total_est = (int)(clen * 3 / 2); // estimate decompressed size
+    // compressed size × 1.5 gives a conservative decompressed estimate (matches original)
+    s_ota_total_est = (int)((int64_t)clen * 3 / 2);
 
-    // Decompress streaming directly through GzUnpacker
-    // We need a File-like object; save to temp file on flash first
-    const char *tmpPath = "/data/ota_tmp.bin.gz";
-    FILE *fout = fopen(tmpPath, "wb");
-    if (!fout) {
-        esp_http_client_close(client); esp_http_client_cleanup(client);
-        otaInProgress = false; errorOut = "tmpfile open failed"; broadcastOtaStatus("error", errorOut, -1); return false;
-    }
-    char buf[2048];
-    int  rd;
-    while ((rd = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
-        fwrite(buf, 1, rd, fout);
-    }
-    fclose(fout);
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-
-    // Decompress the .bin.gz using uzlib and write chunks via OTA callback
-    s_ota_started = false; s_ota_written = 0;
-    FILE *fin = fopen(tmpPath, "rb");
-    if (!fin) {
-        otaInProgress = false; errorOut = "tmpfile reopen failed"; broadcastOtaStatus("error", errorOut, -1); return false;
-    }
-    fseek(fin, 0, SEEK_END);
-    long fsz = ftell(fin);
-    fseek(fin, 0, SEEK_SET);
-    uint8_t *gz_buf = (uint8_t *)malloc(fsz);
-    bool ok = false;
-    if (!gz_buf) {
-        fclose(fin);
-        otaInProgress = false; errorOut = "malloc failed for gz buffer"; broadcastOtaStatus("error", errorOut, -1); return false;
-    }
-    fread(gz_buf, 1, fsz, fin);
-    fclose(fin);
-
-    // Allocate a dictionary buffer (32 KB) for uzlib sliding window
+    // ── Set up uzlib with readSourceByte callback (source=NULL required) ────────
+    s_http_pos = 0; s_http_len = 0;
     unsigned int dictSize = 32768;
     unsigned char *dict = (unsigned char *)malloc(dictSize);
     if (!dict) {
-        free(gz_buf); remove(tmpPath);
-        otaInProgress = false; errorOut = "malloc failed for dict"; broadcastOtaStatus("error", errorOut, -1); return false;
+        esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
+        otaInProgress = false; errorOut = "malloc failed for dict";
+        broadcastOtaStatus("error", errorOut, -1); return false;
     }
 
     TINF_DATA d = {};
     uzlib_init();
-    d.source       = gz_buf;
-    d.source_limit = gz_buf + fsz;
+    d.source         = nullptr;             // NULL → uses readSourceByte
+    d.log            = nopLog;
+    d.readSourceByte = httpReadSourceByte;
 
-    // Parse the gzip header
     if (uzlib_gzip_parse_header(&d) != TINF_OK) {
-        free(gz_buf); free(dict); remove(tmpPath);
-        otaInProgress = false; errorOut = "gzip header parse failed"; broadcastOtaStatus("error", errorOut, -1); return false;
+        free(dict);
+        esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
+        otaInProgress = false; errorOut = "gzip header parse failed";
+        broadcastOtaStatus("error", errorOut, -1); return false;
     }
     uzlib_uncompress_init(&d, dict, dictSize);
 
-    // Decompress in 4 KB chunks and write to OTA
+    // ── Decompress in 4 KB chunks and write to OTA flash ─────────────────────
     const size_t OUT_CHUNK = 4096;
     uint8_t *outbuf = (uint8_t *)malloc(OUT_CHUNK);
     if (!outbuf) {
-        free(gz_buf); free(dict); remove(tmpPath);
-        otaInProgress = false; errorOut = "malloc outbuf failed"; broadcastOtaStatus("error", errorOut, -1); return false;
+        free(dict);
+        esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
+        otaInProgress = false; errorOut = "malloc outbuf failed";
+        broadcastOtaStatus("error", errorOut, -1); return false;
     }
-    ok = true;
+
+    bool ok = true;
     int ret = TINF_OK;
     while (ret == TINF_OK) {
         d.dest          = outbuf;
         d.destStart     = outbuf;
         d.destSize      = (unsigned int)OUT_CHUNK;
         d.destRemaining = (unsigned int)OUT_CHUNK;
-        ret = uzlib_uncompress_chksum(&d);
+        ret = uzlib_uncompress(&d);
         size_t produced = (size_t)(d.dest - outbuf);
         if (produced > 0) {
             if (!gzWriteCallback(outbuf, produced)) {
@@ -295,10 +312,10 @@ bool performGzOtaUpdate(std::string &errorOut) {
             }
         }
         if (ret == TINF_DONE) break;
-        if (ret < 0) { ok = false; errorOut = "gzip decompress error"; break; }
+        if (ret < 0) { ok = false; errorOut = "gzip decompress error " + std::to_string(ret); break; }
     }
-    free(outbuf); free(dict); free(gz_buf);
-    remove(tmpPath);
+    free(outbuf); free(dict);
+    esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
 
     if (!ok || !s_ota_started) {
         if (s_ota_started) esp_ota_abort(s_ota_handle);
@@ -323,57 +340,189 @@ bool performGzOtaUpdate(std::string &errorOut) {
     return true;
 }
 
-// ── Local firmware upload handler (esp_http_server) ───────────────────────────
+// ── Local firmware upload handler: auto-detects .bin or .bin.gz ─────────────
+// .bin.gz: saves to LittleFS first, then decompresses (same strategy as original)
+// .bin:    flashes directly while receiving
 esp_err_t handleOtaUpload(httpd_req_t *req) {
     otaInProgress = true;
     broadcastOtaStatus("start", "Local OTA upload started", -1);
 
-    esp_ota_handle_t       ota_handle = 0;
-    const esp_partition_t *ota_part   = esp_ota_get_next_update_partition(NULL);
-    if (!ota_part) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
-        otaInProgress = false; return ESP_FAIL;
-    }
-    if (esp_ota_begin(ota_part, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_begin failed");
+    // Read first chunk to detect file type
+    char buf[4096];
+    int firstRecv = httpd_req_recv(req, buf, sizeof(buf));
+    if (firstRecv < 0) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
         otaInProgress = false; return ESP_FAIL;
     }
 
-    int total = req->content_len;
-    int remaining = total;
-    char buf[2048];
-    int written_total = 0;
+    const bool isGzip = (firstRecv >= 2 &&
+                         (uint8_t)buf[0] == 0x1F && (uint8_t)buf[1] == 0x8B);
+    int total = req->content_len;   // may be -1 if chunked
 
-    while (remaining > 0) {
-        int recv = httpd_req_recv(req, buf, MIN((int)sizeof(buf), remaining));
-        if (recv <= 0) {
-            if (recv == HTTPD_SOCK_ERR_TIMEOUT) continue;
-            esp_ota_abort(ota_handle);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
+    if (isGzip) {
+        // ── Step 1: receive whole file to LittleFS ────────────────────────────
+        const char *tmpPath = "/data/ota_upload.bin.gz";
+        FILE *fout = fopen(tmpPath, "wb");
+        if (!fout) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "tmpfile open failed");
             otaInProgress = false; return ESP_FAIL;
         }
-        if (esp_ota_write(ota_handle, (const void *)buf, recv) != ESP_OK) {
-            esp_ota_abort(ota_handle);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_write error");
+        if (firstRecv > 0) fwrite(buf, 1, firstRecv, fout);
+        int received = firstRecv;
+        int uploadLastPct = -1;
+        for (;;) {
+            int rd = httpd_req_recv(req, buf, sizeof(buf));
+            if (rd == 0) break;
+            if (rd < 0) {
+                if (rd == HTTPD_SOCK_ERR_TIMEOUT) continue;
+                fclose(fout); remove(tmpPath);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
+                otaInProgress = false; return ESP_FAIL;
+            }
+            fwrite(buf, 1, rd, fout);
+            received += rd;
+            // Phase 1: upload progress 0-49% based on bytes received
+            if (total > 0) {
+                int pct = received * 49 / total;
+                if (pct > 49) pct = 49;
+                if (pct != uploadLastPct) { broadcastOtaStatus("progress", "", pct); uploadLastPct = pct; }
+            }
+        }
+        fclose(fout);
+        ESP_LOGI(TAG, "gz upload saved: %d bytes → decompressing", received);
+
+        // ── Step 2: decompress from file → OTA flash ─────────────────────────
+        const esp_partition_t *ota_part = esp_ota_get_next_update_partition(NULL);
+        esp_ota_handle_t ota_handle = 0;
+        if (!ota_part || esp_ota_begin(ota_part, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle) != ESP_OK) {
+            remove(tmpPath);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_begin failed");
             otaInProgress = false; return ESP_FAIL;
         }
-        written_total += recv;
-        remaining    -= recv;
-        if (total > 0) {
-            int pct = written_total * 100 / total;
-            static int lastPct = -1;
-            if (pct != lastPct) { broadcastOtaStatus("progress", "", pct); lastPct = pct; }
-        }
-        esp_task_wdt_reset();
-    }
 
-    if (esp_ota_end(ota_handle) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_end failed");
-        otaInProgress = false; return ESP_FAIL;
-    }
-    if (esp_ota_set_boot_partition(ota_part) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "set_boot failed");
-        otaInProgress = false; return ESP_FAIL;
+        s_gz_file = fopen(tmpPath, "rb");
+        if (!s_gz_file) {
+            remove(tmpPath); esp_ota_abort(ota_handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "tmpfile reopen failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
+
+        unsigned char *dict   = (unsigned char *)malloc(32768);
+        uint8_t       *outbuf = (uint8_t *)malloc(4096);
+        TINF_DATA     *dp     = (TINF_DATA *)calloc(1, sizeof(TINF_DATA));
+        if (!dict || !outbuf || !dp) {
+            free(dict); free(outbuf); free(dp);
+            fclose(s_gz_file); s_gz_file = nullptr;
+            remove(tmpPath); esp_ota_abort(ota_handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "malloc failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
+
+        s_file_pos = 0; s_file_len = 0; s_file_read_total = 0;
+        uzlib_init();
+        dp->source         = nullptr;            // NULL → uses readSourceByte
+        dp->log            = nopLog;
+        dp->readSourceByte = fileReadSourceByte;
+
+        if (uzlib_gzip_parse_header(dp) != TINF_OK) {
+            free(dict); free(outbuf); free(dp);
+            fclose(s_gz_file); s_gz_file = nullptr;
+            remove(tmpPath); esp_ota_abort(ota_handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "gzip header error");
+            otaInProgress = false; return ESP_FAIL;
+        }
+        uzlib_uncompress_init(dp, dict, 32768);
+
+        // Phase 2: decompress progress 50-99% (if upload phase known) or 0-99%
+        // Progress is based on input bytes read from gz file (like original setGzProgressCallback)
+        const int progressBase = (total > 0) ? 50 : 0;
+        const int progressRange = 99 - progressBase;  // 49 or 99
+        int written_total = 0, lastPct = progressBase - 1, ret = TINF_OK;
+        bool ok = true;
+        broadcastOtaStatus("progress", "", progressBase); lastPct = progressBase;
+        while (ret == TINF_OK) {
+            dp->dest = outbuf; dp->destStart = outbuf;
+            dp->destSize = 4096; dp->destRemaining = 4096;
+            ret = uzlib_uncompress(dp);
+            size_t produced = (size_t)(dp->dest - outbuf);
+            if (produced > 0) {
+                if (esp_ota_write(ota_handle, outbuf, produced) != ESP_OK) {
+                    ESP_LOGE(TAG, "esp_ota_write failed at %d bytes", written_total);
+                    ok = false; break;
+                }
+                written_total += (int)produced;
+            }
+            // Track progress by input consumed (exact, like original's setGzProgressCallback)
+            if (received > 0) {
+                int pct = progressBase + s_file_read_total * progressRange / received;
+                if (pct > 99) pct = 99;
+                if (pct != lastPct) { broadcastOtaStatus("progress", "", pct); lastPct = pct; }
+            }
+            if (ret == TINF_DONE) break;
+            if (ret < 0) { ESP_LOGE(TAG, "uzlib error %d", ret); ok = false; break; }
+        }
+        free(dp); free(dict); free(outbuf);
+        fclose(s_gz_file); s_gz_file = nullptr;
+        remove(tmpPath);
+
+        if (!ok) {
+            esp_ota_abort(ota_handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "gz decompress/flash failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
+        if (esp_ota_end(ota_handle) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_end failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
+        if (esp_ota_set_boot_partition(ota_part) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "set_boot failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
+    } else {
+        // ── .bin: flash while receiving ───────────────────────────────────────
+        const esp_partition_t *ota_part = esp_ota_get_next_update_partition(NULL);
+        esp_ota_handle_t ota_handle = 0;
+        if (!ota_part || esp_ota_begin(ota_part, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_begin failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
+        int written_total = 0, lastPct = -1;
+        if (firstRecv > 0) {
+            if (esp_ota_write(ota_handle, (const void *)buf, firstRecv) != ESP_OK) {
+                esp_ota_abort(ota_handle);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_write error");
+                otaInProgress = false; return ESP_FAIL;
+            }
+            written_total = firstRecv;
+        }
+        for (;;) {
+            int recv = httpd_req_recv(req, buf, sizeof(buf));
+            if (recv == 0) break;
+            if (recv < 0) {
+                if (recv == HTTPD_SOCK_ERR_TIMEOUT) continue;
+                esp_ota_abort(ota_handle);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
+                otaInProgress = false; return ESP_FAIL;
+            }
+            if (esp_ota_write(ota_handle, (const void *)buf, recv) != ESP_OK) {
+                esp_ota_abort(ota_handle);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_write error");
+                otaInProgress = false; return ESP_FAIL;
+            }
+            written_total += recv;
+            if (total > 0) {
+                int pct = written_total * 100 / total;
+                if (pct != lastPct) { broadcastOtaStatus("progress", "", pct); lastPct = pct; }
+            }
+        }
+        if (esp_ota_end(ota_handle) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_end failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
+        if (esp_ota_set_boot_partition(ota_part) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "set_boot failed");
+            otaInProgress = false; return ESP_FAIL;
+        }
     }
 
     otaInProgress = false;
@@ -390,6 +539,7 @@ esp_err_t handleOtaUpload(httpd_req_t *req) {
 
 // ── otaTask: called from webserver when remote OTA is requested ────────────────
 extern "C" void otaTask(void *parameter) {
+    esp_task_wdt_add(NULL);
     std::string error;
     bool ok = performGzOtaUpdate(error);
     if (ok) {
@@ -405,10 +555,12 @@ extern "C" void otaTask(void *parameter) {
             if (webServerPtr && webServerPtr->otaClientsConnected() == 0) break;
             vTaskDelay(pdMS_TO_TICKS(10));
         }
+        esp_task_wdt_delete(NULL);
         esp_restart();
     } else {
         ESP_LOGE(TAG, "OTA failed: %s", error.c_str());
         broadcastOtaStatus("error", error.empty() ? "OTA failed" : error, -1);
     }
+    esp_task_wdt_delete(NULL);
     vTaskDelete(NULL);
 }

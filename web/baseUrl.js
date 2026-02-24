@@ -21,3 +21,8 @@ export function getBaseUrl() {
   }
   return BASE_URL;
 }
+
+// Convenience: build a full URL for a given path (e.g. '/api/state').
+export function apiUrl(path) {
+  return `${getBaseUrl()}${path}`;
+}

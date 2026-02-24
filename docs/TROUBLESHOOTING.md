@@ -75,7 +75,7 @@ LEDs initialized: 60 pixels
 **Try:**
 ```bash
 # Re-upload filesystem
-pio run -t uploadfs -e esp8266
+pio run -t uploadfs -e esp32d_debug
 
 # Check upload log for errors
 ```
@@ -315,10 +315,10 @@ debugPrintln(scheduler.getCurrentTime());
 pio run -t erase
 
 # Re-upload firmware
-pio run -t upload -e esp8266
+pio run -t upload -e esp32d_debug
 
 # Re-upload filesystem
-pio run -t uploadfs -e esp8266
+pio run -t uploadfs -e esp32d_debug
 ```
 
 **Check Flash Size:**
@@ -329,7 +329,7 @@ pio run -t uploadfs -e esp8266
 **Prevent Corruption:**
 - [ ] Don't unplug during writes
 - [ ] Stable power supply
-- [ ] Use SPIFFS on ESP32, LittleFS on ESP8266
+- [ ] Use LittleFS
 
 ---
 
@@ -380,7 +380,6 @@ pio run -t uploadfs
 - [ ] WebSocket working
 
 **Check CPU Load:**
-- [ ] Too many LEDs for ESP8266
 - [ ] Complex effects
 - [ ] Reduce frame rate
 - [ ] Optimize code
@@ -506,7 +505,7 @@ Print this and check off during troubleshooting:
 ### When Posting for Help:
 
 Include:
-- ESP8266 or ESP32?
+- ESP32 board variant (esp32d, esp32c6, etc.)?
 - LED type and count
 - Power supply specs
 - Wiring diagram/photo

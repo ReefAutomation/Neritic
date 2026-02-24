@@ -4,7 +4,7 @@ Get your aquarium LED controller running in 15 minutes! 🚀
 
 ## What You Need
 
-- ESP8266 or ESP32 board
+- ESP32 board
 - WS2812B LED strip (30-60 LEDs for testing)
 - 5V power supply (2-3A for 60 LEDs)
 - USB cable (for programming)
@@ -59,12 +59,6 @@ Or download ZIP from GitHub and extract.
 
 Edit `platformio.ini` default environment:
 
-**For ESP8266**:
-```ini
-[platformio]
-default_envs = esp8266
-```
-
 **For ESP32**:
 ```ini
 [platformio]
@@ -86,14 +80,14 @@ The web interface needs to be uploaded to the board's filesystem.
 ### VS Code Method:
 
 1. Click PlatformIO icon (alien head) on left sidebar
-2. Expand your environment (esp8266/esp32)
+2. Expand your environment (esp32d_debug/esp32c6_debug)
 3. Click "Upload Filesystem Image"
 4. Wait for completion (~2-3 minutes)
 
 ### Command Line Method:
 
 ```bash
-pio run -t uploadfs -e esp8266
+pio run -t uploadfs -e esp32d_debug
 ```
 
 ---
@@ -110,7 +104,7 @@ pio run -t uploadfs -e esp8266
 ### Command Line Method:
 
 ```bash
-pio run -t upload -e esp8266
+pio run -t upload -e esp32d_debug
 ```
 
 ---
@@ -350,7 +344,7 @@ After first boot, edit configuration via web interface or create `config.json`:
 A: Yes! WS2812B, SK6812, APA102 supported. Configure in web interface.
 
 **Q: How many LEDs can I control?**
-A: ESP8266: ~300 LEDs, ESP32: ~512 LEDs. Limited by memory and power.
+A: ~512 LEDs. Limited by memory and power.
 
 **Q: Can I use this underwater?**
 A: ESP must stay dry. Use IP67+ rated LED strips for underwater use.

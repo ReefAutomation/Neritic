@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { getBaseUrl } from './baseUrl.js';
+import { apiUrl } from './baseUrl.js';
 import { initializeWebSocket } from './websocket.js';
 import { ToastContainer, useToast } from './Toast.jsx';
 import { useTabs, getHandshakeType, Tabs } from './Tabs.jsx';
 
 function sendState(updates) {
-  fetch(`${getBaseUrl()  }/api/state`, {
+  fetch(apiUrl('/api/state'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -67,6 +67,7 @@ export function App() {
             setTimeout(() => globalThis.location.reload(), 7000);
           } else if (data.status === 'error') {
             showToast(`OTA update failed: ${  data.message}`, { type: 'error' });
+            setOtaProgress(-2); // sentinel: hides progress bar + re-triggers dismiss effect in FirmwareUpdate
           }
         }
       },
@@ -130,21 +131,21 @@ export function App() {
   // Fetch shared data (presets, timers, effects, version, config, timezones) in parallel
   useEffect(() => {
     Promise.all([
-      fetch(`${getBaseUrl()  }/api/presets`)
+      fetch(apiUrl('/api/presets'))
         .then((r) => r.json())
         .then((data) => (Array.isArray(data) ? data : data.presets))
         .catch(() => []),
-      fetch(`${getBaseUrl()  }/api/effects`)
+      fetch(apiUrl('/api/effects'))
         .then((r) => r.json())
         .then((data) => data.effects)
         .catch(() => []),
-      fetch(`${getBaseUrl()  }/api/version`)
+      fetch(apiUrl('/api/version'))
         .then((r) => r.json())
         .catch(() => {}),
-      fetch(`${getBaseUrl()  }/api/timezones`)
+      fetch(apiUrl('/api/timezones'))
         .then((resp) => resp.json())
         .catch(() => []),
-      fetch(`${getBaseUrl()  }/api/config`)
+      fetch(apiUrl('/api/config'))
         .then(async (response) => {
           const text = await response.text();
           if (!text) return {};

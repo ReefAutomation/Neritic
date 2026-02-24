@@ -15,7 +15,7 @@
 ## Basic Components
 
 ### Required
-1. **ESP32 or ESP8266 board**
+1. **ESP32 board**
 2. **Addressable LED strip** (WS2812B, SK6812, APA102, etc.)
 3. **5V power supply** (sufficient amperage for LEDs)
 4. **Jumper wires**
@@ -51,7 +51,6 @@ Power Supply Rating = Total Current × 1.5 (safety margin)
 
 ### Microcontroller Power
 
-- **ESP8266**: ~80-170mA (WiFi active)
 - **ESP32**: ~120-240mA (WiFi active)
 
 **Note**: Can be powered from 5V supply via VIN pin or USB.
@@ -59,37 +58,6 @@ Power Supply Rating = Total Current × 1.5 (safety margin)
 ---
 
 ## Wiring Diagrams
-
-### ESP8266 (NodeMCU) - Basic Setup
-
-```
-                    ┌─────────────┐
-                    │  ESP8266    │
-                    │  (NodeMCU)  │
-                    │             │
-    ┌───────────────┤ D4 (GPIO2)  │
-    │               │             │
-    │           ┌───┤ GND         │
-    │           │   │             │
-    │           │   │ VIN         ├───────┐
-    │           │   └─────────────┘       │
-    │           │                         │
-    │           │   ┌──────────────┐      │
-    │           │   │   5V Power   │      │
-    │           │   │   Supply     │      │
-    │           │   │              │      │
-    │           │   │ +5V      GND ├──────┼─────┐
-    │           │   └──────┬───────┘      │     │
-    │           │          │              │     │
-    │           │          │              │     │
-    └───470Ω───┴──────────┼──────────────┘     │
-                           │                    │
-                      ┌────▼────────────────────▼────┐
-                      │   LED Strip (WS2812B)        │
-                      │                              │
-                      │  DIN    5V          GND      │
-                      └──────────────────────────────┘
-```
 
 ### ESP32 - Basic Setup
 
@@ -126,7 +94,6 @@ Power Supply Rating = Total Current × 1.5 (safety margin)
 
 ```
 ┌─────────────┐
-│  ESP8266/   │
 │   ESP32     │
 │             │
 │ GPIO2   ────┼─────┬─────────┐

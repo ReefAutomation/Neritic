@@ -1,6 +1,6 @@
 # 🐠 DeepGlow - Standalone Aquarium LED Controller
 
-DeepGlow is a robust, open-source aquarium lighting controller for ESP32/ESP8266 microcontrollers. It provides automated, fish-safe LED control with advanced scheduling, custom effects, and a modern web interface. Designed for reliability and flexibility, DeepGlow supports a wide range of addressable LEDs and offers both beginner-friendly setup and advanced customization.
+DeepGlow is a robust, open-source aquarium lighting controller for ESP32 microcontrollers. It provides automated, fish-safe LED control with advanced scheduling, custom effects, and a modern web interface. Designed for reliability and flexibility, DeepGlow supports a wide range of addressable LEDs and offers both beginner-friendly setup and advanced customization.
 
 ## Project Highlights
 - **Fish Safety:** Gradual transitions, maximum brightness caps, and sunrise/sunset simulation protect aquatic life.
@@ -10,7 +10,7 @@ DeepGlow is a robust, open-source aquarium lighting controller for ESP32/ESP8266
 - **Modular Firmware:** Easily extend or customize with C++ and Python scripts.
 
 ## Hardware Requirements
-- ESP32 or ESP8266 board (2MB+ flash recommended)
+- ESP32 board (4MB+ flash recommended)
 - Addressable LED strip: WS2812B, SK6812, APA102, up to 512 LEDs
 - 5V power supply (adequate for LED count)
 - Optional: relay module for power switching
@@ -21,7 +21,7 @@ DeepGlow is a robust, open-source aquarium lighting controller for ESP32/ESP8266
 - APA102 (DotStar)
 
 ## Wiring Overview
-- Default data pin: GPIO2 (ESP8266/ESP32)
+- Default data pin: GPIO2
 - Use level shifter (74HCT245) for reliability
 - Add 470Ω resistor to data line, 1000µF capacitor across LED power
 - Relay module optional for safety/scheduling

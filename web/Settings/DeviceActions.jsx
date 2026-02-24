@@ -1,4 +1,4 @@
-import { getBaseUrl } from '../baseUrl.js';
+import { apiUrl } from '../baseUrl.js';
 import { useState } from 'preact/hooks';
 import { Modal } from '../Modal.jsx';
 
@@ -14,14 +14,14 @@ export function DeviceActions({ showToast }) {
     setPending(true);
     try {
       if (type === 'reboot') {
-        await fetch(`${getBaseUrl()  }/api/command`, {
+        await fetch(apiUrl('/api/command'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ command: 'reboot' }),
         });
         showToast('Device rebooting...', { type: 'info' });
       } else if (type === 'reset') {
-        await fetch(`${getBaseUrl()  }/api/factory_reset`, { method: 'POST' });
+        await fetch(apiUrl('/api/factory_reset'), { method: 'POST' });
         showToast('Factory reset initiated. Device will reboot.', {
           type: 'info',
         });

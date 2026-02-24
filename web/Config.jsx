@@ -1,7 +1,8 @@
 // Config page as Preact component
 import { useState, useRef } from 'preact/hooks';
 import { StatusBar } from './StatusBar.jsx';
-import { getBaseUrl } from './baseUrl.js';
+import { apiUrl } from './baseUrl.js';
+import { sortTimers } from './util.js';
 import { WiFiSettings } from './Settings/WiFiSettings.jsx';
 import { LEDSettings } from './Settings/LEDSettings.jsx';
 import { RelaySettings } from './Settings/RelaySettings.jsx';
@@ -113,7 +114,7 @@ export function Config({
               try {
                 const text = await file.text();
                 const json = JSON.parse(text);
-                const response = await fetch(`${getBaseUrl()  }/api/config`, {
+                const response = await fetch(apiUrl('/api/config'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(json),
@@ -139,18 +140,10 @@ export function Config({
                 let toSave = { ...modifiedConfig };
                 let sortedTimers = null;
                 if (toSave.timers && Array.isArray(toSave.timers)) {
-                  sortedTimers = [...toSave.timers].sort((a, b) => {
-                    if (a.type === 1 || a.type === 2) return -1;
-                    if (b.type === 1 || b.type === 2) return 1;
-                    return (
-                      (a.hour ?? 0) * 60 +
-                      (a.minute ?? 0) -
-                      ((b.hour ?? 0) * 60 + (b.minute ?? 0))
-                    );
-                  });
+                  sortedTimers = sortTimers(toSave.timers);
                   toSave.timers = sortedTimers;
                 }
-                const resp = await fetch(`${getBaseUrl()  }/api/config`, {
+                const resp = await fetch(apiUrl('/api/config'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(toSave),

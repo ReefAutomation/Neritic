@@ -143,9 +143,9 @@ void networkSetup(Configuration &config) {
     }
 
     if (ssid.empty()) {
-        // No STA credentials – start AP only for captive portal
-        ESP_LOGI(TAG, "No STA credentials, starting AP: %s", hostname.c_str());
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+        // No STA credentials – start APSTA so STA is ready once credentials are set
+        ESP_LOGI(TAG, "No STA credentials, starting APSTA: %s", hostname.c_str());
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
         ESP_ERROR_CHECK(esp_wifi_start());
         s_ap_mode = true;

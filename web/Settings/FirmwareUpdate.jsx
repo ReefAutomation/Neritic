@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { Fragment } from 'preact';
-import { getBaseUrl } from '../baseUrl.js';
+import { apiUrl } from '../baseUrl.js';
 import { Modal } from '../Modal.jsx';
 
 export function FirmwareUpdate({
@@ -25,30 +25,39 @@ export function FirmwareUpdate({
   const [showModal, setShowModal] = useState(false);
   const [latestVersion, setLatestVersion] = useState(null);
   const [installing, setInstalling] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState(null);
   // Handler for update check and confirmation
   const handleCheckForUpdates = async () => {
     let toastId = null;
     try {
       toastId = showToast('Checking for latest version...', { type: 'info' });
-      // Fetch the latest manifest from the remote repository (GET /api/update)
-      const resp = await fetch(`${getBaseUrl()  }/api/update`);
-      if (!resp.ok) throw new Error('Could not fetch remote manifest');
-      const manifest = await resp.json();
-      // If manifest is an array, find the entry for this environment (optional: filter by env)
+      const resp = await fetch(apiUrl('/api/update'));
+      if (!resp.ok) throw new Error('Could not fetch update info');
+      const data = await resp.json();
+      // New envelope: { current: "...", latest: [...] | null, error: "..." }
+      // Also handles old plain array/object manifest for compatibility
+      setCurrentVersion(data?.current || null);
+      if (data?.error && !data?.latest) {
+        if (toastId) showToast(null, null, toastId);
+        showToast(data.error, { type: 'error' });
+        return;
+      }
+      const latestArr = data?.latest;
       let version = null;
-      if (Array.isArray(manifest)) {
-        // Try to find the first entry with a version
-        const entry = manifest.find((e) => e.version);
+      if (Array.isArray(latestArr)) {
+        const entry = latestArr.find((e) => e.version);
+        version = entry ? entry.version : null;
+      } else if (Array.isArray(data)) {
+        const entry = data.find((e) => e.version);
         version = entry ? entry.version : null;
       } else {
-        version =
-          manifest?.version || manifest?.Version || manifest?.tag || null;
+        version = data?.version || data?.Version || data?.tag || null;
       }
       setLatestVersion(version);
       setShowModal(true);
-      if (toastId) showToast(null, null, toastId); // Dismiss toast
+      if (toastId) showToast(null, null, toastId);
     } catch (e) {
-      if (toastId) showToast(null, null, toastId); // Dismiss toast
+      if (toastId) showToast(null, null, toastId);
       console.error('Remote manifest fetch failed:', e);
       showToast('Could not fetch latest version info!', { type: 'error' });
     }
@@ -62,7 +71,7 @@ export function FirmwareUpdate({
     setInstalling(true);
     try {
       // Actually trigger the install (same as before)
-      const resp = await fetch(`${getBaseUrl()  }/api/update`, {
+      const resp = await fetch(apiUrl('/api/update'), {
         method: 'POST',
       });
       const result = await resp.json();
@@ -88,9 +97,12 @@ export function FirmwareUpdate({
     setInstalling(false);
   };
 
-  // Dismiss OTA install toast when progress starts (from WS or local)
+  // Dismiss OTA install toast when:
+  //  a) progress actually started (> 0), or
+  //  b) an error arrived before progress began (otaProgress sentinel < -1)
   useEffect(() => {
-    if ((otaProgress > 0 || localOtaProgress > 0) && otaInstallToastId) {
+    if (!otaInstallToastId) return;
+    if (otaProgress > 0 || localOtaProgress > 0 || otaProgress < -1) {
       if (typeof hideToast === 'function') hideToast(otaInstallToastId);
       setOtaInstallToastId(null);
     }
@@ -103,6 +115,11 @@ export function FirmwareUpdate({
         title="Install Update?"
         description={
           <>
+            {currentVersion && (
+              <div className="modal-version">
+                Current version: <span>{currentVersion}</span>
+              </div>
+            )}
             <div className="modal-version">
               Latest version: <span>{latestVersion || 'unknown'}</span>
             </div>
@@ -145,7 +162,7 @@ export function FirmwareUpdate({
             try {
               setLocalOtaProgress(0);
               const xhr = new XMLHttpRequest();
-              xhr.open('POST', `${getBaseUrl()  }/ota`, true);
+              xhr.open('POST', apiUrl('/ota'), true);
               xhr.setRequestHeader('Accept', 'application/json');
               xhr.upload.onprogress = function (evt) {
                 if (evt.lengthComputable) {
@@ -259,17 +276,11 @@ export function FirmwareUpdate({
         </form>
         {/* OTA Progress Bar */}
         {(() => {
-          // Show progress bar if either progress is >= 0
-          const showProgress = localOtaProgress >= 0 || otaProgress >= 0;
-          if (!showProgress) return null;
-          // Prefer localOtaProgress if it's uploading, else use otaProgress
-          let progress = otaProgress;
-          if (localOtaProgress >= 0 && localOtaProgress < 100) {
-            progress = localOtaProgress;
-          }
+          if (otaProgress < 0) return null;
+          const progress = otaProgress;
           const isUploading = progress < 100;
           const progressText = isUploading
-            ? `Uploading... ${progress}%`
+            ? `Flashing... ${progress}%`
             : 'Update complete! Rebooting...';
           return (
             <div style={{ width: '100%', marginTop: '1em' }}>

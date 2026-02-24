@@ -1,6 +1,6 @@
 /*
  * Standalone Aquarium LED Controller
- * ESP32/ESP8266 Fish-Safe LED Controller with Scheduling
+ * ESP32 Fish-Safe LED Controller with Scheduling
  *
  * Features:
  * - 6 Custom aquarium effects

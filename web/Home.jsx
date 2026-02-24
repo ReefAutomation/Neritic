@@ -3,7 +3,8 @@ import { Controls } from './Controls.jsx';
 import { PresetsCard } from './PresetsCard.jsx';
 import { LedBar } from './LedBar.jsx';
 import { StatusBar } from './StatusBar.jsx';
-import { getBaseUrl } from './baseUrl.js';
+import { apiUrl } from './baseUrl.js';
+import { sortTimers } from './util.js';
 
 function ScheduleTable({ timers = [], presets = [], state }) {
   let nowMinutes = 0;
@@ -109,26 +110,14 @@ export function Home({
   setActivePreset,
 }) {
   function applyPreset(presetId) {
-    fetch(`${getBaseUrl()  }/api/preset`, {
+    fetch(apiUrl('/api/preset'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: presetId, apply: true }),
     }).then(() => setActivePreset?.(presetId));
   }
   // Sort timers by time (hour, minute) for display in Home page
-  const sortedTimers = Array.isArray(timers)
-    ? [...timers].sort((a, b) => {
-        // Sunrise and Sunset types (1,2) always at the top
-        if (a.type === 1 || a.type === 2) return -1;
-        if (b.type === 1 || b.type === 2) return 1;
-        // Otherwise, sort by hour then minute
-        return (
-          (a.hour ?? 0) * 60 +
-          (a.minute ?? 0) -
-          ((b.hour ?? 0) * 60 + (b.minute ?? 0))
-        );
-      })
-    : [];
+  const sortedTimers = Array.isArray(timers) ? sortTimers(timers) : [];
 
   return (
     <>

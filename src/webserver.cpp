@@ -106,7 +106,7 @@ void WebServerManager::liveLedTimerCb(void *arg) {
 
 // ── Effects cache ─────────────────────────────────────────────────────────────
 void WebServerManager::buildEffectsCache() {
-    StaticJsonDocument<4096> doc;
+    StaticJsonDocument<512> doc;
     JsonArray effects = doc.createNestedArray("effects");
     for (size_t i = 0; i < effectRegistry.size(); ++i) {
         JsonObject eff = effects.createNestedObject();
@@ -129,8 +129,7 @@ void WebServerManager::begin() {
     httpd_config_t cfg        = HTTPD_DEFAULT_CONFIG();
     cfg.max_uri_handlers      = 48;
     cfg.max_open_sockets      = 7;
-    cfg.uri_match_fn          = httpd_uri_match_wildcard;
-    cfg.stack_size            = 8192; // Increase stack size for httpd task
+    cfg.stack_size            = 24576; // Large enough for JSON handlers + gz OTA decompression
 
     if (httpd_start(&_server, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start failed");
@@ -696,7 +695,7 @@ esp_err_t WebServerManager::hTimezones(httpd_req_t *req) {
     WebServerManager *mgr = fromReq(req);
     setCors(req);
     std::vector<std::string> tzList = mgr->_config->getSupportedTimezones();
-    StaticJsonDocument<2048> doc;
+    DynamicJsonDocument doc(2048);
     JsonArray arr = doc.to<JsonArray>();
     for (const auto &tz : tzList) arr.add(tz.c_str());
     std::string json;
@@ -837,7 +836,7 @@ void WebServerManager::handleSetPreset(httpd_req_t *req) {
 void WebServerManager::handleSetConfig(httpd_req_t *req) {
     setCors(req);
     std::string body = readBody(req);
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(2048);
     if (deserializeJson(doc, body)) {
         httpd_resp_set_status(req, "400 Bad Request");
         httpd_resp_set_type(req, "application/json");
@@ -934,7 +933,7 @@ std::string WebServerManager::getStateJSON() {
 }
 
 std::string WebServerManager::getPresetsJSON() {
-    StaticJsonDocument<4096> doc;
+    StaticJsonDocument<1536> doc;
     JsonArray arr = doc.createNestedArray("presets");
     for (size_t i = 0; i < _config->getPresetCount(); i++) {
         if (_config->presets[i].name.empty() && i > 0) continue;
@@ -956,7 +955,7 @@ std::string WebServerManager::getPresetsJSON() {
 }
 
 std::string WebServerManager::getTimersJSON() {
-    StaticJsonDocument<2048> doc;
+    StaticJsonDocument<768> doc;
     JsonArray arr = doc.createNestedArray("timers");
     for (size_t i = 0; i < _config->timers.size(); i++) {
         const auto &t = _config->timers[i];
