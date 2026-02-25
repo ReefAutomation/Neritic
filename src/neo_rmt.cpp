@@ -6,11 +6,28 @@
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
+#include "soc/soc_caps.h"
 
 static const char *TAG = "neo_rmt";
 
 // 10 MHz clock → 100 ns per tick
 #define RMT_LED_RESOLUTION_HZ 10000000UL
+
+static constexpr uint32_t kMinRmtMemBlockSymbols = 64;
+
+static uint32_t resolveMemBlockSymbols()
+{
+    uint32_t symbols = kMinRmtMemBlockSymbols;
+#ifdef SOC_RMT_MEM_WORDS_PER_CHANNEL
+    if (SOC_RMT_MEM_WORDS_PER_CHANNEL > symbols) {
+        symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL;
+    }
+#endif
+    if (symbols & 1U) {
+        symbols += 1U;
+    }
+    return symbols;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructor / destructor
@@ -58,7 +75,7 @@ bool NeoRmtStrip::Begin()
     tx_chan_cfg.gpio_num          = static_cast<gpio_num_t>(_pin);
     tx_chan_cfg.clk_src           = RMT_CLK_SRC_DEFAULT;
     tx_chan_cfg.resolution_hz     = RMT_LED_RESOLUTION_HZ;
-    tx_chan_cfg.mem_block_symbols = 48;  // ESP32-C6: SOC_RMT_MEM_WORDS_PER_CHANNEL=48, no DMA
+    tx_chan_cfg.mem_block_symbols = resolveMemBlockSymbols();
     tx_chan_cfg.trans_queue_depth = 4;
 
     esp_err_t err = rmt_new_tx_channel(&tx_chan_cfg, &_chan);

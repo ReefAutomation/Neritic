@@ -222,7 +222,6 @@ bool Configuration::load() {
   } else {
     // Deep merge: fill missing/null fields from defaults
     mergeJson(doc, defaultsDoc);
-    saveToFile(CONFIG_FILE, doc);
     updated = true;
   }
 
@@ -264,6 +263,8 @@ bool Configuration::load() {
     if (netObj.containsKey("password"))
       network.password = netObj["password"] | "";
   }
+  ESP_LOGI(TAG, "Config load: ssid='%s' len=%u", network.ssid.c_str(),
+           (unsigned)network.ssid.size());
   // Time Configuration
   if (doc.containsKey("time")) {
     JsonObject timeObj = doc["time"];

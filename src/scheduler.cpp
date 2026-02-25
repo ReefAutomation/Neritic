@@ -23,6 +23,7 @@ Scheduler::Scheduler(Configuration *config) {
 void Scheduler::begin() {
     if (!_config) return;
     if (_config->time.ntpServer.empty() || _config->time.ntpServer == "null") return;
+    esp_sntp_stop();
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, _config->time.ntpServer.c_str());
     sntp_set_sync_interval(NTP_UPDATE_INTERVAL);

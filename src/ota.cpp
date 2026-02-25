@@ -145,25 +145,22 @@ std::string getLatestFirmwareUrl(std::string &latestVersion) {
 }
 
 // ── uzlib source callbacks ────────────────────────────────────────────────────
-// uzlib_get_byte() in this build only uses readSourceByte (when source==NULL).
-// source_read_cb and source_limit are ignored — use readSourceByte + buffering.
-
-static void nopLog(const char *fmt, ...) { (void)fmt; }
+// Use uzlib stream callback API from PlatformIO libdeps.
 
 // Remote HTTP source
 static esp_http_client_handle_t s_stream_client = nullptr;
 static unsigned char s_http_buf[4096];
 static int           s_http_pos = 0, s_http_len = 0;
 
-static unsigned int httpReadSourceByte(TINF_DATA *d, unsigned char *out) {
+static int httpReadSourceByte(TINF_DATA *d) {
+    (void)d;
     if (s_http_pos >= s_http_len) {
         int rd = esp_http_client_read(s_stream_client,
                                        (char *)s_http_buf, sizeof(s_http_buf));
-        if (rd <= 0) return (unsigned int)-1;
+        if (rd <= 0) return -1;
         s_http_len = rd; s_http_pos = 0;
     }
-    *out = s_http_buf[s_http_pos++];
-    return 0;
+    return s_http_buf[s_http_pos++];
 }
 
 // Local file source
@@ -172,15 +169,16 @@ static unsigned char s_file_buf[4096];
 static int           s_file_pos        = 0, s_file_len = 0;
 static int           s_file_read_total = 0;   // tracks input bytes consumed (for progress)
 
-static unsigned int fileReadSourceByte(TINF_DATA *d, unsigned char *out) {
+static int fileReadSourceByte(TINF_DATA *d) {
+    (void)d;
     if (s_file_pos >= s_file_len) {
         s_file_len = (int)fread(s_file_buf, 1, sizeof(s_file_buf), s_gz_file);
         s_file_pos = 0;
-        if (s_file_len <= 0) return (unsigned int)-1;
+        if (s_file_len <= 0) return -1;
     }
-    *out = s_file_buf[s_file_pos++];
+    int value = s_file_buf[s_file_pos++];
     s_file_read_total++;
-    return 0;
+    return value;
 }
 
 // ── gz write callback – uses esp_ota_ops ──────────────────────────────────────
@@ -273,9 +271,9 @@ bool performGzOtaUpdate(std::string &errorOut) {
 
     TINF_DATA d = {};
     uzlib_init();
-    d.source         = nullptr;             // NULL → uses readSourceByte
-    d.log            = nopLog;
-    d.readSourceByte = httpReadSourceByte;
+    d.source         = nullptr;
+    d.source_limit   = nullptr;
+    d.source_read_cb = httpReadSourceByte;
 
     if (uzlib_gzip_parse_header(&d) != TINF_OK) {
         free(dict);
@@ -300,8 +298,7 @@ bool performGzOtaUpdate(std::string &errorOut) {
     while (ret == TINF_OK) {
         d.dest          = outbuf;
         d.destStart     = outbuf;
-        d.destSize      = (unsigned int)OUT_CHUNK;
-        d.destRemaining = (unsigned int)OUT_CHUNK;
+        d.dest_limit    = outbuf + OUT_CHUNK;
         ret = uzlib_uncompress(&d);
         size_t produced = (size_t)(d.dest - outbuf);
         if (produced > 0) {
@@ -420,9 +417,9 @@ esp_err_t handleOtaUpload(httpd_req_t *req) {
 
         s_file_pos = 0; s_file_len = 0; s_file_read_total = 0;
         uzlib_init();
-        dp->source         = nullptr;            // NULL → uses readSourceByte
-        dp->log            = nopLog;
-        dp->readSourceByte = fileReadSourceByte;
+        dp->source         = nullptr;
+        dp->source_limit   = nullptr;
+        dp->source_read_cb = fileReadSourceByte;
 
         if (uzlib_gzip_parse_header(dp) != TINF_OK) {
             free(dict); free(outbuf); free(dp);
@@ -442,7 +439,7 @@ esp_err_t handleOtaUpload(httpd_req_t *req) {
         broadcastOtaStatus("progress", "", progressBase); lastPct = progressBase;
         while (ret == TINF_OK) {
             dp->dest = outbuf; dp->destStart = outbuf;
-            dp->destSize = 4096; dp->destRemaining = 4096;
+            dp->dest_limit = outbuf + 4096;
             ret = uzlib_uncompress(dp);
             size_t produced = (size_t)(dp->dest - outbuf);
             if (produced > 0) {

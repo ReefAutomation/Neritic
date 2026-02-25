@@ -6,8 +6,8 @@
     "apPassword": ""
   },
   "led": {
-    "pin": 4,
-    "count": 34,
+    "pin": 14,
+    "count": 38,
     "type": "SK6812",
     "colorOrder": "GRB",
     "relayPin": 2,
@@ -19,14 +19,14 @@
   },
   "time": {
     "ntpServer": "pool.ntp.org",  
-    "timezone": "Etc/UTC",
+    "timezone": "America/Santiago",
     "latitude": 0.0,
     "longitude": 0.0,
     "dstEnabled": true
   },
   "transitionTimes": {
     "powerOn": 60000,
-    "schedule": 3600000,
+    "schedule": 10800000,
     "manual": 10000,
     "effect": 10000
   },
@@ -34,7 +34,7 @@
     {
       "enabled": true,
       "type": 0,
-      "hour": 0,
+      "hour": 23,
       "minute": 0,
       "presetId": 0,
       "brightness": 0
@@ -50,7 +50,7 @@
     {
       "enabled": true,
       "type": 0,
-      "hour": 11,
+      "hour": 9,
       "minute": 0,
       "presetId": 2,
       "brightness": 100
@@ -58,7 +58,7 @@
     {
       "enabled": true,
       "type": 0,
-      "hour": 19,
+      "hour": 18,
       "minute": 0,
       "presetId": 3,
       "brightness": 60
@@ -66,7 +66,7 @@
     {
       "enabled": true,
       "type": 0,
-      "hour": 22,
+      "hour": 21,
       "minute": 0,
       "presetId": 4,
       "brightness": 4

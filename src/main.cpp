@@ -157,8 +157,13 @@ void main_task(void *pvParameters) {
     }
     bool timersChanged = config.timers != lastConfiguration.timers;
     if (timersChanged) {
-      scheduler.begin();
       lastConfiguration.timers = config.timers;
+    }
+    bool ntpServerChanged =
+        config.time.ntpServer != lastConfiguration.time.ntpServer;
+    if (ntpServerChanged) {
+      scheduler.updateNTP();
+      lastConfiguration.time.ntpServer = config.time.ntpServer;
     }
     bool ledChanged = config.led.pin != lastConfiguration.led.pin ||
                       config.led.count != lastConfiguration.led.count ||
@@ -197,9 +202,18 @@ void main_task(void *pvParameters) {
   scheduler.begin();
   setupArduinoOTA(config.network.hostname.c_str());
 
-  // Only wait for time sync if connected to WiFi (STA mode)
-  bool wifi_sta_connected = networkIsStaConnected();
-  if (wifi_sta_connected) {
+  // Give networkLoop() a chance to activate AP fallback if WiFi failed during startup
+  // Process it several times to ensure AP mode is activated before we check mode below
+  for (int i = 0; i < 5; i++) {
+    networkLoop(config);
+    scheduler.update();
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
+  // Only wait for time sync if NOT in AP mode (i.e., in STA mode)
+  // Check mode instead of IP connection to avoid race condition where IP hasn't been assigned yet
+  bool in_ap_mode = networkIsApMode();
+  if (!in_ap_mode) {
     ESP_LOGI("main", "Waiting for time sync...");
     for (int i = 0; i < 30; i++) {
       scheduler.update();

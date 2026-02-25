@@ -845,6 +845,14 @@ void WebServerManager::handleSetConfig(httpd_req_t *req) {
     }
     if (doc.containsKey("network")) {
         JsonObject netObj = doc["network"];
+        const bool hasSsid = netObj.containsKey("ssid");
+        const char *ssidVal = hasSsid ? netObj["ssid"].as<const char *>() : nullptr;
+        ESP_LOGI(TAG, "Config POST network ssid present=%d len=%u",
+                 hasSsid ? 1 : 0,
+                 ssidVal ? (unsigned)strlen(ssidVal) : 0U);
+        if (hasSsid && ssidVal && ssidVal[0] == '\0') {
+            ESP_LOGW(TAG, "Config POST network ssid is empty");
+        }
         if (netObj.containsKey("ssid"))
             _config->network.ssid     = netObj["ssid"] | "";
         if (netObj.containsKey("password"))

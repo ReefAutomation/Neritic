@@ -1,19 +1,29 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { sortTimers } from '../util.js';
 
 export function Schedule({ config, setConfig, presets, sunTimes }) {
-  const [displayTimers, setDisplayTimers] = useState(() =>
-    Array.isArray(config?.timers) ? sortTimers(config.timers) : []
-  );
+  const [displayTimers, setDisplayTimers] = useState([]);
+  const didInitFromConfig = useRef(false);
+  const nextUiKey = useRef(1);
+
+  const withUiKeys = (timers) =>
+    timers.map((timer) => {
+      if (timer.__uiKey) return timer;
+      const uiKey = `t_${nextUiKey.current++}`;
+      return { ...timer, __uiKey: uiKey };
+    });
+
   useEffect(() => {
-    if (Array.isArray(config?.timers) && config.timers !== displayTimers) {
-      setDisplayTimers(sortTimers(config.timers));
+    if (!didInitFromConfig.current && Array.isArray(config?.timers)) {
+      setDisplayTimers(withUiKeys(sortTimers(config.timers)));
+      didInitFromConfig.current = true;
     }
-  }, [config?.timers, displayTimers]);
+  }, [config?.timers]);
 
   const updateTimers = (timers) => {
     setDisplayTimers(timers);
-    setConfig((prev) => ({ ...prev, timers }));
+    const timersForConfig = timers.map(({ __uiKey, ...rest }) => rest);
+    setConfig((prev) => ({ ...prev, timers: timersForConfig }));
   };
 
   return (
@@ -34,7 +44,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
           <tbody>
             {displayTimers.length > 0
               ? displayTimers.map((timer, idx) => (
-                  <tr key={timer.id || idx}>
+                  <tr key={timer.__uiKey}>
                     {/* Enabled checkbox */}
                     <td>
                       <input
@@ -56,7 +66,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                         <label style={{ marginRight: '0.5em' }} key={label}>
                           <input
                             type="radio"
-                            name={`type_${timer.id || idx}`}
+                            name={`type_${timer.__uiKey}`}
                             value={val}
                             checked={timer.type === val}
                             onInput={() => {
@@ -91,7 +101,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                           <input
                             type="time"
                             value={`${String(timer.hour).padStart(2, '0')}:${String(timer.minute).padStart(2, '0')}`}
-                            onInput={(e) => {
+                            onChange={(e) => {
                               const [h, m] = e.target.value
                                 .split(':')
                                 .map(Number);
@@ -139,7 +149,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                         max="100"
                         value={timer.brightness}
                         style={{ width: '60px' }}
-                        onInput={(e) => {
+                        onChange={(e) => {
                           const val = Math.max(
                             0,
                             Math.min(
@@ -184,6 +194,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
             const newTimers = [
               ...displayTimers,
               {
+                __uiKey: `t_${nextUiKey.current++}`,
                 enabled: true,
                 type: 0,
                 hour: 12,
