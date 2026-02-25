@@ -245,6 +245,7 @@ void main_task(void *pvParameters) {
     NET_READY_STA,
   };
   NetworkReadyState lastNetReadyState = NET_READY_NONE;
+  bool lastStaConnectedForNtp = false;
   while (true) {
     if (otaInProgress) {
       handleArduinoOTA();
@@ -280,6 +281,11 @@ void main_task(void *pvParameters) {
       ESP_LOGI("main", "=================================");
       lastNetReadyState = netReadyState;
     }
+
+    if (staConnectedNow && !lastStaConnectedForNtp) {
+      scheduler.updateNTP();
+    }
+    lastStaConnectedForNtp = staConnectedNow;
 
     uint64_t now = esp_timer_get_time() / 1000;
     if (now - lastFrame >= (1000 / FRAMES_PER_SECOND)) {
