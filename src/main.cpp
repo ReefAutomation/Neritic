@@ -227,10 +227,6 @@ void main_task(void *pvParameters) {
     ESP_LOGI("main", "Skipping time sync (AP mode)");
   }
 
-  ESP_LOGI("main", "System ready!");
-  ESP_LOGI("main", "IP Address: %s", getCurrentIpString(config).c_str());
-  ESP_LOGI("main", "=================================");
-
   transition.forceCurrentBrightness(state.brightness);
   setEffect(state.effect, state.params);
   setBrightness(state.brightness);
@@ -243,6 +239,12 @@ void main_task(void *pvParameters) {
   bool lastPower = false;
   uint8_t lastBrightness = 0;
   std::string lastIp;
+  enum NetworkReadyState {
+    NET_READY_NONE = 0,
+    NET_READY_AP,
+    NET_READY_STA,
+  };
+  NetworkReadyState lastNetReadyState = NET_READY_NONE;
   while (true) {
     if (otaInProgress) {
       handleArduinoOTA();
@@ -262,6 +264,23 @@ void main_task(void *pvParameters) {
     webServer.update();
     transition.update();
     networkLoop(config);
+
+    bool staConnectedNow = networkIsStaConnected();
+    bool apModeNow = networkIsApMode();
+    NetworkReadyState netReadyState = NET_READY_NONE;
+    if (staConnectedNow) {
+      netReadyState = NET_READY_STA;
+    } else if (apModeNow) {
+      netReadyState = NET_READY_AP;
+    }
+
+    if (netReadyState != NET_READY_NONE && netReadyState != lastNetReadyState) {
+      ESP_LOGI("main", "System ready!");
+      ESP_LOGI("main", "IP Address: %s", getCurrentIpString(config).c_str());
+      ESP_LOGI("main", "=================================");
+      lastNetReadyState = netReadyState;
+    }
+
     uint64_t now = esp_timer_get_time() / 1000;
     if (now - lastFrame >= (1000 / FRAMES_PER_SECOND)) {
       lastFrame = now;

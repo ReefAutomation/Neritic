@@ -23,12 +23,52 @@ static esp_netif_t   *s_sta_netif           = nullptr;
 static esp_netif_t   *s_ap_netif            = nullptr;
 static uint32_t       s_ap_ip               = 0;   // AP IP in network byte order
 static uint32_t       s_last_disconnect_ms  = 0;  // Time of last disconnect
-static uint32_t       s_failure_streak_start_ms = 0;  // When the current failure streak began
-static int            s_consecutive_auth_failures = 0; // Track auth failure streaks
-static bool           s_ap_fallback_active  = false;  // Whether we've fallen back to AP mode due to auth failures
+static uint32_t       s_failure_streak_start_ms = 0;  // When the current STA failure streak began
+static bool           s_dns_task_started    = false;
 
-#define MIN_AUTH_FAILURES_BEFORE_AP_FALLBACK 3   // Fall back to AP after 3 auth failures
-#define MIN_TIME_BEFORE_AP_FALLBACK_MS 30000     // OR after 30 seconds of continuous failure
+#define STA_RECONNECT_INTERVAL_MS 5000
+#define AP_FALLBACK_DELAY_MS 120000
+
+static void dns_task(void *arg);
+
+static void configure_ap(const Configuration &config) {
+    wifi_config_t ap_cfg = {};
+    const std::string &hostname = config.network.hostname;
+    const std::string &apPass   = config.network.apPassword;
+
+    strncpy((char *)ap_cfg.ap.ssid, hostname.c_str(), sizeof(ap_cfg.ap.ssid) - 1);
+    strncpy((char *)ap_cfg.ap.password, apPass.c_str(), sizeof(ap_cfg.ap.password) - 1);
+    ap_cfg.ap.ssid_len       = (uint8_t)hostname.size();
+    ap_cfg.ap.max_connection = 4;
+    ap_cfg.ap.channel        = 1;
+    ap_cfg.ap.authmode       = (apPass.size() >= 8) ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+}
+
+static void ensure_ap_enabled(const Configuration &config) {
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    configure_ap(config);
+    s_ap_mode = true;
+
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
+        s_ap_ip = ip_info.ip.addr;
+    }
+
+    if (!s_dns_task_started) {
+        xTaskCreate(dns_task, "dns_task", 4096, nullptr, 5, nullptr);
+        s_dns_task_started = true;
+    }
+}
+
+static void ensure_ap_disabled() {
+    if (!s_ap_mode) return;
+    ESP_LOGI(TAG, "STA connected, disabling AP");
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    s_ap_mode = false;
+    s_ap_ip = 0;
+}
 
 // ── Event handler ─────────────────────────────────────────────────────────────
 static void wifi_event_handler(void *arg, esp_event_base_t base,
@@ -47,47 +87,25 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             s_sta_connected = false;
             uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
             s_last_disconnect_ms = now;
-            
-            // Track when failure streak started (on first failure)
-            if (s_consecutive_auth_failures == 0) {
+
+            if (s_failure_streak_start_ms == 0) {
                 s_failure_streak_start_ms = now;
             }
-            
-            // Log disconnect reason for debugging
+
             const char *reason_str = "UNKNOWN";
             int reason = disconnected->reason;
-            
-            // Check for auth failure reason (0x200 and related codes)
-            if (reason >= 2 && reason <= 8) {  // Common auth/assoc failure range
+
+            if (reason >= 2 && reason <= 8) {
                 reason_str = "AUTH_ASSOC_FAIL";
-                s_consecutive_auth_failures++;
-                ESP_LOGW(TAG, "Auth failure detected (count=%d)", s_consecutive_auth_failures);
-                
-                // Check if we should fall back to AP mode (password wrong or SSID not found)
-                if (s_consecutive_auth_failures >= MIN_AUTH_FAILURES_BEFORE_AP_FALLBACK) {
-                    ESP_LOGW(TAG, "Too many auth failures (%d), will fall back to AP+Captive Portal",
-                             s_consecutive_auth_failures);
-                    s_ap_fallback_active = true;
-                }
-            } else if (reason == 15) {  // WIFI_REASON_NO_AP_FOUND
+            } else if (reason == 15) {
                 reason_str = "NO_AP_FOUND";
-                s_consecutive_auth_failures++;
-                ESP_LOGW(TAG, "SSID not found (count=%d)", s_consecutive_auth_failures);
-                if (s_consecutive_auth_failures >= MIN_AUTH_FAILURES_BEFORE_AP_FALLBACK) {
-                    ESP_LOGW(TAG, "SSID not found too many times (%d), falling back to AP+Captive Portal",
-                             s_consecutive_auth_failures);
-                    s_ap_fallback_active = true;
-                }
-            } else if (reason == 1) {  // WIFI_REASON_UNSPECIFIED
+            } else if (reason == 1) {
                 reason_str = "UNSPECIFIED";
-            } else if (reason == 201 || reason == 202) {  // Beacon timeout
+            } else if (reason == 201 || reason == 202) {
                 reason_str = "BEACON_TIMEOUT";
             }
-            
-            ESP_LOGW(TAG, "STA disconnected: reason=%d (%s) | auth_fails=%d",
-                     reason, reason_str, s_consecutive_auth_failures);
-            
-            // Don't immediately reconnect – let networkLoop handle it with backoff
+
+            ESP_LOGW(TAG, "STA disconnected: reason=%d (%s)", reason, reason_str);
             break;
         }
         case WIFI_EVENT_AP_START:
@@ -105,8 +123,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
             ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&ev->ip_info.ip));
             s_sta_connected = true;
+            s_failure_streak_start_ms = 0;
         } else if (id == IP_EVENT_STA_LOST_IP) {
             s_sta_connected = false;
+            if (s_failure_streak_start_ms == 0) {
+                s_failure_streak_start_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+            }
         }
     }
 }
@@ -189,35 +211,25 @@ void networkSetup(Configuration &config) {
         ESP_LOGW(TAG, "TEMP WiFi creds debug: STA SSID is empty");
     }
 
-    // Always configure AP (used as fallback / captive portal)
-    wifi_config_t ap_cfg = {};
-    strncpy((char *)ap_cfg.ap.ssid, hostname.c_str(), sizeof(ap_cfg.ap.ssid) - 1);
-    strncpy((char *)ap_cfg.ap.password, apPass.c_str(), sizeof(ap_cfg.ap.password) - 1);
-    ap_cfg.ap.ssid_len       = (uint8_t)hostname.size();
-    ap_cfg.ap.max_connection = 4;
-    ap_cfg.ap.channel        = 1;
-    if (apPass.size() >= 8) {
-        ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
-    } else {
-        ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
-    }
-
     if (ssid.empty()) {
-        // No STA credentials – start APSTA so STA is ready once credentials are set
+        // No STA credentials – keep AP enabled.
         ESP_LOGI(TAG, "No STA credentials, starting APSTA: %s", hostname.c_str());
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+        configure_ap(config);
         ESP_ERROR_CHECK(esp_wifi_start());
         s_ap_mode = true;
         esp_netif_ip_info_t ip_info;
         if (esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
             s_ap_ip = ip_info.ip.addr;
         }
-        xTaskCreate(dns_task, "dns_task", 4096, nullptr, 5, nullptr);
+        if (!s_dns_task_started) {
+            xTaskCreate(dns_task, "dns_task", 4096, nullptr, 5, nullptr);
+            s_dns_task_started = true;
+        }
         return;
     }
 
-    // STA-only mode: try to connect
+    // STA mode with fallback AP handled in networkLoop.
     ESP_LOGI(TAG, "STA credentials found, starting STA mode: %s", ssid.c_str());
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     wifi_config_t sta_cfg = {};
@@ -227,168 +239,44 @@ void networkSetup(Configuration &config) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_netif_set_hostname(s_sta_netif, hostname.c_str());
-
-    // Start the failure streak timer NOW (not when first disconnect happens)
-    // This ensures AP fallback happens quickly if WiFi auth fails
-    s_failure_streak_start_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
-
-    // Short initial attempts to detect auth failures quickly (5 seconds total)
-    // If auth is wrong or SSID doesn't exist, we want to fall back to AP fast
-    const int SHORT_WAIT_MS = 1500;     // Very short wait for quick auth failure detection
-    const int SHORT_RETRY_CYCLES = 3;   // 3 attempts × 1.5s = ~4.5 seconds
-    int retry_cycle = 0;
-    while (!s_sta_connected && retry_cycle < SHORT_RETRY_CYCLES && !s_ap_fallback_active) {
-        int waited = 0;
-        while (!s_sta_connected && waited < SHORT_WAIT_MS) {
-            vTaskDelay(pdMS_TO_TICKS(200));
-            waited += 200;
-        }
-        if (!s_sta_connected && !s_ap_fallback_active) {
-            ESP_LOGW(TAG, "STA connect attempt %d failed, retrying...", retry_cycle + 1);
-            esp_wifi_disconnect();
-            vTaskDelay(pdMS_TO_TICKS(500));  // Small delay to allow disconnect event to process
-            esp_wifi_connect();
-            retry_cycle++;
-        }
-    }
-
-    // If AP fallback was triggered during the retry loop, activate it NOW immediately
-    if (s_ap_fallback_active) {
-        ESP_LOGE(TAG, "Activating AP+Captive Portal immediately (auth failures detected)");
-        s_ap_fallback_active = false;
-        
-        // Get config values
-        const std::string &hostname = config.network.hostname;
-        const std::string &apPass   = config.network.apPassword;
-        
-        // Configure AP with hostname SSID (AP netif already created above)
-        wifi_config_t ap_cfg = {};
-        strncpy((char *)ap_cfg.ap.ssid, hostname.c_str(), sizeof(ap_cfg.ap.ssid) - 1);
-        strncpy((char *)ap_cfg.ap.password, apPass.c_str(), sizeof(ap_cfg.ap.password) - 1);
-        ap_cfg.ap.ssid_len       = (uint8_t)hostname.size();
-        ap_cfg.ap.max_connection = 4;
-        ap_cfg.ap.channel        = 1;
-        if (apPass.size() >= 8) {
-            ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
-        } else {
-            ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
-        }
-        
-        // Switch to APSTA mode (uses the AP netif created above)
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-        
-        s_ap_mode = true;
-        esp_netif_ip_info_t ip_info;
-        if (esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
-            s_ap_ip = ip_info.ip.addr;
-        }
-        
-        // Start captive portal DNS task
-        xTaskCreate(dns_task, "dns_task", 4096, nullptr, 5, nullptr);
-        ESP_LOGI(TAG, "AP+Captive Portal now ACTIVE: %s", hostname.c_str());
-    } else if (!s_sta_connected) {
-        // If still not connected and no AP fallback, continue retrying in background
-        ESP_LOGW(TAG, "STA initial connection failed, will retry in background");
-    }
+    s_last_disconnect_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    s_failure_streak_start_ms = s_last_disconnect_ms;
 }
 
 // ── networkLoop ───────────────────────────────────────────────────────────────
 void networkLoop(Configuration &config) {
-    static uint32_t lastReconnectAttempt = 0;
-    static int      reconnectAttempts    = 0;
+    static uint32_t last_reconnect_attempt_ms = 0;
 
-    if (s_ap_mode && s_sta_connected) {
-        s_ap_mode = false;
-        ESP_LOGI(TAG, "STA connected, disabling AP");
-        esp_wifi_set_mode(WIFI_MODE_STA);
-        if (s_ap_netif) {
-            esp_netif_destroy(s_ap_netif);
-            s_ap_netif = nullptr;
-            s_ap_ip = 0;
+    const bool has_ssid = !config.network.ssid.empty();
+    const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
+
+    if (!has_ssid) {
+        if (!s_ap_mode) {
+            ensure_ap_enabled(config);
         }
-        s_ap_fallback_active = false;
-        s_consecutive_auth_failures = 0;
+        return;
     }
 
-    // Handle AP fallback due to auth failures
-    if (s_ap_fallback_active && !s_ap_mode) {
-        ESP_LOGE(TAG, "Switching to AP+Captive Portal due to WiFi auth failures");
-        s_ap_fallback_active = false;
-        
-        // Configure AP with hostname SSID (AP netif already created in networkSetup)
-        wifi_config_t ap_cfg = {};
-        const std::string &hostname = config.network.hostname;
-        const std::string &apPass   = config.network.apPassword;
-        strncpy((char *)ap_cfg.ap.ssid, hostname.c_str(), sizeof(ap_cfg.ap.ssid) - 1);
-        strncpy((char *)ap_cfg.ap.password, apPass.c_str(), sizeof(ap_cfg.ap.password) - 1);
-        ap_cfg.ap.ssid_len       = (uint8_t)hostname.size();
-        ap_cfg.ap.max_connection = 4;
-        ap_cfg.ap.channel        = 1;
-        if (apPass.size() >= 8) {
-            ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
-        } else {
-            ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
-        }
-        
-        // Switch to APSTA mode (uses the AP netif created during networkSetup)
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-        
-        s_ap_mode = true;
-        esp_netif_ip_info_t ip_info;
-        if (esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
-            s_ap_ip = ip_info.ip.addr;
-        }
-        
-        // Start captive portal DNS task
-        xTaskCreate(dns_task, "dns_task", 4096, nullptr, 5, nullptr);
+    if (s_sta_connected) {
+        s_failure_streak_start_ms = 0;
+        ensure_ap_disabled();
+        return;
     }
 
-    // Check if we should fall back to AP mode based on time (30+ seconds of continuous failure)
-    if (!s_ap_fallback_active && !s_ap_mode && !config.network.ssid.empty() && !s_sta_connected) {
-        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
-        if (s_consecutive_auth_failures > 0) {
-            uint32_t failure_duration = now - s_failure_streak_start_ms;
-            if (failure_duration > MIN_TIME_BEFORE_AP_FALLBACK_MS) {
-                ESP_LOGW(TAG, "WiFi failing for %lu ms, triggering AP+Captive Portal fallback",
-                         failure_duration);
-                s_ap_fallback_active = true;
-            }
-        }
+    if (s_failure_streak_start_ms == 0) {
+        s_failure_streak_start_ms = now;
     }
 
-    if (!s_ap_mode && !config.network.ssid.empty() && !s_sta_connected && !s_ap_fallback_active) {
-        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
-        
-        // Calculate exponential backoff based on auth failure streak
-        uint32_t backoff_ms = 1000;  // 1 second default
-        if (s_consecutive_auth_failures >= 6) {
-            backoff_ms = 30000;  // 30 seconds after many failures
-        } else if (s_consecutive_auth_failures >= 3) {
-            backoff_ms = 5000;   // 5 seconds after several failures
-        } else if (s_consecutive_auth_failures > 0) {
-            backoff_ms = 1000;   // 1 second for first few failures
-        }
-        
-        // Only attempt reconnect if enough time has passed since disconnect
-        if ((now - s_last_disconnect_ms) > backoff_ms && 
-            (now - lastReconnectAttempt) > 10000) {
-            lastReconnectAttempt = now;
-            reconnectAttempts++;
-            ESP_LOGW(TAG, "Reconnect attempt %d (auth_fails=%d, backoff=%ldms)",
-                     reconnectAttempts, s_consecutive_auth_failures, backoff_ms);
-            esp_wifi_connect();
-        }
-        
-        // Reset auth failure counter on successful connection
-        if (s_sta_connected) {
-            if (s_consecutive_auth_failures > 0) {
-                ESP_LOGI(TAG, "Reset auth failure counter after successful connection");
-                s_consecutive_auth_failures = 0;
-            }
-            reconnectAttempts = 0;
-        }
+    if (!s_ap_mode && (now - s_failure_streak_start_ms) >= AP_FALLBACK_DELAY_MS) {
+        ESP_LOGW(TAG, "STA not connected for %lu ms, enabling AP fallback while retrying STA",
+                 (unsigned long)(now - s_failure_streak_start_ms));
+        ensure_ap_enabled(config);
+    }
+
+    if ((now - last_reconnect_attempt_ms) >= STA_RECONNECT_INTERVAL_MS) {
+        last_reconnect_attempt_ms = now;
+        ESP_LOGW(TAG, "Retrying STA connection%s", s_ap_mode ? " (AP fallback active)" : "");
+        esp_wifi_connect();
     }
 }
 
