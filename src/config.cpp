@@ -11,6 +11,7 @@ using std::vector;
 #endif
 #include "esp_littlefs.h"
 #include "esp_log.h"
+#include <errno.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,6 +25,7 @@ static const char *TAG = "config";
 
 // LittleFS VFS base path
 #define FS_BASE "/data"
+#define CONFIG_BACKUP_FILE "/config.json.bak"
 
 static bool s_fs_mounted = false;
 
@@ -49,6 +51,104 @@ static bool ensureFilesystemMounted() {
 
 static std::string fsPath(const char *path) {
   return std::string(FS_BASE) + path;
+}
+
+static bool fileExists(const std::string &path) {
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+}
+
+static bool readFileToString(const std::string &path, std::string &content) {
+  FILE *f = fopen(path.c_str(), "r");
+  if (!f) return false;
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz < 0) {
+    fclose(f);
+    return false;
+  }
+  content.clear();
+  content.reserve((size_t)sz);
+  char buf[256];
+  size_t n = 0;
+  while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+    content.append(buf, n);
+  }
+  fclose(f);
+  return true;
+}
+
+static bool writeStringToFile(const std::string &path, const std::string &content) {
+  FILE *f = fopen(path.c_str(), "w");
+  if (!f) return false;
+  size_t written = fwrite(content.data(), 1, content.size(), f);
+  fflush(f);
+  fclose(f);
+  vTaskDelay(pdMS_TO_TICKS(10));
+  return written == content.size();
+}
+
+static bool tryDeserializeConfig(JsonDocument &doc, const std::string &content) {
+  if (content.empty()) return false;
+
+  if (!deserializeJson(doc, content.c_str())) {
+    return true;
+  }
+
+  size_t firstBrace = content.find('{');
+  size_t lastBrace = content.rfind('}');
+  if (firstBrace != std::string::npos && lastBrace != std::string::npos &&
+      lastBrace > firstBrace) {
+    std::string candidate = content.substr(firstBrace, lastBrace - firstBrace + 1);
+    if (!deserializeJson(doc, candidate.c_str())) {
+      ESP_LOGW(TAG, "Recovered config by trimming leading/trailing garbage bytes");
+      return true;
+    }
+  }
+
+  size_t ledKey = content.find("\"led\"");
+  if (ledKey != std::string::npos && lastBrace != std::string::npos &&
+      lastBrace > ledKey) {
+    std::string candidate = "{" + content.substr(ledKey, lastBrace - ledKey + 1);
+    if (!deserializeJson(doc, candidate.c_str())) {
+      ESP_LOGW(TAG, "Recovered config by dropping corrupted JSON prefix before \"led\"");
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static void debugDumpFileContents(const char *path) {
+  if (!ensureFilesystemMounted()) {
+    ESP_LOGW(TAG, "Config dump skipped: filesystem not mounted");
+    return;
+  }
+
+  std::string fp = fsPath(path);
+  std::string content;
+  if (!readFileToString(fp, content)) {
+    ESP_LOGW(TAG, "Config dump: file not found at %s", fp.c_str());
+    return;
+  }
+
+  ESP_LOGI(TAG, "===== BOOT CONFIG DUMP START (%s, %u bytes) =====", path,
+           (unsigned)content.size());
+  if (content.empty()) {
+    ESP_LOGI(TAG, "<empty>");
+  } else {
+    const size_t chunkSize = 180;
+    for (size_t i = 0; i < content.size(); i += chunkSize) {
+      size_t len = chunkSize;
+      if (i + len > content.size()) {
+        len = content.size() - i;
+      }
+      std::string chunk = content.substr(i, len);
+      ESP_LOGI(TAG, "%s", chunk.c_str());
+    }
+  }
+  ESP_LOGI(TAG, "===== BOOT CONFIG DUMP END (%s) =====", path);
 }
 
 // Serialize the current configuration to a JSON string for API
@@ -173,37 +273,74 @@ void mergeJson(JsonVariant dst, JsonVariantConst src) {
 bool Configuration::loadFromFile(const char *path, JsonDocument &doc) {
   if (!ensureFilesystemMounted()) return false;
   std::string fp = fsPath(path);
-  FILE *f = fopen(fp.c_str(), "r");
-  if (!f) return false;
-  // Read entire file into buffer
-  fseek(f, 0, SEEK_END);
-  long sz = ftell(f);
-  fseek(f, 0, SEEK_SET);
-  if (sz <= 0) { fclose(f); return false; }
-  std::vector<char> buf(sz + 1);
-  fread(buf.data(), 1, sz, f);
-  fclose(f);
-  buf[sz] = '\0';
-  DeserializationError error = deserializeJson(doc, buf.data());
-  return !error;
+  std::string content;
+  if (!readFileToString(fp, content) || content.empty()) return false;
+  bool ok = tryDeserializeConfig(doc, content);
+  if (!ok) {
+    DeserializationError error = deserializeJson(doc, content.c_str());
+    ESP_LOGW(TAG, "Failed to parse %s (%s)", path, error.c_str());
+  }
+  return ok;
 }
 
 // Saves config file, converting hex to percent for human-readable storage
 bool Configuration::saveToFile(const char *path, const JsonDocument &doc) {
   if (!ensureFilesystemMounted()) return false;
-  std::string fp = fsPath(path);
-  FILE *f = fopen(fp.c_str(), "w");
-  if (!f) return false;
+
   std::string out;
   size_t written = serializeJson(doc, out);
-  fwrite(out.c_str(), 1, out.length(), f);
-  fflush(f);
-  fclose(f);
-  vTaskDelay(pdMS_TO_TICKS(10));
-  return written > 0;
+  if (written == 0) return false;
+
+  std::string fp = fsPath(path);
+
+  // For main config file, use atomic replace + persistent backup.
+  if (strcmp(path, CONFIG_FILE) == 0) {
+    std::string tmpPath = fp + ".tmp";
+    std::string bakPath = fsPath(CONFIG_BACKUP_FILE);
+
+    if (!writeStringToFile(tmpPath, out)) {
+      ESP_LOGE(TAG, "Failed writing temp config file: %s", tmpPath.c_str());
+      return false;
+    }
+
+    // Validate temp file content is parseable before swapping in.
+    std::string verifyContent;
+    StaticJsonDocument<2048> verifyDoc;
+    if (!readFileToString(tmpPath, verifyContent) ||
+        !tryDeserializeConfig(verifyDoc, verifyContent)) {
+      ESP_LOGE(TAG, "Temp config validation failed, keeping current config");
+      remove(tmpPath.c_str());
+      return false;
+    }
+
+    if (fileExists(fp)) {
+      remove(bakPath.c_str());
+      if (rename(fp.c_str(), bakPath.c_str()) != 0) {
+        ESP_LOGE(TAG, "Failed to rotate config backup (%d)", errno);
+        remove(tmpPath.c_str());
+        return false;
+      }
+    }
+
+    if (rename(tmpPath.c_str(), fp.c_str()) != 0) {
+      ESP_LOGE(TAG, "Failed to activate new config (%d), restoring backup", errno);
+      remove(tmpPath.c_str());
+      if (fileExists(bakPath)) {
+        rename(bakPath.c_str(), fp.c_str());
+      }
+      return false;
+    }
+
+    return true;
+  }
+
+  return writeStringToFile(fp, out);
 }
 
 bool Configuration::load() {
+  debugDumpFileContents(CONFIG_FILE);
+  debugDumpFileContents(CONFIG_BACKUP_FILE);
+
   // Load defaults from config_default.inc
   StaticJsonDocument<2048> doc;
   StaticJsonDocument<2048> defaultsDoc;
@@ -217,8 +354,15 @@ bool Configuration::load() {
   bool updated = false;
   bool loadedFromFile = loadFromFile(CONFIG_FILE, doc);
   if (!loadedFromFile) {
-    doc = defaultsDoc;
-    updated = true;
+    ESP_LOGW(TAG, "Primary config invalid, trying backup: %s", CONFIG_BACKUP_FILE);
+    bool loadedFromBackup = loadFromFile(CONFIG_BACKUP_FILE, doc);
+    if (loadedFromBackup) {
+      ESP_LOGW(TAG, "Recovered configuration from backup");
+      updated = true; // write recovered/merged data back to primary file
+    } else {
+      doc = defaultsDoc;
+      updated = true;
+    }
   } else {
     // Deep merge: fill missing/null fields from defaults
     mergeJson(doc, defaultsDoc);
