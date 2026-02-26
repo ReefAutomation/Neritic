@@ -202,6 +202,14 @@ void main_task(void *pvParameters) {
   scheduler.begin();
   setupArduinoOTA(config.network.hostname.c_str());
 
+  enum NetworkReadyState {
+    NET_READY_NONE = 0,
+    NET_READY_AP,
+    NET_READY_STA,
+  };
+  NetworkReadyState lastNetReadyState = NET_READY_NONE;
+  bool lastStaConnectedForNtp = false;
+
   // Give networkLoop() a chance to activate AP fallback if WiFi failed during startup
   // Process it several times to ensure AP mode is activated before we check mode below
   for (int i = 0; i < 5; i++) {
@@ -216,7 +224,30 @@ void main_task(void *pvParameters) {
   if (!in_ap_mode) {
     ESP_LOGI("main", "Waiting for time sync...");
     for (int i = 0; i < 30; i++) {
+      networkLoop(config);
       scheduler.update();
+
+      bool staConnectedNow = networkIsStaConnected();
+      bool apModeNow = networkIsApMode();
+      NetworkReadyState netReadyState = NET_READY_NONE;
+      if (staConnectedNow) {
+        netReadyState = NET_READY_STA;
+      } else if (apModeNow) {
+        netReadyState = NET_READY_AP;
+      }
+
+      if (netReadyState != NET_READY_NONE && netReadyState != lastNetReadyState) {
+        ESP_LOGI("main", "System ready!");
+        ESP_LOGI("main", "IP Address: %s", getCurrentIpString(config).c_str());
+        ESP_LOGI("main", "=================================");
+        lastNetReadyState = netReadyState;
+      }
+
+      if (staConnectedNow && !lastStaConnectedForNtp) {
+        scheduler.updateNTP();
+      }
+      lastStaConnectedForNtp = staConnectedNow;
+
       if (scheduler.isTimeValid()) {
         ESP_LOGI("main", "Time synchronized!");
         break;
@@ -239,13 +270,6 @@ void main_task(void *pvParameters) {
   bool lastPower = false;
   uint8_t lastBrightness = 0;
   std::string lastIp;
-  enum NetworkReadyState {
-    NET_READY_NONE = 0,
-    NET_READY_AP,
-    NET_READY_STA,
-  };
-  NetworkReadyState lastNetReadyState = NET_READY_NONE;
-  bool lastStaConnectedForNtp = false;
   while (true) {
     if (otaInProgress) {
       handleArduinoOTA();

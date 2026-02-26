@@ -27,6 +27,8 @@ static uint32_t       s_failure_streak_start_ms = 0;  // When the current STA fa
 static bool           s_dns_task_started    = false;
 
 #define STA_RECONNECT_INTERVAL_MS 5000
+#define STA_FAST_RETRY_INTERVAL_MS 1000
+#define STA_FAST_RETRY_WINDOW_MS 15000
 #define AP_FALLBACK_DELAY_MS 120000
 
 static void dns_task(void *arg);
@@ -273,9 +275,21 @@ void networkLoop(Configuration &config) {
         ensure_ap_enabled(config);
     }
 
-    if ((now - last_reconnect_attempt_ms) >= STA_RECONNECT_INTERVAL_MS) {
+    uint32_t reconnect_interval_ms = STA_RECONNECT_INTERVAL_MS;
+    if ((now - s_last_disconnect_ms) < STA_FAST_RETRY_WINDOW_MS) {
+        reconnect_interval_ms = STA_FAST_RETRY_INTERVAL_MS;
+    }
+
+    uint32_t last_action_ms = last_reconnect_attempt_ms;
+    if (last_action_ms < s_last_disconnect_ms) {
+        last_action_ms = s_last_disconnect_ms;
+    }
+
+    if ((now - last_action_ms) >= reconnect_interval_ms) {
         last_reconnect_attempt_ms = now;
-        ESP_LOGW(TAG, "Retrying STA connection%s", s_ap_mode ? " (AP fallback active)" : "");
+        ESP_LOGW(TAG, "Retrying STA connection%s (interval=%lums)",
+                 s_ap_mode ? " (AP fallback active)" : "",
+                 (unsigned long)reconnect_interval_ms);
         esp_wifi_connect();
     }
 }
