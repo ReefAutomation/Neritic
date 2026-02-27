@@ -4,20 +4,55 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
-#include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
-#include "soc/soc_caps.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "led_strip.h"
+#include "led_strip_rmt.h"
+#include "led_strip_spi.h"
 
 static const char *TAG = "neo_rmt";
 
-// 10 MHz clock → 100 ns per tick
-#define RMT_LED_RESOLUTION_HZ 10000000UL
+enum class LedBackend {
+    Rmt,
+    Spi,
+};
+
+static LedBackend resolvePreferredBackend()
+{
+#if defined(DEEPGLOW_LED_BACKEND_SPI)
+    return LedBackend::Spi;
+#elif defined(DEEPGLOW_LED_BACKEND_RMT)
+    return LedBackend::Rmt;
+#elif CONFIG_IDF_TARGET_ESP32
+    return LedBackend::Spi;
+#elif CONFIG_IDF_TARGET_ESP32C6
+    return LedBackend::Rmt;
+#else
+    return LedBackend::Rmt;
+#endif
+}
+
+static bool isBackendForced()
+{
+#if defined(DEEPGLOW_LED_BACKEND_SPI) || defined(DEEPGLOW_LED_BACKEND_RMT)
+    return true;
+#else
+    return false;
+#endif
+}
 
 static constexpr uint32_t kMinRmtMemBlockSymbols = 64;
 
 static uint32_t resolveMemBlockSymbols()
 {
     uint32_t symbols = kMinRmtMemBlockSymbols;
+#if CONFIG_IDF_TARGET_ESP32
+    // Larger symbol buffer lowers ISR pressure and helps avoid TX underruns.
+    if (symbols < 256) {
+        symbols = 256;
+    }
+#endif
 #ifdef SOC_RMT_MEM_WORDS_PER_CHANNEL
     if (SOC_RMT_MEM_WORDS_PER_CHANNEL > symbols) {
         symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL;
@@ -29,31 +64,75 @@ static uint32_t resolveMemBlockSymbols()
     return symbols;
 }
 
+void NeoRmtStrip::LockFrameBuffer() {
+    if (_mutex) xSemaphoreTake((SemaphoreHandle_t)_mutex, portMAX_DELAY);
+}
+
+void NeoRmtStrip::UnlockFrameBuffer() {
+    if (_mutex) xSemaphoreGive((SemaphoreHandle_t)_mutex);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructor / destructor
 // ─────────────────────────────────────────────────────────────────────────────
 
-NeoRmtStrip::NeoRmtStrip(uint16_t count, uint8_t pin, bool rgbw)
-    : _count(count), _pin(pin), _rgbw(rgbw),
+NeoRmtStrip::NeoRmtStrip(uint16_t count, uint8_t pin, bool rgbw, bool grbOrder)
+    : _count(count), _pin(pin), _rgbw(rgbw), _grbOrder(grbOrder),
       _bytesPerPixel(rgbw ? 4 : 3),
-      _pixels(nullptr), _chan(nullptr), _bytesEncoder(nullptr)
+      _pixels(nullptr), _frameBuffer(nullptr), _updateTaskHandle(nullptr), _strip(nullptr), _mutex(nullptr)
 {
     _pixels = static_cast<uint8_t *>(calloc(count * _bytesPerPixel, 1));
+    _frameBuffer = static_cast<uint8_t *>(calloc(count * _bytesPerPixel, 1));
+    _mutex = xSemaphoreCreateMutex();
 }
 
 NeoRmtStrip::~NeoRmtStrip()
 {
-    if (_chan) {
-        rmt_disable(_chan);
-        rmt_del_channel(_chan);
-        _chan = nullptr;
-    }
-    if (_bytesEncoder) {
-        rmt_del_encoder(_bytesEncoder);
-        _bytesEncoder = nullptr;
+    if (_strip) {
+        led_strip_del(static_cast<led_strip_handle_t>(_strip));
+        _strip = nullptr;
     }
     free(_pixels);
     _pixels = nullptr;
+    free(_frameBuffer);
+    _frameBuffer = nullptr;
+    if (_mutex) {
+        vSemaphoreDelete((SemaphoreHandle_t)_mutex);
+        _mutex = nullptr;
+    }
+    // No need to delete task, it will exit on destruction
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LED update task and signaling
+// ─────────────────────────────────────────────────────────────────────────────
+
+void NeoRmtStrip::StartUpdateTask() {
+    if (_updateTaskHandle) return;
+#if CONFIG_IDF_TARGET_ESP32
+    xTaskCreatePinnedToCore(NeoRmtStrip::led_update_task, "led_update", 3072, this, 9, (TaskHandle_t*)&_updateTaskHandle, 1);
+#else
+    xTaskCreate(NeoRmtStrip::led_update_task, "led_update", 3072, this, 9, (TaskHandle_t*)&_updateTaskHandle);
+#endif
+}
+
+void NeoRmtStrip::SignalFrameReady() {
+    if (_updateTaskHandle) {
+        xTaskNotifyGive((TaskHandle_t)_updateTaskHandle);
+    }
+}
+
+void NeoRmtStrip::led_update_task(void *param) {
+    NeoRmtStrip *strip = static_cast<NeoRmtStrip *>(param);
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        while (ulTaskNotifyTake(pdTRUE, 0) > 0) {
+        }
+        if (strip->_mutex) xSemaphoreTake((SemaphoreHandle_t)strip->_mutex, portMAX_DELAY);
+        memcpy(strip->_pixels, strip->_frameBuffer, strip->_count * strip->_bytesPerPixel);
+        if (strip->_mutex) xSemaphoreGive((SemaphoreHandle_t)strip->_mutex);
+        strip->Show();
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,75 +141,68 @@ NeoRmtStrip::~NeoRmtStrip()
 
 bool NeoRmtStrip::Begin()
 {
-    ESP_LOGI(TAG, "Begin: pin=%d count=%d rgbw=%d", _pin, _count, (int)_rgbw);
+    ESP_LOGI(TAG, "Begin: pin=%d count=%d rgbw=%d grb=%d", _pin, _count, (int)_rgbw, (int)_grbOrder);
 
     if (!_pixels) {
         ESP_LOGE(TAG, "pixel buffer allocation failed");
         return false;
     }
-    ESP_LOGI(TAG, "Begin: pixel buf ok, calling rmt_new_tx_channel");
-
-    // ── TX channel ────────────────────────────────────────────────────────
-    rmt_tx_channel_config_t tx_chan_cfg = {};
-    tx_chan_cfg.gpio_num          = static_cast<gpio_num_t>(_pin);
-    tx_chan_cfg.clk_src           = RMT_CLK_SRC_DEFAULT;
-    tx_chan_cfg.resolution_hz     = RMT_LED_RESOLUTION_HZ;
-    tx_chan_cfg.mem_block_symbols = resolveMemBlockSymbols();
-    tx_chan_cfg.trans_queue_depth = 4;
-
-    esp_err_t err = rmt_new_tx_channel(&tx_chan_cfg, &_chan);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "rmt_new_tx_channel failed: %s", esp_err_to_name(err));
-        return false;
-    }
-    ESP_LOGI(TAG, "Begin: tx channel ok, calling rmt_new_bytes_encoder");
-
-    // ── Bytes encoder ─────────────────────────────────────────────────────
-    // Timings @ 10 Mticks/s (100 ns / tick):
-    //
-    //   SK6812  T0H=300ns T0L=900ns  T1H=600ns T1L=600ns  Reset ≥ 80 µs
-    //   WS2812B T0H=400ns T0L=850ns  T1H=800ns T1L=450ns  Reset ≥ 50 µs
-    //
-    rmt_bytes_encoder_config_t bytes_enc_cfg = {};
+    led_strip_config_t strip_config = {};
+    strip_config.strip_gpio_num = _pin;
+    strip_config.max_leds = _count;
+    strip_config.led_model = _rgbw ? LED_MODEL_SK6812 : LED_MODEL_WS2812;
     if (_rgbw) {
-        // SK6812
-        bytes_enc_cfg.bit0.level0    = 1;
-        bytes_enc_cfg.bit0.duration0 = 3;   // 300 ns
-        bytes_enc_cfg.bit0.level1    = 0;
-        bytes_enc_cfg.bit0.duration1 = 9;   // 900 ns
-        bytes_enc_cfg.bit1.level0    = 1;
-        bytes_enc_cfg.bit1.duration0 = 6;   // 600 ns
-        bytes_enc_cfg.bit1.level1    = 0;
-        bytes_enc_cfg.bit1.duration1 = 6;   // 600 ns
+        strip_config.color_component_format = _grbOrder ? LED_STRIP_COLOR_COMPONENT_FMT_GRBW : LED_STRIP_COLOR_COMPONENT_FMT_RGBW;
     } else {
-        // WS2812B
-        bytes_enc_cfg.bit0.level0    = 1;
-        bytes_enc_cfg.bit0.duration0 = 4;   // 400 ns
-        bytes_enc_cfg.bit0.level1    = 0;
-        bytes_enc_cfg.bit0.duration1 = 8;   // 800 ns
-        bytes_enc_cfg.bit1.level0    = 1;
-        bytes_enc_cfg.bit1.duration0 = 8;   // 800 ns
-        bytes_enc_cfg.bit1.level1    = 0;
-        bytes_enc_cfg.bit1.duration1 = 4;   // 400 ns
+        strip_config.color_component_format = _grbOrder ? LED_STRIP_COLOR_COMPONENT_FMT_GRB : LED_STRIP_COLOR_COMPONENT_FMT_RGB;
     }
-    bytes_enc_cfg.flags.msb_first = 1;
+    strip_config.flags.invert_out = false;
 
-    err = rmt_new_bytes_encoder(&bytes_enc_cfg, &_bytesEncoder);
+    led_strip_handle_t strip = nullptr;
+    esp_err_t err = ESP_FAIL;
+    const LedBackend preferred = resolvePreferredBackend();
+    const bool forced = isBackendForced();
+
+    auto try_rmt = [&]() {
+        led_strip_rmt_config_t rmt_config = {};
+        rmt_config.clk_src = RMT_CLK_SRC_DEFAULT;
+        rmt_config.resolution_hz = 10 * 1000 * 1000;
+        rmt_config.mem_block_symbols = resolveMemBlockSymbols();
+        rmt_config.flags.with_dma = false;
+        return led_strip_new_rmt_device(&strip_config, &rmt_config, &strip);
+    };
+
+    auto try_spi = [&]() {
+        led_strip_spi_config_t spi_config = {};
+        spi_config.clk_src = SPI_CLK_SRC_DEFAULT;
+        spi_config.spi_bus = SPI2_HOST;
+        spi_config.flags.with_dma = true;
+        return led_strip_new_spi_device(&strip_config, &spi_config, &strip);
+    };
+
+    if (preferred == LedBackend::Spi) {
+        err = try_spi();
+        if (err != ESP_OK && !forced) {
+            ESP_LOGW(TAG, "SPI backend init failed (%s), trying RMT", esp_err_to_name(err));
+            err = try_rmt();
+        }
+    } else {
+        err = try_rmt();
+        if (err != ESP_OK && !forced) {
+            ESP_LOGW(TAG, "RMT backend init failed (%s), trying SPI", esp_err_to_name(err));
+            err = try_spi();
+        }
+    }
+
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "rmt_new_bytes_encoder failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "failed to create LED strip backend: %s", esp_err_to_name(err));
         return false;
     }
-    ESP_LOGI(TAG, "Begin: encoder ok, calling rmt_enable");
+    _strip = strip;
+    led_strip_clear(strip);
 
-    // ── Enable ────────────────────────────────────────────────────────────
-    err = rmt_enable(_chan);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "rmt_enable failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    ESP_LOGI(TAG, "RMT TX ready: pin=%d count=%d %s",
-             _pin, _count, _rgbw ? "RGBW" : "RGB");
+    ESP_LOGI(TAG, "LED strip ready: pin=%d count=%d model=%s",
+             _pin, _count, _rgbw ? "SK6812" : "WS2812");
     return true;
 }
 
@@ -140,23 +212,41 @@ bool NeoRmtStrip::Begin()
 
 void NeoRmtStrip::Show()
 {
-    if (!_chan || !_bytesEncoder || !_pixels) return;
+    if (!_strip || !_pixels) return;
+    if (_mutex) xSemaphoreTake((SemaphoreHandle_t)_mutex, portMAX_DELAY);
 
-    rmt_transmit_config_t tx_cfg = {};
-    tx_cfg.loop_count = 0;
-
-    esp_err_t err = rmt_transmit(_chan, _bytesEncoder,
-                                 _pixels, _count * _bytesPerPixel,
-                                 &tx_cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "rmt_transmit failed: %s", esp_err_to_name(err));
-        return;
+    led_strip_handle_t strip = static_cast<led_strip_handle_t>(_strip);
+    for (uint16_t i = 0; i < _count; ++i) {
+        const uint8_t *pixel = _pixels + i * _bytesPerPixel;
+        if (_rgbw) {
+            const uint8_t g = pixel[0];
+            const uint8_t r = pixel[1];
+            const uint8_t b = pixel[2];
+            const uint8_t w = pixel[3];
+            led_strip_set_pixel_rgbw(strip, i, r, g, b, w);
+        } else {
+            uint8_t r = 0;
+            uint8_t g = 0;
+            uint8_t b = 0;
+            if (_grbOrder) {
+                g = pixel[0];
+                r = pixel[1];
+                b = pixel[2];
+            } else {
+                r = pixel[0];
+                g = pixel[1];
+                b = pixel[2];
+            }
+            led_strip_set_pixel(strip, i, r, g, b);
+        }
     }
 
-    rmt_tx_wait_all_done(_chan, portMAX_DELAY);
+    esp_err_t err = led_strip_refresh(strip);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "led_strip_refresh failed: %s", esp_err_to_name(err));
+    }
 
-    // Reset pulse: hold data line low for ≥ 80 µs (SK6812) / ≥ 50 µs (WS2812B)
-    esp_rom_delay_us(100);
+    if (_mutex) xSemaphoreGive((SemaphoreHandle_t)_mutex);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,8 +255,11 @@ void NeoRmtStrip::Show()
 
 void NeoRmtStrip::SetPixelBytes(uint16_t index, const uint8_t *bytes)
 {
-    if (index >= _count || !_pixels) return;
-    memcpy(_pixels + index * _bytesPerPixel, bytes, _bytesPerPixel);
+    // ESP_LOGW(TAG, "SetPixelBytes idx=%u bytes=%02x%02x%02x%02x task=%p tick=%lu", index, bytes[0], bytes[1], bytes[2], _bytesPerPixel==4?bytes[3]:0, xTaskGetCurrentTaskHandle(), xTaskGetTickCount());
+    // ESP_LOGW(TAG, "led_update_task: copying frame buffer at tick=%lu", xTaskGetTickCount());
+    // ESP_LOGW(TAG, "led_update_task: calling Show() at tick=%lu", xTaskGetTickCount());
+    if (index >= _count || !_frameBuffer) return;
+    memcpy(_frameBuffer + index * _bytesPerPixel, bytes, _bytesPerPixel);
 }
 
 void NeoRmtStrip::GetPixelBytes(uint16_t index, uint8_t *bytes) const
@@ -175,7 +268,9 @@ void NeoRmtStrip::GetPixelBytes(uint16_t index, uint8_t *bytes) const
         memset(bytes, 0, _bytesPerPixel);
         return;
     }
+    if (_mutex) xSemaphoreTake((SemaphoreHandle_t)_mutex, portMAX_DELAY);
     memcpy(bytes, _pixels + index * _bytesPerPixel, _bytesPerPixel);
+    if (_mutex) xSemaphoreGive((SemaphoreHandle_t)_mutex);
 }
 
 #endif // ESP_PLATFORM

@@ -101,13 +101,14 @@ static void captureCurrentFrameForTransition() {
   transition.setPreviousFrame(prevFrame);
 }
 static void renderFrameToBus(const std::vector<uint32_t> &frame) {
+  busManager.beginFrame();
   for (size_t i = 0; i < frame.size(); ++i) {
     uint32_t c = frame[i];
     uint8_t r, g, b, w;
     unpack_rgbw(c, r, g, b, w);
     busManager.setPixelColor(i, pack_rgbw(r, g, b, w));
   }
-  busManager.show();
+  busManager.endFrame();
 }
 static void commitPendingTransition() {
   state.effect = pendingTransition.effect;

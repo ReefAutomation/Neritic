@@ -16,4 +16,5 @@ idf_component_register(SRCS ${app_sources}
         lwip
         esp_timer
         esp_driver_rmt
+        led_strip
 )

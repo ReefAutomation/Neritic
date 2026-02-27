@@ -39,6 +39,10 @@ protected:
 // BusManager holds all buses and routes calls
 class BusManager {
 public:
+  static bool ledsReady;
+  static void setLedsReady(bool ready);
+  void beginFrame();
+  void endFrame();
   void turnOffLEDs();
   BusNeoPixel *getNeoPixelBus();
   void addBus(std::unique_ptr<Bus> bus) { buses.push_back(std::move(bus)); }

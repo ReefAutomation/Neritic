@@ -50,12 +50,12 @@ static uint32_t color_blend(uint32_t color1, uint32_t color2, uint8_t blend) {
 
 // === Frame generator functions ===
 void effect_solid() {
+  if (!g_effectBuffer)
+    return;
   uint32_t c = color[0];
   uint8_t r, g, b, w;
   unpack_rgbw(c, r, g, b, w);
   scale_rgbw_brightness(r, g, b, w, state.brightness, r, g, b, w);
-  if (!g_effectBuffer)
-    return;
   for (size_t i = 0; i < g_ledCount; ++i) {
     (*g_effectBuffer)[i] = pack_rgbw(r, g, b, w);
   }
@@ -118,9 +118,7 @@ void effect_sunrise() {
 REGISTER_EFFECT(1, "Sunrise", effect_sunrise)
 
 void effect_sunset() {
-  if (!g_effectBuffer)
-    return;
-  if (g_ledCount == 0)
+  if (!g_effectBuffer || g_ledCount == 0)
     return;
   size_t colorCount = state.params.colors.size();
   std::vector<uint32_t> stops;
@@ -188,9 +186,7 @@ void effect_sunset() {
 REGISTER_EFFECT(2, "Sunset", effect_sunset)
 
 void effect_moonlight() {
-  if (!g_effectBuffer)
-    return;
-  if (g_ledCount == 0)
+  if (!g_effectBuffer || g_ledCount == 0)
     return;
 
   // Underwater moonlight: soft blue base, moving caustic highlight, gentle
@@ -249,9 +245,7 @@ void effect_lightning() {
   static uint8_t lastDebugSpeed = 0;
   static uint32_t lastDebugDelay = 0;
   static uint8_t lastSpeed = 0;
-  if (!g_effectBuffer)
-    return;
-  if (g_ledCount == 0)
+  if (!g_effectBuffer || g_ledCount == 0)
     return;
 
   static uint32_t lastFlash = 0;
