@@ -1,4 +1,11 @@
 dependencies:
+  bblanchon/ArduinoJson:
+    component_hash: 463812931f99cb7a554d64311288f537b43daaca3eed2427557b907af393447c
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 6.21.5
   espressif/led_strip:
     component_hash: 28621486f77229aaf81c71f5e15d6fbf36c2949cf11094e07090593e659e7639
     dependencies:
@@ -13,9 +20,21 @@ dependencies:
     source:
       type: idf
     version: 5.5.0
+  joltwallet/littlefs:
+    component_hash: dcea25bcef2de023f089f5f01e8d8c46ad1b8ffef75861ad5ffb4098555839df
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.20.4
 direct_dependencies:
+- bblanchon/ArduinoJson
 - espressif/led_strip
 - idf
-manifest_hash: 9afbccabb78133f6e4a80ce15bc34e34a95408c940c2bb8227195bb7174be35b
+- joltwallet/littlefs
+manifest_hash: c92986a470fde2cd7f47414cf9af2b347903eb638658cbc589447fe120a84a9b
 target: esp32c6
 version: 2.0.0
