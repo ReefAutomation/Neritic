@@ -431,7 +431,13 @@ esp_err_t WebServerManager::hUpdateGet(httpd_req_t *req) {
 esp_err_t WebServerManager::hUpdatePost(httpd_req_t *req) {
     ESP_LOGI(TAG, "hUpdatePost called: %s", req->uri);
     setCors(req);
-    xTaskCreatePinnedToCore(otaTask, "otaTask", 16384, nullptr, 1, nullptr, 1);
+    if (otaInProgress) {
+        httpd_resp_set_status(req, "409 Conflict");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"OTA already in progress\"}");
+        return ESP_OK;
+    }
+    xTaskCreatePinnedToCore(otaTask, "otaTask", 16384, nullptr, 1, nullptr, tskNO_AFFINITY);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"success\":true,\"message\":\"OTA started\"}");
     return ESP_OK;

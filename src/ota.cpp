@@ -278,6 +278,8 @@ static std::string resolveFinalUrl(const char *url) {
 bool performGzOtaUpdate(std::string &errorOut) {
     otaInProgress = true;
     s_ota_started = false;
+    s_ota_handle  = 0;
+    s_ota_part    = nullptr;
     s_ota_written = 0;
 
     broadcastOtaStatus("start", "OTA update started", -1);
@@ -325,7 +327,25 @@ bool performGzOtaUpdate(std::string &errorOut) {
     s_ota_total_est = (clen > 0) ? (int)((int64_t)clen * 3 / 2) : 0;
 
     // ── Set up uzlib with readSourceByte callback (source=NULL required) ────────
-    s_http_pos = 0; s_http_len = 0;
+    // Pre-read first bytes so we can validate this is actually gzip.
+    int firstRead = esp_http_client_read(s_stream_client, (char *)s_http_buf, sizeof(s_http_buf));
+    if (firstRead <= 0) {
+        esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
+        otaInProgress = false; errorOut = "empty HTTP body";
+        broadcastOtaStatus("error", errorOut, -1); return false;
+    }
+    s_http_pos = 0; s_http_len = firstRead;
+    if (s_http_len < 2 || s_http_buf[0] != 0x1F || s_http_buf[1] != 0x8B) {
+        char hex[32] = {0};
+        snprintf(hex, sizeof(hex), "%02X %02X %02X %02X", s_http_buf[0],
+                 s_http_len > 1 ? s_http_buf[1] : 0,
+                 s_http_len > 2 ? s_http_buf[2] : 0,
+                 s_http_len > 3 ? s_http_buf[3] : 0);
+        ESP_LOGE(TAG, "Remote payload is not gzip (first bytes: %s)", hex);
+        esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
+        otaInProgress = false; errorOut = "Remote payload is not gzip";
+        broadcastOtaStatus("error", errorOut, -1); return false;
+    }
     unsigned int dictSize = 32768;
     unsigned char *dict = (unsigned char *)malloc(dictSize);
     if (!dict) {
@@ -367,6 +387,12 @@ bool performGzOtaUpdate(std::string &errorOut) {
         ret = uzlib_uncompress(&d);
         size_t produced = (size_t)(d.dest - outbuf);
         if (produced > 0) {
+            if (s_ota_written == 0 && outbuf[0] != 0xE9) {
+                ok = false;
+                errorOut = "Invalid firmware magic after decompression";
+                ESP_LOGE(TAG, "Invalid decompressed magic: expected 0xE9, saw 0x%02X", outbuf[0]);
+                break;
+            }
             if (!gzWriteCallback(outbuf, produced)) {
                 ok = false;
                 if (errorOut.empty()) errorOut = "OTA write failed";
@@ -381,6 +407,9 @@ bool performGzOtaUpdate(std::string &errorOut) {
 
     if (!ok || !s_ota_started) {
         if (s_ota_started) esp_ota_abort(s_ota_handle);
+        s_ota_started = false;
+        s_ota_handle  = 0;
+        s_ota_part    = nullptr;
         otaInProgress = false;
         if (errorOut.empty()) errorOut = "gz decompression/flash failed";
         broadcastOtaStatus("error", errorOut, -1);
@@ -388,14 +417,23 @@ bool performGzOtaUpdate(std::string &errorOut) {
     }
 
     if (esp_ota_end(s_ota_handle) != ESP_OK) {
+        s_ota_started = false;
+        s_ota_handle  = 0;
+        s_ota_part    = nullptr;
         otaInProgress = false; errorOut = "esp_ota_end failed";
         broadcastOtaStatus("error", errorOut, -1); return false;
     }
     if (esp_ota_set_boot_partition(s_ota_part) != ESP_OK) {
+        s_ota_started = false;
+        s_ota_handle  = 0;
+        s_ota_part    = nullptr;
         otaInProgress = false; errorOut = "set_boot_partition failed";
         broadcastOtaStatus("error", errorOut, -1); return false;
     }
 
+    s_ota_started = false;
+    s_ota_handle  = 0;
+    s_ota_part    = nullptr;
     otaInProgress = false;
     broadcastOtaStatus("progress", "", 100);
     broadcastOtaStatus("success", "OTA update successful", -1);
