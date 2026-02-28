@@ -128,7 +128,7 @@ WebServerManager::WebServerManager(Configuration *config, Scheduler *scheduler) 
 void WebServerManager::begin() {
     httpd_config_t cfg        = HTTPD_DEFAULT_CONFIG();
     cfg.max_uri_handlers      = 48;
-    cfg.max_open_sockets      = 7;
+    cfg.max_open_sockets      = 7;  // 7 + 1 listen = 8; fits within LWIP_MAX_SOCKETS=16 with room for outbound TLS
     cfg.stack_size            = 24576; // Large enough for JSON handlers + gz OTA decompression
 
     if (httpd_start(&_server, &cfg) != ESP_OK) {
@@ -405,24 +405,29 @@ esp_err_t WebServerManager::hVersion(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// /api/update GET  → return manifest JSON
+// /api/update GET → return current firmware version and OTA environment.
+// The browser uses this to know what it's running, then fetches the GitHub
+// /api/update GET → fetch manifest from GitHub and return it with current version.
 esp_err_t WebServerManager::hUpdateGet(httpd_req_t *req) {
     ESP_LOGI(TAG, "hUpdateGet called: %s", req->uri);
     setCors(req);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_type(req, "application/json");
+
     std::string manifest = fetchRemoteManifestJson();
     if (manifest.empty()) {
-        httpd_resp_set_status(req, "404 Not Found");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"No release manifest found\"}");
+        httpd_resp_set_status(req, "502 Bad Gateway");
+        httpd_resp_sendstr(req, "{\"error\":\"Could not reach GitHub\"}");
         return ESP_OK;
     }
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, manifest.c_str(), manifest.size());
+    // Return {"current":"x.x.x","latest":[...manifest array...]}
+    std::string json = std::string("{\"current\":\"") + FW_VERSION +
+                       "\",\"latest\":" + manifest + "}";
+    httpd_resp_send(req, json.c_str(), json.size());
     return ESP_OK;
 }
 
-// /api/update POST  → start remote OTA task
+// /api/update POST → start remote OTA (device resolves everything itself).
 esp_err_t WebServerManager::hUpdatePost(httpd_req_t *req) {
     ESP_LOGI(TAG, "hUpdatePost called: %s", req->uri);
     setCors(req);

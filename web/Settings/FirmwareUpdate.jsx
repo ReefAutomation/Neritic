@@ -40,6 +40,7 @@ export function FirmwareUpdate({
   const [latestVersion, setLatestVersion] = useState(null);
   const [installing, setInstalling] = useState(false);
   const [currentVersion, setCurrentVersion] = useState(null);
+
   // Handler for update check and confirmation
   const handleCheckForUpdates = async () => {
     let toastId = null;
@@ -48,16 +49,13 @@ export function FirmwareUpdate({
       const resp = await fetch(apiUrl('/api/update'));
       if (!resp.ok) throw new Error('Could not fetch update info');
       const data = await resp.json();
-      // New envelope: { current: "...", latest: [...] | null, error: "..." }
-      // Also handles old plain array/object manifest for compatibility
-      setCurrentVersion(data?.current || null);
       if (data?.error && !data?.latest) {
         if (toastId) showToast(null, null, toastId);
         showToast(data.error, { type: 'error' });
         return;
       }
-      const version = extractVersion(data);
-      setLatestVersion(version);
+      setCurrentVersion(data?.current || null);
+      setLatestVersion(extractVersion(data));
       setShowModal(true);
       if (toastId) showToast(null, null, toastId);
     } catch (e) {
@@ -74,7 +72,6 @@ export function FirmwareUpdate({
   const handleConfirmInstall = async () => {
     setInstalling(true);
     try {
-      // Actually trigger the install (same as before)
       const resp = await fetch(apiUrl('/api/update'), {
         method: 'POST',
       });

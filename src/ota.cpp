@@ -58,30 +58,40 @@ void setupArduinoOTA(const char * /* hostname */) {}
 void handleArduinoOTA() {}
 
 // ── HTTPS helper: fetch URL into a std::string ─────────────────────────────────
+// Uses esp_http_client_perform so that:
+//  • HTTP redirects (302) are followed automatically via max_redirection_count
+//  • Chunked transfer-encoded responses (Content-Length == -1) are handled
+static esp_err_t _httpsGetEventHandler(esp_http_client_event_t *evt) {
+    if (evt->event_id == HTTP_EVENT_ON_DATA && evt->data_len > 0) {
+        auto *out = static_cast<std::string *>(evt->user_data);
+        out->append(static_cast<char *>(evt->data), (size_t)evt->data_len);
+    }
+    return ESP_OK;
+}
+
 static std::string httpsGet(const char *url) {
     std::string result;
     esp_http_client_config_t cfg = {};
-    cfg.url    = url;
-    cfg.crt_bundle_attach = esp_crt_bundle_attach;
-    cfg.method = HTTP_METHOD_GET;
+    cfg.url                   = url;
+    cfg.crt_bundle_attach     = esp_crt_bundle_attach;
+    cfg.method                = HTTP_METHOD_GET;
+    cfg.max_redirection_count = 10;
+    cfg.buffer_size           = 4096; // GitHub CDN redirect Location header can exceed 512-byte default
+    cfg.buffer_size_tx        = 1024;
+    cfg.event_handler         = _httpsGetEventHandler;
+    cfg.user_data             = &result;
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return result;
 
-    if (esp_http_client_open(client, 0) != ESP_OK) {
-        esp_http_client_cleanup(client);
-        return result;
-    }
-    int64_t clen = esp_http_client_fetch_headers(client);
+    esp_err_t err = esp_http_client_perform(client);
     int code = esp_http_client_get_status_code(client);
-    if (code == 200 && clen > 0) {
-        result.resize((size_t)clen, '\0');
-        int got = esp_http_client_read(client, &result[0], (int)clen);
-        if (got < 0) result.clear();
-        else         result.resize((size_t)got);
-    }
-    esp_http_client_close(client);
     esp_http_client_cleanup(client);
+
+    if (err != ESP_OK || code != 200) {
+        ESP_LOGW(TAG, "httpsGet %s → err=%d code=%d", url, err, code);
+        result.clear();
+    }
     return result;
 }
 
@@ -210,8 +220,45 @@ static bool gzWriteCallback(unsigned char *buff, size_t buffsize) {
         static int lastPct = -1;
         if (pct != lastPct) { broadcastOtaStatus("progress", "", pct); lastPct = pct; }
     }
-    esp_task_wdt_reset();
     return true;
+}
+
+// ── Redirect resolver: follow 301/302/307/308 and return final URL ────────────
+// esp_http_client_open() does NOT follow redirects automatically.
+struct _ResolveCtx { std::string location; };
+static esp_err_t _resolveEventHandler(esp_http_client_event_t *evt) {
+    if (evt->event_id == HTTP_EVENT_ON_HEADER &&
+        strcasecmp(evt->header_key, "Location") == 0)
+        static_cast<_ResolveCtx *>(evt->user_data)->location = evt->header_value;
+    return ESP_OK;
+}
+static std::string resolveFinalUrl(const char *url) {
+    std::string current = url;
+    for (int hop = 0; hop < 10; hop++) {
+        _ResolveCtx ctx;
+        esp_http_client_config_t cfg = {};
+        cfg.url               = current.c_str();
+        cfg.crt_bundle_attach = esp_crt_bundle_attach;
+        cfg.method            = HTTP_METHOD_GET;
+        cfg.buffer_size       = 4096;
+        cfg.buffer_size_tx    = 1024;
+        cfg.timeout_ms        = 10000;
+        cfg.event_handler     = _resolveEventHandler;
+        cfg.user_data         = &ctx;
+        esp_http_client_handle_t client = esp_http_client_init(&cfg);
+        if (!client) break;
+        bool opened = (esp_http_client_open(client, 0) == ESP_OK);
+        int code = 0;
+        if (opened) { esp_http_client_fetch_headers(client); code = esp_http_client_get_status_code(client); esp_http_client_close(client); }
+        esp_http_client_cleanup(client);
+        if (!opened) break;
+        if (code == 200) return current;
+        if ((code==301||code==302||code==303||code==307||code==308) && !ctx.location.empty()) {
+            ESP_LOGI(TAG, "Redirect %d → %s", code, ctx.location.c_str());
+            current = ctx.location;
+        } else break;
+    }
+    return current;
 }
 
 // ── Remote gz OTA: streaming HTTP → uzlib → flash ─────────────────────────────
@@ -232,12 +279,17 @@ bool performGzOtaUpdate(std::string &errorOut) {
     }
     ESP_LOGI(TAG, "Firmware URL: %s", firmwareUrl.c_str());
 
+    // Follow GitHub → CDN redirect chain; open() doesn't do this automatically.
+    std::string resolvedUrl = resolveFinalUrl(firmwareUrl.c_str());
+    ESP_LOGI(TAG, "Resolved URL:  %s", resolvedUrl.c_str());
+
     esp_http_client_config_t cfg = {};
-    cfg.url               = firmwareUrl.c_str();
+    cfg.url               = resolvedUrl.c_str();
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.method            = HTTP_METHOD_GET;
     cfg.timeout_ms        = 30000;
     cfg.buffer_size       = 8192;
+    cfg.buffer_size_tx    = 4096;  // CDN redirect URLs can exceed 1500 chars
 
     s_stream_client = esp_http_client_init(&cfg);
     if (!s_stream_client) {
@@ -251,13 +303,13 @@ bool performGzOtaUpdate(std::string &errorOut) {
     }
     int64_t clen = esp_http_client_fetch_headers(s_stream_client);
     int code     = esp_http_client_get_status_code(s_stream_client);
-    if (code != 200 || clen <= 0) {
+    if (code != 200) {  // clen may be -1 for chunked; that is acceptable
         esp_http_client_close(s_stream_client); esp_http_client_cleanup(s_stream_client); s_stream_client = nullptr;
         otaInProgress = false; errorOut = "HTTP error " + std::to_string(code);
         broadcastOtaStatus("error", errorOut, -1); return false;
     }
-    // compressed size × 1.5 gives a conservative decompressed estimate (matches original)
-    s_ota_total_est = (int)((int64_t)clen * 3 / 2);
+    // clen > 0: use as decompressed-size estimate; -1 (chunked): disable % display
+    s_ota_total_est = (clen > 0) ? (int)((int64_t)clen * 3 / 2) : 0;
 
     // ── Set up uzlib with readSourceByte callback (source=NULL required) ────────
     s_http_pos = 0; s_http_len = 0;
@@ -534,9 +586,11 @@ esp_err_t handleOtaUpload(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// ── otaTask: called from webserver when remote OTA is requested ────────────────
+// ── otaTask: spawned by webserver POST /api/update ─────────────────────────────────
 extern "C" void otaTask(void *parameter) {
-    esp_task_wdt_add(NULL);
+    // Do NOT subscribe to the task WDT: TLS handshakes legitimately take
+    // several seconds; the HTTP 30 s timeout guards against true hangs.
+    (void)parameter;
     std::string error;
     bool ok = performGzOtaUpdate(error);
     if (ok) {
@@ -552,12 +606,10 @@ extern "C" void otaTask(void *parameter) {
             if (webServerPtr && webServerPtr->otaClientsConnected() == 0) break;
             vTaskDelay(pdMS_TO_TICKS(10));
         }
-        esp_task_wdt_delete(NULL);
         esp_restart();
     } else {
         ESP_LOGE(TAG, "OTA failed: %s", error.c_str());
         broadcastOtaStatus("error", error.empty() ? "OTA failed" : error, -1);
     }
-    esp_task_wdt_delete(NULL);
     vTaskDelete(NULL);
 }
