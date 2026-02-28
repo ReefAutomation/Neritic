@@ -40,9 +40,17 @@ export function FirmwareUpdate({
   const [latestVersion, setLatestVersion] = useState(null);
   const [installing, setInstalling] = useState(false);
   const [currentVersion, setCurrentVersion] = useState(null);
+  const [remoteStartPending, setRemoteStartPending] = useState(false);
+
+  const isUpgradeActive =
+    installing ||
+    remoteStartPending ||
+    otaProgress >= 0 ||
+    localOtaProgress >= 0;
 
   // Handler for update check and confirmation
   const handleCheckForUpdates = async () => {
+    if (isUpgradeActive) return;
     let toastId = null;
     try {
       toastId = showToast('Checking for latest version...', { type: 'info' });
@@ -70,7 +78,9 @@ export function FirmwareUpdate({
   const [otaInstallToastId, setOtaInstallToastId] = useState(null);
 
   const handleConfirmInstall = async () => {
+    if (isUpgradeActive) return;
     setInstalling(true);
+    setRemoteStartPending(true);
     try {
       const resp = await fetch(apiUrl('/api/update'), {
         method: 'POST',
@@ -86,11 +96,13 @@ export function FirmwareUpdate({
         });
         setOtaInstallToastId(toastId);
       } else {
+        setRemoteStartPending(false);
         showToast(result?.message ? result.message : 'No update found.', {
           type: 'info',
         });
       }
     } catch (e) {
+      setRemoteStartPending(false);
       console.error('Update install failed:', e);
       showToast('Update install failed!', { type: 'error' });
     }
@@ -108,6 +120,12 @@ export function FirmwareUpdate({
       setOtaInstallToastId(null);
     }
   }, [otaProgress, localOtaProgress, otaInstallToastId, hideToast]);
+
+  useEffect(() => {
+    if (otaProgress < -1) {
+      setRemoteStartPending(false);
+    }
+  }, [otaProgress]);
 
   return (
     <Fragment>
@@ -133,13 +151,13 @@ export function FirmwareUpdate({
             label: installing ? 'Installing...' : 'Install',
             onClick: handleConfirmInstall,
             className: 'btn btn-primary',
-            disabled: installing,
+            disabled: isUpgradeActive,
           },
           {
             label: 'Cancel',
             onClick: () => setShowModal(false),
             className: 'btn btn-secondary',
-            disabled: installing,
+            disabled: isUpgradeActive,
           },
         ]}
       />
@@ -155,6 +173,7 @@ export function FirmwareUpdate({
           }}
           onSubmit={async (e) => {
             e.preventDefault();
+            if (isUpgradeActive) return;
             const otaFile = otaInputRef.current?.files[0];
             if (!otaFile) {
               showToast('Please select a firmware file.', { type: 'error' });
@@ -215,6 +234,7 @@ export function FirmwareUpdate({
               name="otaFile"
               accept=".bin,.gz,.zip"
               required
+              disabled={isUpgradeActive}
               style={{ display: 'none' }}
               id="otaFileInput"
               onChange={(e) => {
@@ -225,6 +245,7 @@ export function FirmwareUpdate({
             <button
               type="button"
               class="btn btn-primary"
+              disabled={isUpgradeActive}
               style={{
                 margin: 0,
                 display: 'flex',
@@ -241,6 +262,7 @@ export function FirmwareUpdate({
             <button
               type="submit"
               class="btn btn-primary"
+              disabled={isUpgradeActive}
               style={{
                 margin: 0,
                 height: 40,
@@ -269,6 +291,7 @@ export function FirmwareUpdate({
           <button
             type="button"
             class="btn btn-info"
+            disabled={isUpgradeActive}
             style={{ width: '100%', marginTop: 0 }}
             onClick={handleCheckForUpdates}
           >

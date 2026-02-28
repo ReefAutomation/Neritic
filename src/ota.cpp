@@ -172,14 +172,19 @@ std::string getLatestFirmwareUrl(std::string &latestVersion) {
 
 // Remote HTTP source
 static esp_http_client_handle_t s_stream_client = nullptr;
-static unsigned char s_http_buf[4096];
+static unsigned char s_http_buf[8192];
 static int           s_http_pos = 0, s_http_len = 0;
 
 static int httpReadSourceByte(TINF_DATA *d) {
     (void)d;
     if (s_http_pos >= s_http_len) {
-        int rd = esp_http_client_read(s_stream_client,
-                                       (char *)s_http_buf, sizeof(s_http_buf));
+        int rd = -1;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            rd = esp_http_client_read(s_stream_client,
+                                      (char *)s_http_buf, sizeof(s_http_buf));
+            if (rd > 0) break;
+            if (attempt < 7) vTaskDelay(pdMS_TO_TICKS(50));
+        }
         if (rd <= 0) return -1;
         s_http_len = rd; s_http_pos = 0;
     }
@@ -302,9 +307,10 @@ bool performGzOtaUpdate(std::string &errorOut) {
     cfg.url               = resolvedUrl.c_str();
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.method            = HTTP_METHOD_GET;
-    cfg.timeout_ms        = 30000;
-    cfg.buffer_size       = 8192;
+    cfg.timeout_ms        = 10000;
+    cfg.buffer_size       = 16384;
     cfg.buffer_size_tx    = 4096;  // CDN redirect URLs can exceed 1500 chars
+    cfg.keep_alive_enable = true;
 
     s_stream_client = esp_http_client_init(&cfg);
     if (!s_stream_client) {
@@ -369,7 +375,7 @@ bool performGzOtaUpdate(std::string &errorOut) {
     uzlib_uncompress_init(&d, dict, dictSize);
 
     // ── Decompress in 4 KB chunks and write to OTA flash ─────────────────────
-    const size_t OUT_CHUNK = 4096;
+    const size_t OUT_CHUNK = 8192;
     uint8_t *outbuf = (uint8_t *)malloc(OUT_CHUNK);
     if (!outbuf) {
         free(dict);
