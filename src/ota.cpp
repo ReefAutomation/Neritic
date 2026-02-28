@@ -98,7 +98,20 @@ static std::string httpsGet(const char *url) {
 // ── Manifest helpers ───────────────────────────────────────────────────────────
 std::string fetchRemoteManifestJson() {
     const char *url = DEEPGLOW_REPO_URL "/releases/latest/download/manifest.json";
-    return httpsGet(url);
+    std::string manifest;
+    const int maxAttempts = 4;
+    for (int attempt = 0; attempt < maxAttempts; ++attempt) {
+        manifest = httpsGet(url);
+        if (!manifest.empty()) return manifest;
+
+        if (attempt + 1 < maxAttempts) {
+            TickType_t waitTicks = pdMS_TO_TICKS(150 * (attempt + 1));
+            ESP_LOGW(TAG, "Manifest fetch retry %d/%d after %lu ms", attempt + 1,
+                     maxAttempts - 1, (unsigned long)(waitTicks * portTICK_PERIOD_MS));
+            vTaskDelay(waitTicks);
+        }
+    }
+    return "";
 }
 
 std::string getLatestFirmwareUrl(std::string &latestVersion) {
