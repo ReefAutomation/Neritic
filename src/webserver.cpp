@@ -201,6 +201,7 @@ void WebServerManager::broadcastText(const std::string &msg, bool otaClientsOnly
     size_t n = 16;
     int fds[16];
     httpd_get_client_list(_server, &n, fds);
+    std::set<int> failedOtaClients;
     for (size_t i = 0; i < n; i++) {
         if (httpd_ws_get_fd_info(_server, fds[i]) != HTTPD_WS_CLIENT_WEBSOCKET) continue;
         bool isOta = _otaClients.count(fds[i]) > 0;
@@ -210,7 +211,15 @@ void WebServerManager::broadcastText(const std::string &msg, bool otaClientsOnly
         frame.type    = HTTPD_WS_TYPE_TEXT;
         frame.payload = (uint8_t*)msg.c_str();
         frame.len     = msg.size();
-        httpd_ws_send_frame_async(_server, fds[i], &frame);
+        esp_err_t rc = httpd_ws_send_frame_async(_server, fds[i], &frame);
+        if (rc != ESP_OK && isOta) {
+            failedOtaClients.insert(fds[i]);
+        }
+    }
+    for (int fd : failedOtaClients) {
+        ESP_LOGW(TAG, "Dropping slow OTA WS client fd=%d after send failure", fd);
+        _otaClients.erase(fd);
+        _wsHandshaked.erase(fd);
     }
 }
 
@@ -437,7 +446,12 @@ esp_err_t WebServerManager::hUpdatePost(httpd_req_t *req) {
         httpd_resp_sendstr(req, "{\"success\":false,\"message\":\"OTA already in progress\"}");
         return ESP_OK;
     }
-    xTaskCreatePinnedToCore(otaTask, "otaTask", 16384, nullptr, 1, nullptr, tskNO_AFFINITY);
+#if CONFIG_FREERTOS_UNICORE
+    const BaseType_t otaCore = 0;
+#else
+    const BaseType_t otaCore = 1;
+#endif
+    xTaskCreatePinnedToCore(otaTask, "otaTask", 24576, nullptr, 4, nullptr, otaCore);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"success\":true,\"message\":\"OTA started\"}");
     return ESP_OK;

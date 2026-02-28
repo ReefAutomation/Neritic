@@ -16,6 +16,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 3.0.3
+  espressif/zlib:
+    component_hash: 64ea2fd6754c5a05951f1ddb312ac835cd782e68cb5bd9dfcd1c3a107c8fbfbc
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.3.2
   idf:
     source:
       type: idf
@@ -33,8 +43,9 @@ dependencies:
 direct_dependencies:
 - bblanchon/ArduinoJson
 - espressif/led_strip
+- espressif/zlib
 - idf
 - joltwallet/littlefs
-manifest_hash: c92986a470fde2cd7f47414cf9af2b347903eb638658cbc589447fe120a84a9b
-target: esp32c6
+manifest_hash: 406635aef397bfdab9cf850c61bba6dbfdd6bd999a64558656d06e451c3756ed
+target: esp32
 version: 2.0.0
