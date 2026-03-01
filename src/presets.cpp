@@ -4,11 +4,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "inc/presets_json.inc"
-#include <ArduinoJson.h>
+#include <cJSON.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #define PRESET_MOUNT_POINT "/data"
 #define PRESET_FILE "/presets.json"
@@ -48,10 +49,8 @@ bool loadPresets(std::vector<Preset> &presets) {
     ESP_LOGW("presets",
              "Filesystem not available, loading from embedded asset");
   }
-  size_t capacity = 8192;
-  DynamicJsonDocument doc(capacity);
-
   bool loaded = false;
+  std::string content;
   char path[64];
   snprintf(path, sizeof(path), "%s%s", PRESET_MOUNT_POINT, PRESET_FILE);
   FILE *file = ensureFilesystemMounted() ? fopen(path, "r") : nullptr;
@@ -59,91 +58,158 @@ bool loadPresets(std::vector<Preset> &presets) {
     fseek(file, 0, SEEK_END);
     long fsize = ftell(file);
     fseek(file, 0, SEEK_SET);
-    std::string content(fsize, '\0');
-    fread(&content[0], 1, fsize, file);
+    content.assign((size_t)fsize, '\0');
+    fread(&content[0], 1, (size_t)fsize, file);
     fclose(file);
-    DeserializationError err = deserializeJson(doc, content.c_str(), fsize);
-    if (!err && doc.containsKey("presets")) {
-      loaded = true;
-    }
+    loaded = !content.empty();
   } else {
     // Load from embedded asset if file missing or invalid
-    DeserializationError err =
-        deserializeJson(doc, web_presets_json, web_presets_json_len);
-    if (!err && doc.containsKey("presets")) {
-      loaded = true;
-    }
+    content.assign((const char *)web_presets_json,
+                   (size_t)web_presets_json_len);
+    loaded = !content.empty();
   }
   if (!loaded)
     return false;
-  JsonArray presetsArray = doc["presets"];
+
+  cJSON *root = cJSON_Parse(content.c_str());
+  if (!root)
+    return false;
+
+  cJSON *presetsArray = cJSON_GetObjectItemCaseSensitive(root, "presets");
+  if (!cJSON_IsArray(presetsArray)) {
+    cJSON_Delete(root);
+    return false;
+  }
+
   presets.clear();
-  for (size_t i = 0; i < presetsArray.size(); i++) {
-    JsonObject presetObj = presetsArray[i];
+  size_t i = 0;
+  cJSON *presetObj = nullptr;
+  cJSON_ArrayForEach(presetObj, presetsArray) {
+    if (!cJSON_IsObject(presetObj)) {
+      i++;
+      continue;
+    }
+
     Preset p;
-    p.id = presetObj["id"] | i;
-    p.name = presetObj["name"] | "";
-    p.effect = presetObj["effect"] | 0;
-    p.enabled = presetObj["enabled"] | true;
-    if (presetObj.containsKey("params")) {
-      JsonObject paramsObj = presetObj["params"];
+    cJSON *id = cJSON_GetObjectItemCaseSensitive(presetObj, "id");
+    p.id = cJSON_IsNumber(id) ? (uint8_t)id->valueint : (uint8_t)i;
+
+    cJSON *name = cJSON_GetObjectItemCaseSensitive(presetObj, "name");
+    p.name = (cJSON_IsString(name) && name->valuestring) ? name->valuestring
+                                                          : "";
+
+    cJSON *effect = cJSON_GetObjectItemCaseSensitive(presetObj, "effect");
+    p.effect = cJSON_IsNumber(effect) ? (uint8_t)effect->valueint : 0;
+
+    cJSON *enabled = cJSON_GetObjectItemCaseSensitive(presetObj, "enabled");
+    p.enabled = cJSON_IsBool(enabled) ? cJSON_IsTrue(enabled) : true;
+
+    cJSON *paramsObj = cJSON_GetObjectItemCaseSensitive(presetObj, "params");
+    if (cJSON_IsObject(paramsObj)) {
       // Convert speed from percent to 8-bit for internal use
-      p.params.speed = paramsObj["speed"].isNull()
-                           ? percentToHex(100)
-                           : percentToHex((uint8_t)paramsObj["speed"]);
-      p.params.intensity = paramsObj["intensity"].isNull()
-                               ? percentToHex(50)
-                               : percentToHex((uint8_t)paramsObj["intensity"]);
+      cJSON *speed = cJSON_GetObjectItemCaseSensitive(paramsObj, "speed");
+      p.params.speed = cJSON_IsNumber(speed)
+                           ? percentToHex((uint8_t)speed->valueint)
+                           : percentToHex(100);
+
+      cJSON *intensity =
+          cJSON_GetObjectItemCaseSensitive(paramsObj, "intensity");
+      p.params.intensity = cJSON_IsNumber(intensity)
+                               ? percentToHex((uint8_t)intensity->valueint)
+                               : percentToHex(50);
+
       p.params.colors.clear();
-      if (paramsObj.containsKey("colors")) {
-        JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
-        for (JsonVariant v : colorsArr) {
-          if (v.is<const char *>()) {
-            p.params.colors.push_back(std::string(v.as<const char *>()));
+      cJSON *colors = cJSON_GetObjectItemCaseSensitive(paramsObj, "colors");
+      if (cJSON_IsArray(colors)) {
+        cJSON *color = nullptr;
+        cJSON_ArrayForEach(color, colors) {
+          if (cJSON_IsString(color) && color->valuestring) {
+            p.params.colors.push_back(std::string(color->valuestring));
           }
         }
       }
     }
     presets.push_back(p);
+    i++;
   }
+
+  cJSON_Delete(root);
   return true;
 }
 
 bool savePresets(const std::vector<Preset> &presets) {
-  // Use DynamicJsonDocument for heap allocation
-  size_t capacity = 8192;
-  DynamicJsonDocument doc(capacity);
-  JsonArray presetsArray = doc.createNestedArray("presets");
+  cJSON *root = cJSON_CreateObject();
+  if (!root)
+    return false;
+
+  cJSON *presetsArray = cJSON_CreateArray();
+  if (!presetsArray) {
+    cJSON_Delete(root);
+    return false;
+  }
+  cJSON_AddItemToObject(root, "presets", presetsArray);
 
   for (size_t i = 0; i < presets.size(); i++) {
     if (presets[i].name.length() == 0 && i > 0)
       continue;
-    JsonObject presetObj = presetsArray.createNestedObject();
-    presetObj["name"] = presets[i].name;
-    presetObj["effect"] = presets[i].effect;
-    presetObj["enabled"] = presets[i].enabled;
-    JsonObject paramsObj = presetObj.createNestedObject("params");
+
+    cJSON *presetObj = cJSON_CreateObject();
+    if (!presetObj)
+      continue;
+    cJSON_AddItemToArray(presetsArray, presetObj);
+
+    cJSON_AddStringToObject(presetObj, "name", presets[i].name.c_str());
+    cJSON_AddNumberToObject(presetObj, "effect", presets[i].effect);
+    cJSON_AddBoolToObject(presetObj, "enabled", presets[i].enabled);
+
+    cJSON *paramsObj = cJSON_CreateObject();
+    if (!paramsObj)
+      continue;
+    cJSON_AddItemToObject(presetObj, "params", paramsObj);
+
     // Convert speed from 8-bit internal to percent for storage
-    paramsObj["speed"] = hexToPercent(presets[i].params.speed);
-    paramsObj["intensity"] = hexToPercent(presets[i].params.intensity);
-    JsonArray colorsArr = paramsObj.createNestedArray("colors");
+    cJSON_AddNumberToObject(paramsObj, "speed",
+                            hexToPercent(presets[i].params.speed));
+    cJSON_AddNumberToObject(paramsObj, "intensity",
+                            hexToPercent(presets[i].params.intensity));
+
+    cJSON *colorsArr = cJSON_CreateArray();
+    if (!colorsArr)
+      continue;
+    cJSON_AddItemToObject(paramsObj, "colors", colorsArr);
+
     for (const auto &c : presets[i].params.colors) {
-      colorsArr.add(c);
+      cJSON_AddItemToArray(colorsArr, cJSON_CreateString(c.c_str()));
     }
   }
 
   if (!ensureFilesystemMounted())
+  {
+    cJSON_Delete(root);
     return false;
+  }
+
   char path[64];
   snprintf(path, sizeof(path), "%s%s", PRESET_MOUNT_POINT, PRESET_FILE);
   FILE *fp = fopen(path, "w");
-  if (!fp)
+  if (!fp) {
+    cJSON_Delete(root);
     return false;
-  std::string out;
-  size_t written = serializeJson(doc, out);
-  fwrite(out.c_str(), 1, out.length(), fp);
+  }
+
+  char *printed = cJSON_PrintUnformatted(root);
+  if (!printed) {
+    fclose(fp);
+    cJSON_Delete(root);
+    return false;
+  }
+
+  size_t outLen = strlen(printed);
+  size_t written = fwrite(printed, 1, outLen, fp);
   fflush(fp);
   fclose(fp);
+  cJSON_free(printed);
+  cJSON_Delete(root);
   vTaskDelay(pdMS_TO_TICKS(10));
-  return written > 0;
+  return written == outLen;
 }

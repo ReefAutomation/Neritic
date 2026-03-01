@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include <ArduinoJson.h>
+#include <cJSON.h>
 #include <string>
 #include <vector>
 
@@ -135,14 +135,14 @@ public:
                                   // timezone
   std::vector<std::string> getSupportedTimezones();
 
-  bool saveToFile(const char *path, const JsonDocument &doc);
-  bool loadFromFile(const char *path, JsonDocument &doc); // <-- move to public
+  bool saveToFile(const char *path, const cJSON *doc);
+  bool loadFromFile(const char *path, cJSON **docOut); // <-- move to public
 
   // Partial update from JSON (only update fields present)
-  void partialUpdate(const JsonObject &update);
+  void partialUpdate(const cJSON *update);
 
-  // Helper to load timers from a JsonArray
-  void loadTimersFromJson(JsonArray timersArray);
+  // Helper to load timers from a JSON array
+  void loadTimersFromJson(const cJSON *timersArray);
 };
 
 #endif

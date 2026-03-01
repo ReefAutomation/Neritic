@@ -21,11 +21,9 @@
 #include <string.h>
 #include <string>
 #include <sys/stat.h>
+#include <cJSON.h>
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-#if defined(ESP_IDF_VERSION_MAJOR)
-#include <ArduinoJson.h>
 #endif
 #include <zlib.h>
 
@@ -157,57 +155,45 @@ std::string getLatestFirmwareUrl(std::string &latestVersion) {
     return "";
   }
 
-#if defined(ESP_IDF_VERSION_MAJOR)
-  DynamicJsonDocument doc(2048);
-  if (deserializeJson(doc, payload)) {
-    latestVersion = "";
+  // Manual JSON parsing (expects manifest.json as an array of objects)
+  latestVersion = "";
+  std::string url = "";
+
+  cJSON *root = cJSON_Parse(payload.c_str());
+  if (!root || !cJSON_IsArray(root)) {
+    if (root)
+      cJSON_Delete(root);
     return "";
   }
 
   const char *targetEnv = OTA_STR(OTA_ENV);
-  for (JsonVariant entry : doc.as<JsonArray>()) {
-    if (strcmp(entry["env"] | "", targetEnv) == 0) {
-      latestVersion = entry["version"] | "";
-      std::string url = entry["url"] | "";
+  cJSON *entry = nullptr;
+  cJSON_ArrayForEach(entry, root) {
+    if (!cJSON_IsObject(entry))
+      continue;
+
+    cJSON *env = cJSON_GetObjectItemCaseSensitive(entry, "env");
+    if (!cJSON_IsString(env) || !env->valuestring)
+      continue;
+
+    if (strcmp(env->valuestring, targetEnv) == 0) {
+      cJSON *version = cJSON_GetObjectItemCaseSensitive(entry, "version");
+      if (cJSON_IsString(version) && version->valuestring) {
+        latestVersion = version->valuestring;
+      }
+
+      cJSON *urlNode = cJSON_GetObjectItemCaseSensitive(entry, "url");
+      if (cJSON_IsString(urlNode) && urlNode->valuestring) {
+        url = urlNode->valuestring;
+      }
+
+      cJSON_Delete(root);
       return url;
     }
   }
-  latestVersion = "";
+
+  cJSON_Delete(root);
   return "";
-#else
-  // Arduino: manual JSON parsing (assumes manifest.json is a flat array of
-  // objects)
-  latestVersion = "";
-  std::string url = "";
-  size_t pos = 0;
-  const std::string envKey = "\"env\":\"";
-  const std::string versionKey = "\"version\":\"";
-  const std::string urlKey = "\"url\":\"";
-  while ((pos = payload.find(envKey, pos)) != std::string::npos) {
-    size_t envStart = pos + envKey.length();
-    size_t envEnd = payload.find("\"", envStart);
-    std::string envVal = payload.substr(envStart, envEnd - envStart);
-    if (envVal == OTA_STR(OTA_ENV)) {
-      // Find version
-      size_t versionPos = payload.find(versionKey, envEnd);
-      if (versionPos != std::string::npos) {
-        size_t versionStart = versionPos + versionKey.length();
-        size_t versionEnd = payload.find("\"", versionStart);
-        latestVersion = payload.substr(versionStart, versionEnd - versionStart);
-      }
-      // Find url
-      size_t urlPos = payload.find(urlKey, envEnd);
-      if (urlPos != std::string::npos) {
-        size_t urlStart = urlPos + urlKey.length();
-        size_t urlEnd = payload.find("\"", urlStart);
-        url = payload.substr(urlStart, urlEnd - urlStart);
-      }
-      return url;
-    }
-    pos = envEnd;
-  }
-  return "";
-#endif
 }
 
 // ── zlib streaming helpers

@@ -5,7 +5,6 @@
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "scheduler.h"
-#include <ArduinoJson.h>
 #include <map>
 #include <set>
 #include <string>

@@ -24,7 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include <ArduinoJson.h>
+#include <cJSON.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -104,6 +104,44 @@ static std::string formParam(const std::string &body, const std::string &key) {
   return urlDecode(val);
 }
 
+static cJSON *parseJsonBody(const std::string &body) {
+  if (body.empty())
+    return nullptr;
+  return cJSON_Parse(body.c_str());
+}
+
+static int jsonIntOr(const cJSON *obj, const char *key, int fallback) {
+  if (!cJSON_IsObject(obj))
+    return fallback;
+  const cJSON *item = cJSON_GetObjectItemCaseSensitive((cJSON *)obj, key);
+  if (cJSON_IsNumber(item))
+    return item->valueint;
+  if (cJSON_IsBool(item))
+    return cJSON_IsTrue(item) ? 1 : 0;
+  return fallback;
+}
+
+static bool jsonBoolOr(const cJSON *obj, const char *key, bool fallback) {
+  if (!cJSON_IsObject(obj))
+    return fallback;
+  const cJSON *item = cJSON_GetObjectItemCaseSensitive((cJSON *)obj, key);
+  if (cJSON_IsBool(item))
+    return cJSON_IsTrue(item);
+  if (cJSON_IsNumber(item))
+    return item->valueint != 0;
+  return fallback;
+}
+
+static const char *jsonStringOr(const cJSON *obj, const char *key,
+                                const char *fallback) {
+  if (!cJSON_IsObject(obj))
+    return fallback;
+  const cJSON *item = cJSON_GetObjectItemCaseSensitive((cJSON *)obj, key);
+  if (cJSON_IsString(item) && item->valuestring)
+    return item->valuestring;
+  return fallback;
+}
+
 // ── LiveLED timer callback (ISR-safe, just set flag) ─────────────────────────
 void WebServerManager::liveLedTimerCb(void *arg) {
   WebServerManager *mgr = (WebServerManager *)arg;
@@ -113,15 +151,22 @@ void WebServerManager::liveLedTimerCb(void *arg) {
 // ── Effects cache
 // ─────────────────────────────────────────────────────────────
 void WebServerManager::buildEffectsCache() {
-  StaticJsonDocument<512> doc;
-  JsonArray effects = doc.createNestedArray("effects");
+  cJSON *doc = cJSON_CreateObject();
+  cJSON *effects = cJSON_CreateArray();
+  cJSON_AddItemToObject(doc, "effects", effects);
   for (size_t i = 0; i < effectRegistry.size(); ++i) {
-    JsonObject eff = effects.createNestedObject();
-    eff["id"] = effectRegistry[i].id;
-    eff["name"] = effectRegistry[i].name;
+    cJSON *eff = cJSON_CreateObject();
+    cJSON_AddItemToArray(effects, eff);
+    cJSON_AddNumberToObject(eff, "id", effectRegistry[i].id);
+    cJSON_AddStringToObject(eff, "name", effectRegistry[i].name);
   }
   cachedEffectsJson.clear();
-  serializeJson(doc, cachedEffectsJson);
+  char *printed = cJSON_PrintUnformatted(doc);
+  if (printed) {
+    cachedEffectsJson = printed;
+    cJSON_free(printed);
+  }
+  cJSON_Delete(doc);
   effectsCacheReady = true;
 }
 
@@ -281,15 +326,18 @@ void WebServerManager::broadcastState() {
 void WebServerManager::broadcastOtaStatus(const std::string &status,
                                           const std::string &message,
                                           int progress) {
-  StaticJsonDocument<256> doc;
-  doc["type"] = "ota_status";
-  doc["status"] = status.c_str();
+  cJSON *doc = cJSON_CreateObject();
+  cJSON_AddStringToObject(doc, "type", "ota_status");
+  cJSON_AddStringToObject(doc, "status", status.c_str());
   if (!message.empty())
-    doc["message"] = message.c_str();
+    cJSON_AddStringToObject(doc, "message", message.c_str());
   if (progress >= 0)
-    doc["progress"] = progress;
-  std::string json;
-  serializeJson(doc, json);
+    cJSON_AddNumberToObject(doc, "progress", progress);
+  char *printed = cJSON_PrintUnformatted(doc);
+  std::string json = printed ? printed : "{}";
+  if (printed)
+    cJSON_free(printed);
+  cJSON_Delete(doc);
   broadcastText(json, true); // only OTA clients
 }
 
@@ -507,14 +555,15 @@ esp_err_t WebServerManager::hCommand(httpd_req_t *req) {
   ESP_LOGI(TAG, "hCommand called: %s", req->uri);
   setCors(req);
   std::string body = readBody(req);
-  StaticJsonDocument<128> doc;
   bool doReboot = false;
   if (!body.empty()) {
-    if (!deserializeJson(doc, body)) {
-      std::string cmd = doc["command"] | "";
+    cJSON *doc = parseJsonBody(body);
+    if (doc) {
+      std::string cmd = jsonStringOr(doc, "command", "");
       ESP_LOGI(TAG, "hCommand body: %s", body.c_str());
       if (cmd == "reboot")
         doReboot = true;
+      cJSON_Delete(doc);
     }
   }
   httpd_resp_set_type(req, "application/json");
@@ -785,12 +834,14 @@ esp_err_t WebServerManager::hTimezones(httpd_req_t *req) {
   WebServerManager *mgr = fromReq(req);
   setCors(req);
   std::vector<std::string> tzList = mgr->_config->getSupportedTimezones();
-  DynamicJsonDocument doc(2048);
-  JsonArray arr = doc.to<JsonArray>();
+  cJSON *arr = cJSON_CreateArray();
   for (const auto &tz : tzList)
-    arr.add(tz.c_str());
-  std::string json;
-  serializeJson(arr, json);
+    cJSON_AddItemToArray(arr, cJSON_CreateString(tz.c_str()));
+  char *printed = cJSON_PrintUnformatted(arr);
+  std::string json = printed ? printed : "[]";
+  if (printed)
+    cJSON_free(printed);
+  cJSON_Delete(arr);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_send(req, json.c_str(), json.size());
   return ESP_OK;
@@ -802,8 +853,8 @@ esp_err_t WebServerManager::hTimezones(httpd_req_t *req) {
 void WebServerManager::handleSetState(httpd_req_t *req) {
   setCors(req);
   std::string body = readBody(req);
-  StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, body)) {
+  cJSON *doc = parseJsonBody(body);
+  if (!doc) {
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"error\":\"Invalid JSON\"}");
@@ -811,50 +862,53 @@ void WebServerManager::handleSetState(httpd_req_t *req) {
   }
 
   bool updated = false;
-  if (doc.containsKey("brightness")) {
-    uint8_t brightness = percentToHex(doc["brightness"]);
+  if (cJSON_GetObjectItemCaseSensitive(doc, "brightness")) {
+    uint8_t brightness = percentToHex((uint8_t)jsonIntOr(doc, "brightness", 100));
     applyBrightnessLimit(brightness);
     applyTransitionTimeLimit(state.transitionTime);
     if (_brightnessCallback)
       _brightnessCallback(brightness);
     updated = true;
   }
-  if (doc.containsKey("transitionTime")) {
-    uint32_t t = (uint32_t)doc["transitionTime"];
+  if (cJSON_GetObjectItemCaseSensitive(doc, "transitionTime")) {
+    uint32_t t = (uint32_t)jsonIntOr(doc, "transitionTime", state.transitionTime);
     applyTransitionTimeLimit(t);
     state.transitionTime = t;
     updated = true;
   }
-  if (doc.containsKey("power")) {
-    bool power = doc["power"];
+  if (cJSON_GetObjectItemCaseSensitive(doc, "power")) {
+    bool power = jsonBoolOr(doc, "power", state.power);
     if (_powerCallback)
       _powerCallback(power);
     updated = true;
   }
-  if (doc.containsKey("effect")) {
-    uint8_t effect = (uint8_t)(int)doc["effect"];
+  if (cJSON_GetObjectItemCaseSensitive(doc, "effect")) {
+    uint8_t effect = (uint8_t)jsonIntOr(doc, "effect", state.effect);
     if (_effectCallback)
       _effectCallback(effect, state.params);
     updated = true;
   }
-  if (doc.containsKey("params")) {
-    JsonObject paramsObj = doc["params"];
+  cJSON *paramsObj = cJSON_GetObjectItemCaseSensitive(doc, "params");
+  if (cJSON_IsObject(paramsObj)) {
     EffectParams params = state.params;
-    if (paramsObj.containsKey("speed") && !paramsObj["speed"].isNull()) {
-      params.speed = percentToHex((uint8_t)paramsObj["speed"]);
+    cJSON *speedItem = cJSON_GetObjectItemCaseSensitive(paramsObj, "speed");
+    if (cJSON_IsNumber(speedItem)) {
+      params.speed = percentToHex((uint8_t)speedItem->valueint);
       updated = true;
     }
-    if (paramsObj.containsKey("intensity") &&
-        !paramsObj["intensity"].isNull()) {
-      params.intensity = percentToHex((uint8_t)paramsObj["intensity"]);
+    cJSON *intensityItem =
+        cJSON_GetObjectItemCaseSensitive(paramsObj, "intensity");
+    if (cJSON_IsNumber(intensityItem)) {
+      params.intensity = percentToHex((uint8_t)intensityItem->valueint);
       updated = true;
     }
-    if (paramsObj.containsKey("colors")) {
-      JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
+    cJSON *colorsArr = cJSON_GetObjectItemCaseSensitive(paramsObj, "colors");
+    if (cJSON_IsArray(colorsArr)) {
       std::vector<std::string> parsedColors;
-      for (JsonVariant v : colorsArr) {
-        if (v.is<const char *>()) {
-          std::string hex = v.as<const char *>();
+      cJSON *v = nullptr;
+      cJSON_ArrayForEach(v, colorsArr) {
+        if (cJSON_IsString(v) && v->valuestring) {
+          std::string hex = v->valuestring;
           if (hex.size() == 6 && hex[0] != '#')
             hex = "#" + hex;
           parsedColors.push_back(hex);
@@ -870,6 +924,8 @@ void WebServerManager::handleSetState(httpd_req_t *req) {
   if (updated)
     broadcastState();
 
+  cJSON_Delete(doc);
+
   httpd_resp_set_type(req, "application/json");
   httpd_resp_sendstr(req, "{\"success\":true}");
 }
@@ -884,54 +940,61 @@ void WebServerManager::handleGetPresets(httpd_req_t *req) {
 void WebServerManager::handleSetPreset(httpd_req_t *req) {
   setCors(req);
   std::string body = readBody(req);
-  StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, body)) {
+  cJSON *doc = parseJsonBody(body);
+  if (!doc) {
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"error\":\"Invalid JSON\"}");
     return;
   }
-  if (!doc.containsKey("id")) {
+  if (!cJSON_GetObjectItemCaseSensitive(doc, "id")) {
+    cJSON_Delete(doc);
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"error\":\"Missing preset ID\"}");
     return;
   }
-  int reqId = doc["id"].as<int>();
+  int reqId = jsonIntOr(doc, "id", -1);
   auto it = std::find_if(_config->presets.begin(), _config->presets.end(),
                          [reqId](const Preset &p) { return p.id == reqId; });
   if (it == _config->presets.end()) {
+    cJSON_Delete(doc);
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"error\":\"Invalid preset ID\"}");
     return;
   }
-  if (doc.containsKey("apply") && doc["apply"]) {
+  if (jsonBoolOr(doc, "apply", false)) {
     if (_presetCallback)
       _presetCallback(it->id);
   } else {
-    it->name = doc["name"] | "";
-    it->effect = (uint8_t)(int)doc["effect"];
-    it->enabled = doc["enabled"] | true;
-    if (doc.containsKey("params")) {
-      JsonObject paramsObj = doc["params"];
-      it->params.speed = paramsObj["speed"].isNull()
-                             ? percentToHex(100)
-                             : percentToHex((uint8_t)paramsObj["speed"]);
-      it->params.intensity =
-          paramsObj["intensity"].isNull()
-              ? percentToHex(50)
-              : percentToHex((uint8_t)paramsObj["intensity"]);
+    it->name = jsonStringOr(doc, "name", "");
+    it->effect = (uint8_t)jsonIntOr(doc, "effect", it->effect);
+    it->enabled = jsonBoolOr(doc, "enabled", true);
+    cJSON *paramsObj = cJSON_GetObjectItemCaseSensitive(doc, "params");
+    if (cJSON_IsObject(paramsObj)) {
+      cJSON *speed = cJSON_GetObjectItemCaseSensitive(paramsObj, "speed");
+      it->params.speed = cJSON_IsNumber(speed)
+                             ? percentToHex((uint8_t)speed->valueint)
+                             : percentToHex(100);
+      cJSON *intensity =
+          cJSON_GetObjectItemCaseSensitive(paramsObj, "intensity");
+      it->params.intensity = cJSON_IsNumber(intensity)
+                                 ? percentToHex((uint8_t)intensity->valueint)
+                                 : percentToHex(50);
       it->params.colors.clear();
-      if (paramsObj.containsKey("colors")) {
-        JsonArray colorsArr = paramsObj["colors"].as<JsonArray>();
-        for (JsonVariant v : colorsArr)
-          if (v.is<const char *>())
-            it->params.colors.push_back(v.as<const char *>());
+      cJSON *colorsArr = cJSON_GetObjectItemCaseSensitive(paramsObj, "colors");
+      if (cJSON_IsArray(colorsArr)) {
+        cJSON *v = nullptr;
+        cJSON_ArrayForEach(v, colorsArr) {
+          if (cJSON_IsString(v) && v->valuestring)
+            it->params.colors.push_back(v->valuestring);
+        }
       }
     }
     savePresets(_config->presets);
   }
+  cJSON_Delete(doc);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_sendstr(req, "{\"success\":true}");
 }
@@ -939,29 +1002,32 @@ void WebServerManager::handleSetPreset(httpd_req_t *req) {
 void WebServerManager::handleSetConfig(httpd_req_t *req) {
   setCors(req);
   std::string body = readBody(req);
-  DynamicJsonDocument doc(2048);
-  if (deserializeJson(doc, body)) {
+  cJSON *doc = parseJsonBody(body);
+  if (!doc) {
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"error\":\"Invalid JSON\"}");
     return;
   }
-  if (doc.containsKey("network")) {
-    JsonObject netObj = doc["network"];
-    const bool hasSsid = netObj.containsKey("ssid");
-    const char *ssidVal = hasSsid ? netObj["ssid"].as<const char *>() : nullptr;
+  cJSON *netObj = cJSON_GetObjectItemCaseSensitive(doc, "network");
+  if (cJSON_IsObject(netObj)) {
+    cJSON *ssidNode = cJSON_GetObjectItemCaseSensitive(netObj, "ssid");
+    const bool hasSsid = cJSON_IsString(ssidNode) && ssidNode->valuestring;
+    const char *ssidVal = hasSsid ? ssidNode->valuestring : nullptr;
     ESP_LOGI(TAG, "Config POST network ssid present=%d len=%u", hasSsid ? 1 : 0,
              ssidVal ? (unsigned)strlen(ssidVal) : 0U);
     if (hasSsid && ssidVal && ssidVal[0] == '\0') {
       ESP_LOGW(TAG, "Config POST network ssid is empty");
     }
-    if (netObj.containsKey("ssid"))
-      _config->network.ssid = netObj["ssid"] | "";
-    if (netObj.containsKey("password"))
-      _config->network.password = netObj["password"] | "";
+    cJSON *passwordNode = cJSON_GetObjectItemCaseSensitive(netObj, "password");
+    if (hasSsid)
+      _config->network.ssid = ssidVal;
+    if (cJSON_IsString(passwordNode) && passwordNode->valuestring)
+      _config->network.password = passwordNode->valuestring;
   }
-  _config->partialUpdate(doc.as<JsonObject>());
+  _config->partialUpdate(doc);
   bool ok = _config->save();
+  cJSON_Delete(doc);
   httpd_resp_set_type(req, "application/json");
   if (ok) {
     if (_configCallback)
@@ -976,28 +1042,31 @@ void WebServerManager::handleSetConfig(httpd_req_t *req) {
 void WebServerManager::handleSetTimer(httpd_req_t *req) {
   setCors(req);
   std::string body = readBody(req);
-  StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, body)) {
+  cJSON *doc = parseJsonBody(body);
+  if (!doc) {
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"error\":\"Invalid JSON\"}");
     return;
   }
-  uint8_t timerId = doc["id"];
+  uint8_t timerId = (uint8_t)jsonIntOr(doc, "id", 255);
   if (timerId >= _config->timers.size()) {
+    cJSON_Delete(doc);
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"error\":\"Invalid timer ID\"}");
     return;
   }
-  _config->timers[timerId].enabled = doc["enabled"];
-  _config->timers[timerId].type = (TimerType)(int)doc["type"];
-  _config->timers[timerId].hour = doc["hour"];
-  _config->timers[timerId].minute = doc["minute"];
-  _config->timers[timerId].presetId = doc["presetId"];
-  if (doc.containsKey("brightness"))
+  _config->timers[timerId].enabled = jsonBoolOr(doc, "enabled", false);
+  _config->timers[timerId].type =
+      (TimerType)jsonIntOr(doc, "type", (int)TIMER_REGULAR);
+  _config->timers[timerId].hour = (uint8_t)jsonIntOr(doc, "hour", 0);
+  _config->timers[timerId].minute = (uint8_t)jsonIntOr(doc, "minute", 0);
+  _config->timers[timerId].presetId = (uint8_t)jsonIntOr(doc, "presetId", 0);
+  if (cJSON_GetObjectItemCaseSensitive(doc, "brightness"))
     _config->timers[timerId].brightness =
-        percentToHex((uint8_t)doc["brightness"]);
+        percentToHex((uint8_t)jsonIntOr(doc, "brightness", 100));
+  cJSON_Delete(doc);
   _config->save();
   httpd_resp_set_type(req, "application/json");
   httpd_resp_sendstr(req, "{\"success\":true}");
@@ -1007,28 +1076,33 @@ void WebServerManager::handleSetTimer(httpd_req_t *req) {
 // ───────────────────────────────────────────────────────────
 
 std::string WebServerManager::getStateJSON() {
-  StaticJsonDocument<512> doc;
+  cJSON *doc = cJSON_CreateObject();
   bool inTrans = state.inTransition;
   if (inTrans) {
-    doc["power"] = true;
-    doc["effect"] = pendingTransition.effect;
-    doc["preset"] = pendingTransition.preset;
-    JsonObject p = doc.createNestedObject("params");
-    p["speed"] = hexToPercent(pendingTransition.params.speed);
-    p["intensity"] = hexToPercent(pendingTransition.params.intensity);
-    JsonArray ca = p.createNestedArray("colors");
+    cJSON_AddBoolToObject(doc, "power", true);
+    cJSON_AddNumberToObject(doc, "effect", pendingTransition.effect);
+    cJSON_AddNumberToObject(doc, "preset", pendingTransition.preset);
+    cJSON *p = cJSON_CreateObject();
+    cJSON_AddItemToObject(doc, "params", p);
+    cJSON_AddNumberToObject(p, "speed", hexToPercent(pendingTransition.params.speed));
+    cJSON_AddNumberToObject(p, "intensity",
+                            hexToPercent(pendingTransition.params.intensity));
+    cJSON *ca = cJSON_CreateArray();
+    cJSON_AddItemToObject(p, "colors", ca);
     for (const auto &c : pendingTransition.params.colors)
-      ca.add(c.c_str());
+      cJSON_AddItemToArray(ca, cJSON_CreateString(c.c_str()));
   } else {
-    doc["power"] = state.power;
-    doc["effect"] = state.effect;
-    doc["preset"] = state.preset;
-    JsonObject p = doc.createNestedObject("params");
-    p["speed"] = hexToPercent(state.params.speed);
-    p["intensity"] = hexToPercent(state.params.intensity);
-    JsonArray ca = p.createNestedArray("colors");
+    cJSON_AddBoolToObject(doc, "power", state.power);
+    cJSON_AddNumberToObject(doc, "effect", state.effect);
+    cJSON_AddNumberToObject(doc, "preset", state.preset);
+    cJSON *p = cJSON_CreateObject();
+    cJSON_AddItemToObject(doc, "params", p);
+    cJSON_AddNumberToObject(p, "speed", hexToPercent(state.params.speed));
+    cJSON_AddNumberToObject(p, "intensity", hexToPercent(state.params.intensity));
+    cJSON *ca = cJSON_CreateArray();
+    cJSON_AddItemToObject(p, "colors", ca);
     for (const auto &c : state.params.colors)
-      ca.add(c.c_str());
+      cJSON_AddItemToArray(ca, cJSON_CreateString(c.c_str()));
   }
   int brightness = hexToPercent(transition._targetState.brightness);
   uint32_t transitionTime = state.transitionTime;
@@ -1037,59 +1111,74 @@ std::string WebServerManager::getStateJSON() {
       timeValid ? _scheduler->getCurrentTime().c_str() : "--:--";
   std::string sunriseStr = _scheduler->getSunriseTime().c_str();
   std::string sunsetStr = _scheduler->getSunsetTime().c_str();
-  doc["brightness"] = brightness;
-  doc["transitionTime"] = transitionTime;
-  doc["time"] = timeStr.c_str();
-  doc["sunrise"] = sunriseStr.c_str();
-  doc["sunset"] = sunsetStr.c_str();
+  cJSON_AddNumberToObject(doc, "brightness", brightness);
+  cJSON_AddNumberToObject(doc, "transitionTime", transitionTime);
+  cJSON_AddStringToObject(doc, "time", timeStr.c_str());
+  cJSON_AddStringToObject(doc, "sunrise", sunriseStr.c_str());
+  cJSON_AddStringToObject(doc, "sunset", sunsetStr.c_str());
 
-  std::string out;
-  serializeJson(doc, out);
+  char *printed = cJSON_PrintUnformatted(doc);
+  std::string out = printed ? printed : "{}";
+  if (printed)
+    cJSON_free(printed);
+  cJSON_Delete(doc);
   return out;
 }
 
 std::string WebServerManager::getPresetsJSON() {
-  StaticJsonDocument<1536> doc;
-  JsonArray arr = doc.createNestedArray("presets");
+  cJSON *doc = cJSON_CreateObject();
+  cJSON *arr = cJSON_CreateArray();
+  cJSON_AddItemToObject(doc, "presets", arr);
   for (size_t i = 0; i < _config->getPresetCount(); i++) {
     if (_config->presets[i].name.empty() && i > 0)
       continue;
     const auto &preset = _config->presets[i];
-    JsonObject obj = arr.createNestedObject();
-    obj["id"] = (int)i;
-    obj["name"] = preset.name.c_str();
-    obj["effect"] = preset.effect;
-    obj["enabled"] = preset.enabled;
-    JsonObject p = obj.createNestedObject("params");
-    p["speed"] = preset.params.speed;
-    p["intensity"] = hexToPercent(preset.params.intensity);
-    JsonArray ca = p.createNestedArray("colors");
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddItemToArray(arr, obj);
+    cJSON_AddNumberToObject(obj, "id", (int)i);
+    cJSON_AddStringToObject(obj, "name", preset.name.c_str());
+    cJSON_AddNumberToObject(obj, "effect", preset.effect);
+    cJSON_AddBoolToObject(obj, "enabled", preset.enabled);
+    cJSON *p = cJSON_CreateObject();
+    cJSON_AddItemToObject(obj, "params", p);
+    cJSON_AddNumberToObject(p, "speed", preset.params.speed);
+    cJSON_AddNumberToObject(p, "intensity", hexToPercent(preset.params.intensity));
+    cJSON *ca = cJSON_CreateArray();
+    cJSON_AddItemToObject(p, "colors", ca);
     for (const auto &c : preset.params.colors)
-      ca.add(c.c_str());
+      cJSON_AddItemToArray(ca, cJSON_CreateString(c.c_str()));
   }
-  std::string out;
-  serializeJson(doc, out);
+  char *printed = cJSON_PrintUnformatted(doc);
+  std::string out = printed ? printed : "{}";
+  if (printed)
+    cJSON_free(printed);
+  cJSON_Delete(doc);
   return out;
 }
 
 std::string WebServerManager::getTimersJSON() {
-  StaticJsonDocument<768> doc;
-  JsonArray arr = doc.createNestedArray("timers");
+  cJSON *doc = cJSON_CreateObject();
+  cJSON *arr = cJSON_CreateArray();
+  cJSON_AddItemToObject(doc, "timers", arr);
   for (size_t i = 0; i < _config->timers.size(); i++) {
     const auto &t = _config->timers[i];
     if (!t.enabled && t.hour == 0 && t.minute == 0)
       continue;
-    JsonObject obj = arr.createNestedObject();
-    obj["id"] = (int)i;
-    obj["enabled"] = t.enabled;
-    obj["type"] = (int)t.type;
-    obj["hour"] = t.hour;
-    obj["minute"] = t.minute;
-    obj["presetId"] = t.presetId;
-    obj["brightness"] = hexToPercent(t.brightness);
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddItemToArray(arr, obj);
+    cJSON_AddNumberToObject(obj, "id", (int)i);
+    cJSON_AddBoolToObject(obj, "enabled", t.enabled);
+    cJSON_AddNumberToObject(obj, "type", (int)t.type);
+    cJSON_AddNumberToObject(obj, "hour", t.hour);
+    cJSON_AddNumberToObject(obj, "minute", t.minute);
+    cJSON_AddNumberToObject(obj, "presetId", t.presetId);
+    cJSON_AddNumberToObject(obj, "brightness", hexToPercent(t.brightness));
   }
-  std::string out;
-  serializeJson(doc, out);
+  char *printed = cJSON_PrintUnformatted(doc);
+  std::string out = printed ? printed : "{}";
+  if (printed)
+    cJSON_free(printed);
+  cJSON_Delete(doc);
   return out;
 }
 
