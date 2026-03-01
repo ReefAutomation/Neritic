@@ -22,9 +22,9 @@ export function steppedTransitionValue(val) {
 export function formatTransitionTime(val) {
   val = Number(val);
   if (val === 0) return '0s';
-  if (val < 60) return `${val  }s`;
-  if (val < 3600) return `${Math.round(val / 60)  }m`;
-  return `${Math.round(val / 3600)  }h`;
+  if (val < 60) return `${val}s`;
+  if (val < 3600) return `${Math.round(val / 60)}m`;
+  return `${Math.round(val / 3600)}h`;
 }
 
 // Sort timers: sunrise/sunset types (1,2) first, then by time.

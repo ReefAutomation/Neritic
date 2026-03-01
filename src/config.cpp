@@ -11,15 +11,15 @@ using std::vector;
 #endif
 #include "esp_littlefs.h"
 #include "esp_log.h"
-#include <errno.h>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <vector>
-#include <string>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <vector>
 
 static const char *TAG = "config";
 
@@ -34,7 +34,8 @@ static bool ensureFilesystemMounted() {
     s_fs_mounted = true;
     return true;
   }
-  if (s_fs_mounted) return true;
+  if (s_fs_mounted)
+    return true;
   esp_vfs_littlefs_conf_t conf = {};
   conf.base_path = FS_BASE;
   conf.partition_label = "spiffs";
@@ -60,7 +61,8 @@ static bool fileExists(const std::string &path) {
 
 static bool readFileToString(const std::string &path, std::string &content) {
   FILE *f = fopen(path.c_str(), "r");
-  if (!f) return false;
+  if (!f)
+    return false;
   fseek(f, 0, SEEK_END);
   long sz = ftell(f);
   fseek(f, 0, SEEK_SET);
@@ -79,9 +81,11 @@ static bool readFileToString(const std::string &path, std::string &content) {
   return true;
 }
 
-static bool writeStringToFile(const std::string &path, const std::string &content) {
+static bool writeStringToFile(const std::string &path,
+                              const std::string &content) {
   FILE *f = fopen(path.c_str(), "w");
-  if (!f) return false;
+  if (!f)
+    return false;
   size_t written = fwrite(content.data(), 1, content.size(), f);
   fflush(f);
   fclose(f);
@@ -89,8 +93,10 @@ static bool writeStringToFile(const std::string &path, const std::string &conten
   return written == content.size();
 }
 
-static bool tryDeserializeConfig(JsonDocument &doc, const std::string &content) {
-  if (content.empty()) return false;
+static bool tryDeserializeConfig(JsonDocument &doc,
+                                 const std::string &content) {
+  if (content.empty())
+    return false;
 
   if (!deserializeJson(doc, content.c_str())) {
     return true;
@@ -100,9 +106,11 @@ static bool tryDeserializeConfig(JsonDocument &doc, const std::string &content) 
   size_t lastBrace = content.rfind('}');
   if (firstBrace != std::string::npos && lastBrace != std::string::npos &&
       lastBrace > firstBrace) {
-    std::string candidate = content.substr(firstBrace, lastBrace - firstBrace + 1);
+    std::string candidate =
+        content.substr(firstBrace, lastBrace - firstBrace + 1);
     if (!deserializeJson(doc, candidate.c_str())) {
-      ESP_LOGW(TAG, "Recovered config by trimming leading/trailing garbage bytes");
+      ESP_LOGW(TAG,
+               "Recovered config by trimming leading/trailing garbage bytes");
       return true;
     }
   }
@@ -110,9 +118,12 @@ static bool tryDeserializeConfig(JsonDocument &doc, const std::string &content) 
   size_t ledKey = content.find("\"led\"");
   if (ledKey != std::string::npos && lastBrace != std::string::npos &&
       lastBrace > ledKey) {
-    std::string candidate = "{" + content.substr(ledKey, lastBrace - ledKey + 1);
+    std::string candidate =
+        "{" + content.substr(ledKey, lastBrace - ledKey + 1);
     if (!deserializeJson(doc, candidate.c_str())) {
-      ESP_LOGW(TAG, "Recovered config by dropping corrupted JSON prefix before \"led\"");
+      ESP_LOGW(
+          TAG,
+          "Recovered config by dropping corrupted JSON prefix before \"led\"");
       return true;
     }
   }
@@ -153,103 +164,128 @@ static void debugDumpFileContents(const char *path) {
 
 // Serialize the current configuration to a JSON string for API
 std::string Configuration::toJsonString() {
-  #if defined(ESP_IDF_VERSION_MAJOR)
-    // ESP-IDF: use ArduinoJson
-    StaticJsonDocument<4096> doc;
-    JsonObject ledObj = doc.createNestedObject("led");
-    ledObj["pin"] = led.pin;
-    ledObj["count"] = led.count;
-    ledObj["type"] = led.type;
-    ledObj["colorOrder"] = led.colorOrder;
-    ledObj["relayPin"] = led.relayPin;
-    ledObj["relayActiveHigh"] = led.relayActiveHigh;
+#if defined(ESP_IDF_VERSION_MAJOR)
+  // ESP-IDF: use ArduinoJson
+  StaticJsonDocument<4096> doc;
+  JsonObject ledObj = doc.createNestedObject("led");
+  ledObj["pin"] = led.pin;
+  ledObj["count"] = led.count;
+  ledObj["type"] = led.type;
+  ledObj["colorOrder"] = led.colorOrder;
+  ledObj["relayPin"] = led.relayPin;
+  ledObj["relayActiveHigh"] = led.relayActiveHigh;
 
-    JsonObject safetyObj = doc.createNestedObject("safety");
-    safetyObj["minTransitionTime"] = safety.minTransitionTime;
-    safetyObj["maxBrightness"] = hexToPercent(safety.maxBrightness);
+  JsonObject safetyObj = doc.createNestedObject("safety");
+  safetyObj["minTransitionTime"] = safety.minTransitionTime;
+  safetyObj["maxBrightness"] = hexToPercent(safety.maxBrightness);
 
-    JsonObject timeObj = doc.createNestedObject("time");
-    timeObj["ntpServer"] = time.ntpServer;
-    timeObj["timezone"] = time.timezone;
-    timeObj["latitude"] = time.latitude;
-    timeObj["longitude"] = time.longitude;
-    timeObj["dstEnabled"] = time.dstEnabled;
+  JsonObject timeObj = doc.createNestedObject("time");
+  timeObj["ntpServer"] = time.ntpServer;
+  timeObj["timezone"] = time.timezone;
+  timeObj["latitude"] = time.latitude;
+  timeObj["longitude"] = time.longitude;
+  timeObj["dstEnabled"] = time.dstEnabled;
 
-    JsonObject netObj = doc.createNestedObject("network");
-    netObj["hostname"] = network.hostname;
-    netObj["apPassword"] = network.apPassword;
-    netObj["ssid"] = network.ssid;
+  JsonObject netObj = doc.createNestedObject("network");
+  netObj["hostname"] = network.hostname;
+  netObj["apPassword"] = network.apPassword;
+  netObj["ssid"] = network.ssid;
 
-    JsonObject tObj = doc.createNestedObject("transitionTimes");
-    tObj["powerOn"] = transitionTimes.powerOn;
-    tObj["schedule"] = transitionTimes.schedule;
-    tObj["manual"] = transitionTimes.manual;
-    tObj["effect"] = transitionTimes.effect;
+  JsonObject tObj = doc.createNestedObject("transitionTimes");
+  tObj["powerOn"] = transitionTimes.powerOn;
+  tObj["schedule"] = transitionTimes.schedule;
+  tObj["manual"] = transitionTimes.manual;
+  tObj["effect"] = transitionTimes.effect;
 
-    JsonArray timersArray = doc.createNestedArray("timers");
-    for (size_t i = 0; i < timers.size(); i++) {
-      const auto &t = timers[i];
-      JsonObject timerObj = timersArray.createNestedObject();
-      timerObj["id"] = i;
-      timerObj["enabled"] = t.enabled;
-      timerObj["type"] = t.type;
-      timerObj["hour"] = t.hour;
-      timerObj["minute"] = t.minute;
-      timerObj["presetId"] = t.presetId;
-      timerObj["brightness"] = hexToPercent(t.brightness);
-    }
-    std::string output;
-    serializeJson(doc, output);
-    return output;
-  #else
-    // Arduino: manual JSON formatting
-    std::string json = "{";
-    json += "\"led\":{"
-      "\"pin\":" + std::to_string(led.pin) + ","
-      "\"count\":" + std::to_string(led.count) + ","
-      "\"type\":\"" + led.type + "\",";
-    json += "\"colorOrder\":\"" + led.colorOrder + "\",";
-    json += "\"relayPin\":" + std::to_string(led.relayPin) + ",";
-    json += "\"relayActiveHigh\":" + std::to_string(led.relayActiveHigh ? 1 : 0) + "},";
+  JsonArray timersArray = doc.createNestedArray("timers");
+  for (size_t i = 0; i < timers.size(); i++) {
+    const auto &t = timers[i];
+    JsonObject timerObj = timersArray.createNestedObject();
+    timerObj["id"] = i;
+    timerObj["enabled"] = t.enabled;
+    timerObj["type"] = t.type;
+    timerObj["hour"] = t.hour;
+    timerObj["minute"] = t.minute;
+    timerObj["presetId"] = t.presetId;
+    timerObj["brightness"] = hexToPercent(t.brightness);
+  }
+  std::string output;
+  serializeJson(doc, output);
+  return output;
+#else
+  // Arduino: manual JSON formatting
+  std::string json = "{";
+  json += "\"led\":{"
+          "\"pin\":" +
+          std::to_string(led.pin) +
+          ","
+          "\"count\":" +
+          std::to_string(led.count) +
+          ","
+          "\"type\":\"" +
+          led.type + "\",";
+  json += "\"colorOrder\":\"" + led.colorOrder + "\",";
+  json += "\"relayPin\":" + std::to_string(led.relayPin) + ",";
+  json += "\"relayActiveHigh\":" + std::to_string(led.relayActiveHigh ? 1 : 0) +
+          "},";
 
-    json += "\"safety\":{"
-      "\"minTransitionTime\":" + std::to_string(safety.minTransitionTime) + ","
-      "\"maxBrightness\":" + std::to_string(hexToPercent(safety.maxBrightness)) + "},";
+  json += "\"safety\":{"
+          "\"minTransitionTime\":" +
+          std::to_string(safety.minTransitionTime) +
+          ","
+          "\"maxBrightness\":" +
+          std::to_string(hexToPercent(safety.maxBrightness)) + "},";
 
-    json += "\"time\":{"
-      "\"ntpServer\":\"" + time.ntpServer + "\",";
-    json += "\"timezone\":\"" + time.timezone + "\",";
-    json += "\"latitude\":" + std::to_string(time.latitude) + ",";
-    json += "\"longitude\":" + std::to_string(time.longitude) + ",";
-    json += "\"dstEnabled\":" + std::to_string(time.dstEnabled ? 1 : 0) + "},";
+  json += "\"time\":{"
+          "\"ntpServer\":\"" +
+          time.ntpServer + "\",";
+  json += "\"timezone\":\"" + time.timezone + "\",";
+  json += "\"latitude\":" + std::to_string(time.latitude) + ",";
+  json += "\"longitude\":" + std::to_string(time.longitude) + ",";
+  json += "\"dstEnabled\":" + std::to_string(time.dstEnabled ? 1 : 0) + "},";
 
-    json += "\"network\":{"
-      "\"hostname\":\"" + network.hostname + "\",";
-    json += "\"apPassword\":\"" + network.apPassword + "\",";
-    json += "\"ssid\":\"" + network.ssid + "\"},";
+  json += "\"network\":{"
+          "\"hostname\":\"" +
+          network.hostname + "\",";
+  json += "\"apPassword\":\"" + network.apPassword + "\",";
+  json += "\"ssid\":\"" + network.ssid + "\"},";
 
-    json += "\"transitionTimes\":{"
-      "\"powerOn\":" + std::to_string(transitionTimes.powerOn) + ","
-      "\"schedule\":" + std::to_string(transitionTimes.schedule) + ","
-      "\"manual\":" + std::to_string(transitionTimes.manual) + ","
-      "\"effect\":" + std::to_string(transitionTimes.effect) + "},";
+  json += "\"transitionTimes\":{"
+          "\"powerOn\":" +
+          std::to_string(transitionTimes.powerOn) +
+          ","
+          "\"schedule\":" +
+          std::to_string(transitionTimes.schedule) +
+          ","
+          "\"manual\":" +
+          std::to_string(transitionTimes.manual) +
+          ","
+          "\"effect\":" +
+          std::to_string(transitionTimes.effect) + "},";
 
-    json += "\"timers\":[";
-    for (size_t i = 0; i < timers.size(); i++) {
-      const auto &t = timers[i];
-      if (i > 0) json += ",";
-      json += "{"
-        "\"id\":" + std::to_string(i) + ","
-        "\"enabled\":" + std::to_string(t.enabled ? 1 : 0) + ","
-        "\"type\":\"" + t.type + "\",";
-      json += "\"hour\":" + std::to_string(t.hour) + ",";
-      json += "\"minute\":" + std::to_string(t.minute) + ",";
-      json += "\"presetId\":" + std::to_string(t.presetId) + ",";
-      json += "\"brightness\":" + std::to_string(hexToPercent(t.brightness)) + "}";
-    }
-    json += "]}";
-    return json;
-  #endif
+  json += "\"timers\":[";
+  for (size_t i = 0; i < timers.size(); i++) {
+    const auto &t = timers[i];
+    if (i > 0)
+      json += ",";
+    json += "{"
+            "\"id\":" +
+            std::to_string(i) +
+            ","
+            "\"enabled\":" +
+            std::to_string(t.enabled ? 1 : 0) +
+            ","
+            "\"type\":\"" +
+            t.type + "\",";
+    json += "\"hour\":" + std::to_string(t.hour) + ",";
+    json += "\"minute\":" + std::to_string(t.minute) + ",";
+    json += "\"presetId\":" + std::to_string(t.presetId) + ",";
+    json +=
+        "\"brightness\":" + std::to_string(hexToPercent(t.brightness)) + "}";
+  }
+  json += "]}";
+  return json;
+#endif
 }
 
 // Recursively merge src into dst, filling missing/null fields from src
@@ -271,10 +307,12 @@ void mergeJson(JsonVariant dst, JsonVariantConst src) {
 
 // Loads config file and converts percent to hex for internal use
 bool Configuration::loadFromFile(const char *path, JsonDocument &doc) {
-  if (!ensureFilesystemMounted()) return false;
+  if (!ensureFilesystemMounted())
+    return false;
   std::string fp = fsPath(path);
   std::string content;
-  if (!readFileToString(fp, content) || content.empty()) return false;
+  if (!readFileToString(fp, content) || content.empty())
+    return false;
   bool ok = tryDeserializeConfig(doc, content);
   if (!ok) {
     DeserializationError error = deserializeJson(doc, content.c_str());
@@ -285,11 +323,13 @@ bool Configuration::loadFromFile(const char *path, JsonDocument &doc) {
 
 // Saves config file, converting hex to percent for human-readable storage
 bool Configuration::saveToFile(const char *path, const JsonDocument &doc) {
-  if (!ensureFilesystemMounted()) return false;
+  if (!ensureFilesystemMounted())
+    return false;
 
   std::string out;
   size_t written = serializeJson(doc, out);
-  if (written == 0) return false;
+  if (written == 0)
+    return false;
 
   std::string fp = fsPath(path);
 
@@ -323,7 +363,8 @@ bool Configuration::saveToFile(const char *path, const JsonDocument &doc) {
     }
 
     if (rename(tmpPath.c_str(), fp.c_str()) != 0) {
-      ESP_LOGE(TAG, "Failed to activate new config (%d), restoring backup", errno);
+      ESP_LOGE(TAG, "Failed to activate new config (%d), restoring backup",
+               errno);
       remove(tmpPath.c_str());
       if (fileExists(bakPath)) {
         rename(bakPath.c_str(), fp.c_str());
@@ -354,7 +395,8 @@ bool Configuration::load() {
   bool updated = false;
   bool loadedFromFile = loadFromFile(CONFIG_FILE, doc);
   if (!loadedFromFile) {
-    ESP_LOGW(TAG, "Primary config invalid, trying backup: %s", CONFIG_BACKUP_FILE);
+    ESP_LOGW(TAG, "Primary config invalid, trying backup: %s",
+             CONFIG_BACKUP_FILE);
     bool loadedFromBackup = loadFromFile(CONFIG_BACKUP_FILE, doc);
     if (loadedFromBackup) {
       ESP_LOGW(TAG, "Recovered configuration from backup");
@@ -495,9 +537,9 @@ void Configuration::partialUpdate(const JsonObject &update) {
     if (ledObj.containsKey("count"))
       led.count = ledObj["count"];
     if (ledObj.containsKey("type"))
-      led.type = (const char*)ledObj["type"];
+      led.type = (const char *)ledObj["type"];
     if (ledObj.containsKey("colorOrder"))
-      led.colorOrder = (const char*)ledObj["colorOrder"];
+      led.colorOrder = (const char *)ledObj["colorOrder"];
     if (ledObj.containsKey("relayPin"))
       led.relayPin = ledObj["relayPin"];
     if (ledObj.containsKey("relayActiveHigh"))
@@ -526,11 +568,11 @@ void Configuration::partialUpdate(const JsonObject &update) {
   if (update.containsKey("network")) {
     JsonObject netObj = update["network"];
     if (netObj.containsKey("hostname"))
-      network.hostname = (const char*)netObj["hostname"];
+      network.hostname = (const char *)netObj["hostname"];
     if (netObj.containsKey("apPassword"))
-      network.apPassword = (const char*)netObj["apPassword"];
+      network.apPassword = (const char *)netObj["apPassword"];
     if (netObj.containsKey("ssid"))
-      network.ssid = (const char*)netObj["ssid"];
+      network.ssid = (const char *)netObj["ssid"];
     // Only update password if present and non-empty
     if (netObj.containsKey("password")) {
       const char *newPass = netObj["password"];
@@ -541,9 +583,9 @@ void Configuration::partialUpdate(const JsonObject &update) {
   if (update.containsKey("time")) {
     JsonObject timeObj = update["time"];
     if (timeObj.containsKey("ntpServer"))
-      time.ntpServer = (const char*)timeObj["ntpServer"];
+      time.ntpServer = (const char *)timeObj["ntpServer"];
     if (timeObj.containsKey("timezone"))
-      time.timezone = (const char*)timeObj["timezone"];
+      time.timezone = (const char *)timeObj["timezone"];
     if (timeObj.containsKey("latitude"))
       time.latitude = timeObj["latitude"].as<double>();
     if (timeObj.containsKey("longitude"))
@@ -572,7 +614,8 @@ void Configuration::partialUpdate(const JsonObject &update) {
 
 // Factory reset: delete config file and restore defaults
 bool Configuration::factoryReset() {
-  if (!ensureFilesystemMounted()) return false;
+  if (!ensureFilesystemMounted())
+    return false;
   std::string fp = fsPath(CONFIG_FILE);
   remove(fp.c_str()); // ignore error if not exists
   setDefaults();
@@ -652,7 +695,8 @@ std::vector<std::string> Configuration::getSupportedTimezones() {
   for (JsonObject tz : tzDoc.as<JsonArray>()) {
     if (tz.containsKey("name")) {
       const char *n = tz["name"];
-      if (n) timezones.push_back(n);
+      if (n)
+        timezones.push_back(n);
     }
   }
   return timezones;

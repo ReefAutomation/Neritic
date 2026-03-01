@@ -17,6 +17,14 @@ When the user writes `/check` in chat, immediately trigger the full code-quality
 
 As an AI assistant, your goal is to perform a comprehensive code quality check using industry-standard tools. When asked to "review the code," "check for bugs," or "improve code quality," follow this protocol.
 
+### Environment Prerequisite
+
+For this repository, activate `.venv` before PlatformIO commands:
+
+```bash
+source .venv/bin/activate && <command>
+```
+
 ### Step 1: Identify File Type and Scope
 
 1.  Determine the language of the file(s) to be reviewed:
@@ -32,7 +40,7 @@ This is the core of the code review. Run the appropriate tool to find bugs, vuln
 
 1.  **Run Static Analysis:** Execute the PlatformIO `check` command.
     ```bash
-    platformio check
+    source .venv/bin/activate && platformio check
     ```
 2.  Analyze the output for any reported defects, vulnerabilities, or performance issues.
 

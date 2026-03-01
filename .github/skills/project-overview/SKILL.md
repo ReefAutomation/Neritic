@@ -11,6 +11,14 @@ metadata:
 
 As an AI assistant, your goal is to create a new, fully structured project for an IoT LED controller with a web-based UI. When the user asks to "create a new LED controller project" or similar, follow this protocol.
 
+### Environment Prerequisite
+
+If this workflow is executed in a repository that uses a project virtual environment, run PlatformIO/project Python commands with:
+
+```bash
+source .venv/bin/activate && <command>
+```
+
 ### Step 1: Gather Requirements from the User
 
 1.  Ask the user for a project name. This will be used for the root directory.
@@ -37,7 +45,7 @@ Execute the following commands to create the necessary directories.
 
 1.  **Initialize PlatformIO:** Run this command in the project's root directory.
     ```bash
-    platformio project init --board esp32dev
+    source .venv/bin/activate && platformio project init --board esp32dev
     ```
     This will create `platformio.ini` and other necessary files.
 2.  **Create `main.cpp`:** Create a placeholder `src/main.cpp` file with a minimal Arduino sketch.
@@ -80,4 +88,4 @@ Execute the following commands to create the necessary directories.
 2.  Provide the user with the next steps:
     *   "You can now start developing the firmware in the `src` directory."
     *   "To work on the web UI, `cd web` and run `npm run dev`."
-    *   "Remember to build the web UI and run the `embed_assets.py` script before deploying the firmware."
+    *   "Remember to build the web UI and run `source .venv/bin/activate && python scripts/embed_assets.py` before deploying the firmware."

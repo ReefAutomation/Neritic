@@ -2,8 +2,8 @@
 #include "bus_manager.h"
 #include "colors.h"
 #include "effects.h"
-#include "state.h"
 #include "esp_timer.h"
+#include "state.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -29,7 +29,9 @@ void TransitionEngine::blendTransitionFrames(
     const PendingTransitionState &pendingTransition, const SystemState &state,
     std::vector<uint32_t> &outFrame) {
   size_t count = outFrame.size();
-  float progress = float((uint32_t)(esp_timer_get_time() / 1000ULL) - getStartTime()) / float(getDuration());
+  float progress =
+      float((uint32_t)(esp_timer_get_time() / 1000ULL) - getStartTime()) /
+      float(getDuration());
   if (progress > 1.0f)
     progress = 1.0f;
   progress = progress * progress * (3.0f - 2.0f * progress); // smoothstep
@@ -43,8 +45,8 @@ void TransitionEngine::blendTransitionFrames(
   if (brightnessOnly) {
     auto colors = parse_colors_vec(pendingTransition.params.colors);
     size_t nextColorCount = pendingTransition.params.colors.size() > 0
-                            ? pendingTransition.params.colors.size()
-                            : 1;
+                                ? pendingTransition.params.colors.size()
+                                : 1;
     uint8_t prevBrightness = _currentState.brightness;
     uint8_t nextBrightness = _targetState.brightness;
     renderEffectToBuffer(pendingTransition.effect, pendingTransition.params,
@@ -58,7 +60,9 @@ void TransitionEngine::blendTransitionFrames(
       prevFrame = getPreviousFrame();
     } else {
       auto prevColors = parse_colors_vec(state.prevParams.colors);
-      size_t prevColorCount = state.prevParams.colors.size() > 0 ? state.prevParams.colors.size() : 1;
+      size_t prevColorCount = state.prevParams.colors.size() > 0
+                                  ? state.prevParams.colors.size()
+                                  : 1;
       uint8_t prevBrightness = _currentState.brightness;
       renderEffectToBuffer(state.prevEffect, state.prevParams, prevFrame, count,
                            prevColors, prevColorCount, prevBrightness);

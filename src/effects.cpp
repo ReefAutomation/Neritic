@@ -1,9 +1,9 @@
 #include "effects.h"
 #include "bus_manager.h"
 #include "colors.h"
+#include "esp_timer.h"
 #include "state.h"
 #include "transition.h"
-#include "esp_timer.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -321,7 +321,8 @@ void effect_lightning() {
         0.5f + 0.5f * (intensity / 255.0f); // max intensity 0.5-1.0
     flashIntensity = minFlash + (maxFlash - minFlash) * randf();
     // Pick a random set of LEDs for the flash
-    flashLen = std::max((uint32_t)1, (uint32_t)(1 + randf() * (g_ledCount - 1)));
+    flashLen =
+        std::max((uint32_t)1, (uint32_t)(1 + randf() * (g_ledCount - 1)));
     flashStart = (uint32_t)(randf() * g_ledCount);
     lastFlash = now;
   }
@@ -338,7 +339,8 @@ void effect_lightning() {
         float minFlash = 0.1f + 0.7f * (intensity / 255.0f);
         float maxFlash = 0.5f + 0.5f * (intensity / 255.0f);
         flashIntensity = minFlash + (maxFlash - minFlash) * randf();
-        flashLen = std::max((uint32_t)1, (uint32_t)(1 + randf() * (g_ledCount - 1)));
+        flashLen =
+            std::max((uint32_t)1, (uint32_t)(1 + randf() * (g_ledCount - 1)));
         flashStart = (uint32_t)(randf() * g_ledCount);
       } else {
         inBurst = false;

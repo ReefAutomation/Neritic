@@ -22,7 +22,7 @@ export function ColorPickers({ colors, sendState }) {
         }
         // Use a more unique key, e.g., color value plus index fallback
         return (
-          <div className="control-item" key={`${color  }-${  idx}`}>
+          <div className="control-item" key={`${color}-${idx}`}>
             <label
               style={{ display: 'flex', alignItems: 'center', gap: '1px' }}
             >
@@ -42,7 +42,7 @@ export function ColorPickers({ colors, sendState }) {
                     boxShadow: '0 0 6px #222',
                     display: 'block',
                   }}
-                 />
+                />
                 <input
                   type="color"
                   aria-label={`${['Primary', 'Secondary', 'Tertiary'][idx]} Color`}
@@ -217,7 +217,7 @@ export function Controls({ state, effects, sendState }) {
           className="slider-input"
           onInput={(e) => {
             document.getElementById('speedValue').textContent =
-              `${e.target.value  }%`;
+              `${e.target.value}%`;
           }}
           onMouseUp={sliderReleaseHandler(
             (e) => Number.parseInt(e.target.value, 10),
@@ -243,7 +243,7 @@ export function Controls({ state, effects, sendState }) {
           className="slider-input"
           onInput={(e) => {
             document.getElementById('intensityValue').textContent =
-              `${e.target.value  }%`;
+              `${e.target.value}%`;
           }}
           onMouseUp={sliderReleaseHandler(
             (e) => Number.parseInt(e.target.value, 10),

@@ -11,6 +11,14 @@ metadata:
 
 This skill outlines the common tasks for building and deploying the project.
 
+### Python Environment Prerequisite
+
+*   In this repository, `platformio` is installed in `.venv`.
+*   Prefix firmware and Python-script commands with:
+  ```bash
+  source .venv/bin/activate && <command>
+  ```
+
 ### Building the Firmware
 
 *   **Command:** `source .venv/bin/activate && platformio run -e esp32c6_debug`
@@ -29,17 +37,17 @@ This skill outlines the common tasks for building and deploying the project.
 ### Embedding Web Assets into Firmware
 
 *   **Action:** After building the web interface, the static files must be converted into C++ headers to be included in the firmware.
-*   **Command:** `python scripts/embed_assets.py`
+*   **Command:** `source .venv/bin/activate && python scripts/embed_assets.py`
 *   **Full Workflow:**
     1.  `npm run build` (in the `web` directory)
-    2.  `python scripts/embed_assets.py` (from the project root)
+  2.  `source .venv/bin/activate && python scripts/embed_assets.py` (from the project root)
 
 ### Cleaning the Build Environment
 
-*   **Command:** `platformio run --target clean`
+*   **Command:** `source .venv/bin/activate && platformio run --target clean`
 *   **Action:** Removes compiled object files and firmware binaries, which is useful for forcing a complete rebuild.
 
 ### Uploading Firmware to Device
 
-*   **Command:** `platformio run -e <environment_name> --target upload`
+*   **Command:** `source .venv/bin/activate && platformio run -e <environment_name> --target upload`
 *   **Action:** Builds the firmware and uploads it to the connected device.

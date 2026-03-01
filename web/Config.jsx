@@ -123,7 +123,7 @@ export function Config({
                 showToast('Config uploaded!', { type: 'success' });
                 setTimeout(() => globalThis.location.reload(), 1200);
               } catch (err) {
-                showToast(`Error uploading config: ${  err.message || err}`, {
+                showToast(`Error uploading config: ${err.message || err}`, {
                   type: 'error',
                 });
               }
@@ -156,7 +156,7 @@ export function Config({
                 }
                 resetModifiedConfig();
               } catch (err) {
-                showToast(`Error saving config: ${  err}`, { type: 'error' });
+                showToast(`Error saving config: ${err}`, { type: 'error' });
               }
             }}
           >

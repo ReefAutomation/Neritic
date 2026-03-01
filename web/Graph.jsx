@@ -360,7 +360,7 @@ export function Graph({ state, timers, presets, config }) {
               max: 1440,
               ticks: {
                 stepSize: 60,
-                callback (value, index, ticks) {
+                callback(value, index, ticks) {
                   // Show label at each event/ramp point and on the hour
                   if (minutesArray.includes(value)) return timeToLabel(value);
                   if (value % 60 === 0) return timeToLabel(value);
@@ -443,6 +443,6 @@ export function Graph({ state, timers, presets, config }) {
         marginTop: '16px',
         outline: 'none',
       }}
-     />
+    />
   );
 }

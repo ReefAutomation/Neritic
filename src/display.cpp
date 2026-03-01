@@ -1,9 +1,9 @@
 #ifdef DISPLAY_ENABLED
 #include "config.h"
-#include "transition.h"
-#include <TFT_eSPI.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "transition.h"
+#include <TFT_eSPI.h>
 
 extern TransitionEngine transition;
 

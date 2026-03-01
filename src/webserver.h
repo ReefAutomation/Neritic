@@ -2,122 +2,121 @@
 #define WEBSERVER_H
 
 #include "config.h"
-#include "scheduler.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
+#include "scheduler.h"
 #include <ArduinoJson.h>
-#include <string>
-#include <set>
 #include <map>
+#include <set>
+#include <string>
 
 class WebServerManager {
 public:
-    WebServerManager(Configuration *config, Scheduler *scheduler);
+  WebServerManager(Configuration *config, Scheduler *scheduler);
 
-    void begin();
-    void update();
-    void broadcastState();
+  void begin();
+  void update();
+  void broadcastState();
 
-    // OTA status broadcast (std::string)
-    void broadcastOtaStatus(const std::string &status,
-                            const std::string &message = "",
-                            int progress = -1);
+  // OTA status broadcast (std::string)
+  void broadcastOtaStatus(const std::string &status,
+                          const std::string &message = "", int progress = -1);
 
-    // Callbacks for control actions
-    void onPowerChange(void (*callback)(bool));
-    void onBrightnessChange(void (*callback)(uint8_t));
-    void onEffectChange(void (*callback)(uint8_t, const EffectParams &));
-    void onPresetApply(void (*callback)(uint8_t));
-    void onConfigChange(void (*callback)());
+  // Callbacks for control actions
+  void onPowerChange(void (*callback)(bool));
+  void onBrightnessChange(void (*callback)(uint8_t));
+  void onEffectChange(void (*callback)(uint8_t, const EffectParams &));
+  void onPresetApply(void (*callback)(uint8_t));
+  void onConfigChange(void (*callback)());
 
-    // Safety helpers available for other modules
-    bool applyBrightnessLimit(uint8_t &brightness);
-    bool applyTransitionTimeLimit(uint32_t &transitionTime);
+  // Safety helpers available for other modules
+  bool applyBrightnessLimit(uint8_t &brightness);
+  bool applyTransitionTimeLimit(uint32_t &transitionTime);
 
-    // OTA WebSocket helpers
-    void clearOtaSubscriptions();
-    void closeOtaClients();
-    int  otaClientsConnected() const;
+  // OTA WebSocket helpers
+  void clearOtaSubscriptions();
+  void closeOtaClients();
+  int otaClientsConnected() const;
 
-    // State/preset JSON generation (public for use in handlers)
-    std::string getStateJSON();
-    std::string getPresetsJSON();
-    std::string getTimersJSON();
+  // State/preset JSON generation (public for use in handlers)
+  std::string getStateJSON();
+  std::string getPresetsJSON();
+  std::string getTimersJSON();
 
 private:
-    Configuration *_config;
-    Scheduler     *_scheduler;
-    httpd_handle_t _server = nullptr;
+  Configuration *_config;
+  Scheduler *_scheduler;
+  httpd_handle_t _server = nullptr;
 
-    uint32_t _lastBroadcast = 0;
+  uint32_t _lastBroadcast = 0;
 
-    // Callbacks
-    void (*_powerCallback)(bool) = nullptr;
-    void (*_brightnessCallback)(uint8_t) = nullptr;
-    void (*_effectCallback)(uint8_t, const EffectParams &) = nullptr;
-    void (*_presetCallback)(uint8_t) = nullptr;
-    void (*_configCallback)() = nullptr;
+  // Callbacks
+  void (*_powerCallback)(bool) = nullptr;
+  void (*_brightnessCallback)(uint8_t) = nullptr;
+  void (*_effectCallback)(uint8_t, const EffectParams &) = nullptr;
+  void (*_presetCallback)(uint8_t) = nullptr;
+  void (*_configCallback)() = nullptr;
 
-    // WebSocket client state (keyed by socket fd)
-    std::set<int>        _otaClients;     // fds of OTA-subscribed WS clients
-    std::map<int, bool>  _wsHandshaked;   // fd -> first-msg received?
+  // WebSocket client state (keyed by socket fd)
+  std::set<int> _otaClients;         // fds of OTA-subscribed WS clients
+  std::map<int, bool> _wsHandshaked; // fd -> first-msg received?
 
-    // Live LED broadcast tick flag (set by esp_timer callback)
-    volatile bool _liveLedTick = false;
+  // Live LED broadcast tick flag (set by esp_timer callback)
+  volatile bool _liveLedTick = false;
 
-    // Timer handle for live LED ticker
-    esp_timer_handle_t _liveLedTimer = nullptr;
+  // Timer handle for live LED ticker
+  esp_timer_handle_t _liveLedTimer = nullptr;
 
-    // Internal helpers
-    void setupWebSocket();
-    void setupRoutes();
-    void buildEffectsCache();
-    void broadcastText(const std::string &msg, bool otaClientsOnly = false);
-    void broadcastBinary(const uint8_t *data, size_t len);
-    void cleanupDisconnectedClients();
+  // Internal helpers
+  void setupWebSocket();
+  void setupRoutes();
+  void buildEffectsCache();
+  void broadcastText(const std::string &msg, bool otaClientsOnly = false);
+  void broadcastBinary(const uint8_t *data, size_t len);
+  void cleanupDisconnectedClients();
 
-    // Handlers (called from static C handlers)
-    void handleSetState(httpd_req_t *req);
-    void handleGetPresets(httpd_req_t *req);
-    void handleSetPreset(httpd_req_t *req);
-    void handleSetConfig(httpd_req_t *req);
-    void handleSetTimer(httpd_req_t *req);
+  // Handlers (called from static C handlers)
+  void handleSetState(httpd_req_t *req);
+  void handleGetPresets(httpd_req_t *req);
+  void handleSetPreset(httpd_req_t *req);
+  void handleSetConfig(httpd_req_t *req);
+  void handleSetTimer(httpd_req_t *req);
 
-    // Static HTTP handler trampoline helpers
-    static WebServerManager *fromReq(httpd_req_t *req) {
-        return (WebServerManager *)req->user_ctx;
-    }
+  // Static HTTP handler trampoline helpers
+  static WebServerManager *fromReq(httpd_req_t *req) {
+    return (WebServerManager *)req->user_ctx;
+  }
 
-    // Static route handlers
-    static esp_err_t wsHandler(httpd_req_t *req);
-    static esp_err_t hVersion(httpd_req_t *req);
-    static esp_err_t hUpdateGet(httpd_req_t *req);
-    static esp_err_t hUpdatePost(httpd_req_t *req);
-    static esp_err_t hCommand(httpd_req_t *req);
-    static esp_err_t hOtaUpload(httpd_req_t *req);
-    static esp_err_t hCaptive(httpd_req_t *req);
-    static esp_err_t hNoContent(httpd_req_t *req);
-    static esp_err_t hIndexJs(httpd_req_t *req);
-    static esp_err_t hStyleCss(httpd_req_t *req);
-    static esp_err_t hRoot(httpd_req_t *req);
-    static esp_err_t hWifiScan(httpd_req_t *req);
-    static esp_err_t hWifiGet(httpd_req_t *req);
-    static esp_err_t hWifiPost(httpd_req_t *req);
-    static esp_err_t hStateGet(httpd_req_t *req);
-    static esp_err_t hStatePost(httpd_req_t *req);
-    static esp_err_t hEffects(httpd_req_t *req);
-    static esp_err_t hPresetsGet(httpd_req_t *req);
-    static esp_err_t hPresetPost(httpd_req_t *req);
-    static esp_err_t hConfigGet(httpd_req_t *req);
-    static esp_err_t hConfigPost(httpd_req_t *req);
-    static esp_err_t hFactoryReset(httpd_req_t *req);
-    static esp_err_t hTimerPost(httpd_req_t *req);
-    static esp_err_t hTimezones(httpd_req_t *req);
-    static esp_err_t hOptions(httpd_req_t *req);
-    static esp_err_t hNotFound(httpd_req_t *req, httpd_err_code_t err);
+  // Static route handlers
+  static esp_err_t wsHandler(httpd_req_t *req);
+  static esp_err_t hVersion(httpd_req_t *req);
+  static esp_err_t hUpdateGet(httpd_req_t *req);
+  static esp_err_t hUpdatePost(httpd_req_t *req);
+  static esp_err_t hCommand(httpd_req_t *req);
+  static esp_err_t hOtaUpload(httpd_req_t *req);
+  static esp_err_t hCaptive(httpd_req_t *req);
+  static esp_err_t hNoContent(httpd_req_t *req);
+  static esp_err_t hIndexJs(httpd_req_t *req);
+  static esp_err_t hStyleCss(httpd_req_t *req);
+  static esp_err_t hRoot(httpd_req_t *req);
+  static esp_err_t hWifiScan(httpd_req_t *req);
+  static esp_err_t hWifiGet(httpd_req_t *req);
+  static esp_err_t hWifiPost(httpd_req_t *req);
+  static esp_err_t hStateGet(httpd_req_t *req);
+  static esp_err_t hStatePost(httpd_req_t *req);
+  static esp_err_t hEffects(httpd_req_t *req);
+  static esp_err_t hPresetsGet(httpd_req_t *req);
+  static esp_err_t hPresetPost(httpd_req_t *req);
+  static esp_err_t hConfigGet(httpd_req_t *req);
+  static esp_err_t hConfigPost(httpd_req_t *req);
+  static esp_err_t hFactoryReset(httpd_req_t *req);
+  static esp_err_t hTimerPost(httpd_req_t *req);
+  static esp_err_t hTimezones(httpd_req_t *req);
+  static esp_err_t hOptions(httpd_req_t *req);
+  static esp_err_t hNotFound(httpd_req_t *req, httpd_err_code_t err);
 
-    // Live LED timer callback
-    static void liveLedTimerCb(void *arg);
+  // Live LED timer callback
+  static void liveLedTimerCb(void *arg);
 };
 
 #endif // WEBSERVER_H

@@ -11,22 +11,22 @@
  * - Preset management
  */
 
-#include "network.h"
-#include "esp_log.h"
-#include "nvs_flash.h"
-#include "driver/gpio.h"
-#include "esp_timer.h"
-#include <string.h>
 #include "bus_manager.h"
 #include "config.h"
 #include "debug.h"
+#include "driver/gpio.h"
 #include "effects.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "network.h"
+#include "nvs_flash.h"
 #include "ota.h"
 #include "presets.h"
 #include "scheduler.h"
 #include "state.h"
 #include "transition.h"
 #include "webserver.h"
+#include <string.h>
 
 #include "display.h"
 #include "inc/version.inc"
@@ -78,11 +78,13 @@ extern "C" void app_main() {
 
 void main_task(void *pvParameters) {
   esp_log_level_set("main", ESP_LOG_INFO);
-  ESP_LOGI("main", "Aquarium LED Controller starting... stack=%u", (unsigned)uxTaskGetStackHighWaterMark(NULL));
+  ESP_LOGI("main", "Aquarium LED Controller starting... stack=%u",
+           (unsigned)uxTaskGetStackHighWaterMark(NULL));
 
   // NVS must be initialized before WiFi
   esp_err_t nvs_err = nvs_flash_init();
-  if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+  if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
+      nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     nvs_flash_erase();
     nvs_err = nvs_flash_init();
   }
@@ -105,8 +107,8 @@ void main_task(void *pvParameters) {
     savePresets(config.presets);
   }
   ESP_LOGI("main", "step: LEDs pin=%d count=%d type=%s order=%s",
-           config.led.pin, config.led.count,
-           config.led.type.c_str(), config.led.colorOrder.c_str());
+           config.led.pin, config.led.count, config.led.type.c_str(),
+           config.led.colorOrder.c_str());
 
   // Guard: skip LED init if config is invalid
   if (config.led.count > 0 && config.led.count <= 512 && config.led.pin < 22) {
@@ -114,12 +116,14 @@ void main_task(void *pvParameters) {
     updatePixelCount();
     busManager.turnOffLEDs();
   } else {
-    ESP_LOGW("main", "Skipping LED init: invalid config (count=%d pin=%d)", config.led.count, config.led.pin);
+    ESP_LOGW("main", "Skipping LED init: invalid config (count=%d pin=%d)",
+             config.led.count, config.led.pin);
   }
 
   // Initialize relay pin from config
   gpio_set_direction((gpio_num_t)config.led.relayPin, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)config.led.relayPin, config.led.relayActiveHigh ? 0 : 1);
+  gpio_set_level((gpio_num_t)config.led.relayPin,
+                 config.led.relayActiveHigh ? 0 : 1);
 
   // Initialize transition engine brightness to default
   transition.forceCurrentBrightness(state.brightness);
@@ -145,8 +149,8 @@ void main_task(void *pvParameters) {
   webServer.onConfigChange([]() {
     gpio_set_direction((gpio_num_t)config.led.relayPin, GPIO_MODE_OUTPUT);
     gpio_set_level((gpio_num_t)config.led.relayPin,
-           state.power ? (config.led.relayActiveHigh ? 1 : 0)
-                 : (config.led.relayActiveHigh ? 0 : 1));
+                   state.power ? (config.led.relayActiveHigh ? 1 : 0)
+                               : (config.led.relayActiveHigh ? 0 : 1));
     bool locationChanged =
         config.time.latitude != lastConfiguration.time.latitude ||
         config.time.longitude != lastConfiguration.time.longitude;
@@ -210,8 +214,9 @@ void main_task(void *pvParameters) {
   NetworkReadyState lastNetReadyState = NET_READY_NONE;
   bool lastStaConnectedForNtp = false;
 
-  // Give networkLoop() a chance to activate AP fallback if WiFi failed during startup
-  // Process it several times to ensure AP mode is activated before we check mode below
+  // Give networkLoop() a chance to activate AP fallback if WiFi failed during
+  // startup Process it several times to ensure AP mode is activated before we
+  // check mode below
   for (int i = 0; i < 5; i++) {
     networkLoop(config);
     scheduler.update();
@@ -219,7 +224,8 @@ void main_task(void *pvParameters) {
   }
 
   // Only wait for time sync if NOT in AP mode (i.e., in STA mode)
-  // Check mode instead of IP connection to avoid race condition where IP hasn't been assigned yet
+  // Check mode instead of IP connection to avoid race condition where IP hasn't
+  // been assigned yet
   bool in_ap_mode = networkIsApMode();
   if (!in_ap_mode) {
     ESP_LOGI("main", "Waiting for time sync...");
@@ -236,7 +242,8 @@ void main_task(void *pvParameters) {
         netReadyState = NET_READY_AP;
       }
 
-      if (netReadyState != NET_READY_NONE && netReadyState != lastNetReadyState) {
+      if (netReadyState != NET_READY_NONE &&
+          netReadyState != lastNetReadyState) {
         ESP_LOGI("main", "System ready!");
         ESP_LOGI("main", "IP Address: %s", getCurrentIpString(config).c_str());
         ESP_LOGI("main", "=================================");
@@ -322,9 +329,9 @@ void main_task(void *pvParameters) {
       std::string ipStr = getCurrentIpString(config);
       if (presetName != lastPreset || state.power != lastPower ||
           state.brightness != lastBrightness || ipStr != lastIp) {
-        #ifdef DISPLAY_ENABLED
+#ifdef DISPLAY_ENABLED
         display_status(presetName.c_str(), state.power, ipStr.c_str());
-        #endif
+#endif
         lastPreset = presetName;
         lastPower = state.power;
         lastBrightness = state.brightness;

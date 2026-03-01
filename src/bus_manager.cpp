@@ -49,8 +49,8 @@ void BusManager::turnOffLEDs() {
     return;
   uint16_t count = neo->getLength();
   if (!ledsReady) {
-    // Only clear LEDs at boot, before NTP/timer checks
-    #ifdef ESP_PLATFORM
+// Only clear LEDs at boot, before NTP/timer checks
+#ifdef ESP_PLATFORM
     auto *s = static_cast<NeoRmtStrip *>(neo->getStrip());
     const uint8_t zeros[4] = {0, 0, 0, 0};
     s->LockFrameBuffer();
@@ -58,7 +58,7 @@ void BusManager::turnOffLEDs() {
       s->SetPixelBytes(i, zeros);
     s->UnlockFrameBuffer();
     s->SignalFrameReady();
-    #else
+#else
     if (neo->getType() == BusNeoPixelType::SK6812) {
       auto *s = (NeoPixelBus<NeoRgbwFeature, NeoSk6812Method> *)neo->getStrip();
       RgbwColor off(0, 0, 0, 0);
@@ -72,16 +72,15 @@ void BusManager::turnOffLEDs() {
         s->SetPixelColor(i, off);
       s->Show();
     }
-    #endif
+#endif
     ledsReady = true;
   }
 }
-void BusManager::setLedsReady(bool ready) {
-  ledsReady = ready;
-}
+void BusManager::setLedsReady(bool ready) { ledsReady = ready; }
 
 void BusNeoPixel::show() {
-  if (!_strip) return;
+  if (!_strip)
+    return;
 
 #ifdef ESP_PLATFORM
   static_cast<NeoRmtStrip *>(_strip)->SignalFrameReady();
@@ -115,7 +114,8 @@ uint16_t BusManager::updatePixelCount() {
 //   WS2812B GRB → G-R-B    (3 bytes)
 //   WS2812B RGB → R-G-B    (3 bytes)
 void BusNeoPixel::setPixelColor(uint16_t pix, uint32_t color) {
-  if (!_strip || !BusManager::ledsReady) return;
+  if (!_strip || !BusManager::ledsReady)
+    return;
   uint8_t r, g, b, w;
 
 #ifdef ESP_PLATFORM
@@ -142,17 +142,20 @@ void BusNeoPixel::setPixelColor(uint16_t pix, uint32_t color) {
   }
   switch (_type) {
   case BusNeoPixelType::SK6812: {
-    auto *s = static_cast<NeoPixelBus<NeoRgbwFeature, NeoSk6812Method> *>(_strip);
+    auto *s =
+        static_cast<NeoPixelBus<NeoRgbwFeature, NeoSk6812Method> *>(_strip);
     s->SetPixelColor(pix, RgbwColor(g, r, b, w));
     break;
   }
   case BusNeoPixelType::WS2812B_RGB: {
-    auto *s = static_cast<NeoPixelBus<NeoRgbFeature, NeoWs2812xMethod> *>(_strip);
+    auto *s =
+        static_cast<NeoPixelBus<NeoRgbFeature, NeoWs2812xMethod> *>(_strip);
     s->SetPixelColor(pix, RgbColor(r, g, b));
     break;
   }
   case BusNeoPixelType::WS2812B_GRB: {
-    auto *s = static_cast<NeoPixelBus<NeoGrbFeature, NeoWs2812xMethod> *>(_strip);
+    auto *s =
+        static_cast<NeoPixelBus<NeoGrbFeature, NeoWs2812xMethod> *>(_strip);
     s->SetPixelColor(pix, RgbColor(r, g, b));
     break;
   }
@@ -161,7 +164,8 @@ void BusNeoPixel::setPixelColor(uint16_t pix, uint32_t color) {
 }
 
 uint32_t BusNeoPixel::getPixelColor(uint16_t pix) const {
-  if (!_strip) return 0;
+  if (!_strip)
+    return 0;
 
 #ifdef ESP_PLATFORM
   auto *s = static_cast<NeoRmtStrip *>(_strip);
@@ -180,17 +184,20 @@ uint32_t BusNeoPixel::getPixelColor(uint16_t pix) const {
 #else
   switch (_type) {
   case BusNeoPixelType::SK6812: {
-    auto *s = static_cast<NeoPixelBus<NeoRgbwFeature, NeoSk6812Method> *>(_strip);
+    auto *s =
+        static_cast<NeoPixelBus<NeoRgbwFeature, NeoSk6812Method> *>(_strip);
     RgbwColor c = s->GetPixelColor(pix);
     return pack_rgbw(c.G, c.R, c.B, c.W);
   }
   case BusNeoPixelType::WS2812B_RGB: {
-    auto *s = static_cast<NeoPixelBus<NeoRgbFeature, NeoWs2812xMethod> *>(_strip);
+    auto *s =
+        static_cast<NeoPixelBus<NeoRgbFeature, NeoWs2812xMethod> *>(_strip);
     RgbColor c = s->GetPixelColor(pix);
     return pack_rgb(c.R, c.G, c.B);
   }
   case BusNeoPixelType::WS2812B_GRB: {
-    auto *s = static_cast<NeoPixelBus<NeoGrbFeature, NeoWs2812xMethod> *>(_strip);
+    auto *s =
+        static_cast<NeoPixelBus<NeoGrbFeature, NeoWs2812xMethod> *>(_strip);
     RgbColor c = s->GetPixelColor(pix);
     return pack_rgb(c.R, c.G, c.B);
   }
@@ -220,21 +227,23 @@ void BusManager::cleanupStrip() {
   }
 }
 
-void BusManager::setupStrip(const std::string &type, const std::string &colorOrder,
-                            uint8_t pin, uint16_t count) {
+void BusManager::setupStrip(const std::string &type,
+                            const std::string &colorOrder, uint8_t pin,
+                            uint16_t count) {
   cleanupStrip();
 
-  BusNeoPixelType ledType =
-      (strcasecmp(type.c_str(), "SK6812") == 0)
-          ? BusNeoPixelType::SK6812
-          : (strcasecmp(colorOrder.c_str(), "RGB") == 0
-                 ? BusNeoPixelType::WS2812B_RGB
-                 : BusNeoPixelType::WS2812B_GRB);
+  BusNeoPixelType ledType = (strcasecmp(type.c_str(), "SK6812") == 0)
+                                ? BusNeoPixelType::SK6812
+                                : (strcasecmp(colorOrder.c_str(), "RGB") == 0
+                                       ? BusNeoPixelType::WS2812B_RGB
+                                       : BusNeoPixelType::WS2812B_GRB);
 
 #ifdef ESP_PLATFORM
   bool rgbw = (ledType == BusNeoPixelType::SK6812);
-  bool grbOrder = (ledType == BusNeoPixelType::SK6812 || ledType == BusNeoPixelType::WS2812B_GRB);
-  ESP_LOGI("bus", "setupStrip: using NeoRmtStrip pin=%d count=%d rgbw=%d", pin, count, (int)rgbw);
+  bool grbOrder = (ledType == BusNeoPixelType::SK6812 ||
+                   ledType == BusNeoPixelType::WS2812B_GRB);
+  ESP_LOGI("bus", "setupStrip: using NeoRmtStrip pin=%d count=%d rgbw=%d", pin,
+           count, (int)rgbw);
   auto *s = new NeoRmtStrip(count, pin, rgbw, grbOrder);
   if (!s->Begin()) {
     delete s;
@@ -248,13 +257,19 @@ void BusManager::setupStrip(const std::string &type, const std::string &colorOrd
   void *strip = nullptr;
   if (ledType == BusNeoPixelType::SK6812) {
     auto *s = new NeoPixelBus<NeoRgbwFeature, NeoSk6812Method>(count, pin);
-    s->Begin(); s->Show(); strip = s;
+    s->Begin();
+    s->Show();
+    strip = s;
   } else if (ledType == BusNeoPixelType::WS2812B_RGB) {
     auto *s = new NeoPixelBus<NeoRgbFeature, NeoWs2812xMethod>(count, pin);
-    s->Begin(); s->Show(); strip = s;
+    s->Begin();
+    s->Show();
+    strip = s;
   } else {
     auto *s = new NeoPixelBus<NeoGrbFeature, NeoWs2812xMethod>(count, pin);
-    s->Begin(); s->Show(); strip = s;
+    s->Begin();
+    s->Show();
+    strip = s;
   }
   addBus(std::unique_ptr<BusNeoPixel>(new BusNeoPixel(strip, count, ledType)));
 #endif

@@ -98,7 +98,7 @@ export const LedBar = forwardRef((_unused, ref) => {
           height: '32px',
           display: 'block',
         }}
-       />
+      />
     </div>
   );
 });

@@ -2,10 +2,10 @@
 #include "bus_manager.h"
 #include "colors.h"
 #include "debug.h"
+#include "driver/gpio.h"
 #include "effects.h"
 #include "transition.h"
 #include "webserver.h"
-#include "driver/gpio.h"
 #include <inttypes.h>
 #include <stdint.h>
 
@@ -36,7 +36,8 @@ void setUserColor(const uint32_t *newColor, size_t count);
 void updateLEDs();
 
 // --- Static/internal helpers ---
-static bool hasValidPresetColors(const std::vector<std::string> &presetColorsVec);
+static bool
+hasValidPresetColors(const std::vector<std::string> &presetColorsVec);
 static void captureCurrentBusFrame(std::vector<uint32_t> &frame);
 static void
 fillArrayFromPresetColors(const std::vector<std::string> &presetColorsVec,
@@ -55,7 +56,8 @@ static void handleAnimation(size_t count,
 // --- Implementation ---
 
 // Static/internal helpers
-static bool hasValidPresetColors(const std::vector<std::string> &presetColorsVec) {
+static bool
+hasValidPresetColors(const std::vector<std::string> &presetColorsVec) {
   for (const auto &hex : presetColorsVec) {
     if (parse_hex_rgbw(hex.c_str()) == 0x00000000)
       return false;
@@ -121,7 +123,8 @@ static void commitPendingTransition() {
   setEffect(state.effect, state.params);
   transition.clearFrames();
 }
-static void __attribute__((unused)) renderAnimationFrame(size_t count, uint8_t brightness) {
+static void __attribute__((unused)) renderAnimationFrame(size_t count,
+                                                         uint8_t brightness) {
   std::vector<uint32_t> animFrame(count, 0);
   auto animColors = parse_colors_vec(state.params.colors);
   size_t animColorCount =
@@ -134,7 +137,8 @@ static void handlePowerOff() {
   busManager.turnOffLEDs();
   state.inTransition = false;
   state.brightness = 0;
-  gpio_set_level((gpio_num_t)config.led.relayPin, config.led.relayActiveHigh ? 0 : 1);
+  gpio_set_level((gpio_num_t)config.led.relayPin,
+                 config.led.relayActiveHigh ? 0 : 1);
   static std::vector<uint32_t> g_lastOutputFrame;
   g_lastOutputFrame.clear();
   g_outputFramePtr = &g_lastOutputFrame;
@@ -158,7 +162,8 @@ static void handleAnimation(size_t count,
   renderFrameToBus(animFrame);
   g_lastOutputFrame = animFrame;
   if (state.power) {
-    gpio_set_level((gpio_num_t)config.led.relayPin, config.led.relayActiveHigh ? 1 : 0);
+    gpio_set_level((gpio_num_t)config.led.relayPin,
+                   config.led.relayActiveHigh ? 1 : 0);
   }
 }
 
@@ -220,9 +225,9 @@ void setPower(bool power) {
     return;
   }
   state.power = power;
-    gpio_set_level((gpio_num_t)config.led.relayPin,
-               power ? (config.led.relayActiveHigh ? 1 : 0)
-                     : (config.led.relayActiveHigh ? 0 : 1));
+  gpio_set_level((gpio_num_t)config.led.relayPin,
+                 power ? (config.led.relayActiveHigh ? 1 : 0)
+                       : (config.led.relayActiveHigh ? 0 : 1));
   uint8_t targetBrightness = power ? state.brightness : 0;
   // Use powerOn transition time for power changes
   state.transitionTime = config.transitionTimes.powerOn;

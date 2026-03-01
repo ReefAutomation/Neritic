@@ -199,7 +199,7 @@ export function FirmwareUpdate({
                   resetFileInput();
                 } else {
                   showToast(
-                    `OTA failed: ${  xhr.responseText || xhr.statusText}`,
+                    `OTA failed: ${xhr.responseText || xhr.statusText}`,
                     { type: 'error' }
                   );
                   setLocalOtaProgress(-1);
@@ -213,7 +213,7 @@ export function FirmwareUpdate({
               };
               xhr.send(otaFile);
             } catch (err) {
-              showToast(`OTA error: ${  err}`, { type: 'error' });
+              showToast(`OTA error: ${err}`, { type: 'error' });
               setLocalOtaProgress(-1);
               resetFileInput();
             }

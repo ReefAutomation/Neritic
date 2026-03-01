@@ -11,7 +11,9 @@
 
 inline void debugPrintln() { ESP_LOGI(DEBUG_TAG, ""); }
 inline void debugPrintln(const char *msg) { ESP_LOGI(DEBUG_TAG, "%s", msg); }
-inline void debugPrintln(const std::string &msg) { ESP_LOGI(DEBUG_TAG, "%s", msg.c_str()); }
+inline void debugPrintln(const std::string &msg) {
+  ESP_LOGI(DEBUG_TAG, "%s", msg.c_str());
+}
 inline void debugPrintln(int val) { ESP_LOGI(DEBUG_TAG, "%d", val); }
 inline void debugPrintln(unsigned int val) { ESP_LOGI(DEBUG_TAG, "%u", val); }
 inline void debugPrintln(unsigned long val) { ESP_LOGI(DEBUG_TAG, "%lu", val); }
@@ -24,15 +26,21 @@ inline void debugPrintln(const char *fmt, Args... args) {
 }
 
 inline void debugPrint(const char *msg) { ESP_LOGI(DEBUG_TAG, "%s", msg); }
-inline void debugPrint(const std::string &msg) { ESP_LOGI(DEBUG_TAG, "%s", msg.c_str()); }
+inline void debugPrint(const std::string &msg) {
+  ESP_LOGI(DEBUG_TAG, "%s", msg.c_str());
+}
 inline void debugPrint(int val) { ESP_LOGI(DEBUG_TAG, "%d", val); }
 inline void debugPrint(unsigned int val) { ESP_LOGI(DEBUG_TAG, "%u", val); }
 inline void debugPrint(unsigned long val) { ESP_LOGI(DEBUG_TAG, "%lu", val); }
 inline void debugPrint(unsigned long val, int base) {
-  if (base == 16) ESP_LOGI(DEBUG_TAG, "0x%lX", val);
-  else ESP_LOGI(DEBUG_TAG, "%lu", val);
+  if (base == 16)
+    ESP_LOGI(DEBUG_TAG, "0x%lX", val);
+  else
+    ESP_LOGI(DEBUG_TAG, "%lu", val);
 }
-inline void debugPrint(float val, int digits = 3) { ESP_LOGI(DEBUG_TAG, "%.*f", digits, (double)val); }
+inline void debugPrint(float val, int digits = 3) {
+  ESP_LOGI(DEBUG_TAG, "%.*f", digits, (double)val);
+}
 
 template <typename... Args>
 inline void debugPrint(const char *fmt, Args... args) {

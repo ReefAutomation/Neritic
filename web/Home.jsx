@@ -127,7 +127,12 @@ export function Home({
         {/* Header */}
         <header className="header">
           <h1>🐠 Aquarium Control</h1>
-          <StatusBar setTab={setTab} time={state && typeof state.time === 'string' ? state.time : '--:--'} />
+          <StatusBar
+            setTab={setTab}
+            time={
+              state && typeof state.time === 'string' ? state.time : '--:--'
+            }
+          />
         </header>
         {/* Quick Controls */}
         <section className="card">

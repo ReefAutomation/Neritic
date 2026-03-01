@@ -1,21 +1,22 @@
 #include "presets.h"
-#include "inc/presets_json.inc"
-#include <ArduinoJson.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
-#include <sys/stat.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "inc/presets_json.inc"
+#include <ArduinoJson.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#include <sys/stat.h>
 
 #define PRESET_MOUNT_POINT "/data"
 #define PRESET_FILE "/presets.json"
 
 // Utility to ensure filesystem is mounted
 static bool ensureFilesystemMounted() {
-  if (esp_littlefs_mounted("spiffs")) return true;
+  if (esp_littlefs_mounted("spiffs"))
+    return true;
   esp_vfs_littlefs_conf_t conf = {};
   conf.base_path = PRESET_MOUNT_POINT;
   conf.partition_label = "spiffs";
@@ -44,7 +45,8 @@ bool loadPresets(std::vector<Preset> &presets) {
   resetPresetsFile();
 
   if (!ensureFilesystemMounted()) {
-    ESP_LOGW("presets", "Filesystem not available, loading from embedded asset");
+    ESP_LOGW("presets",
+             "Filesystem not available, loading from embedded asset");
   }
   size_t capacity = 8192;
   DynamicJsonDocument doc(capacity);
@@ -135,7 +137,8 @@ bool savePresets(const std::vector<Preset> &presets) {
   char path[64];
   snprintf(path, sizeof(path), "%s%s", PRESET_MOUNT_POINT, PRESET_FILE);
   FILE *fp = fopen(path, "w");
-  if (!fp) return false;
+  if (!fp)
+    return false;
   std::string out;
   size_t written = serializeJson(doc, out);
   fwrite(out.c_str(), 1, out.length(), fp);

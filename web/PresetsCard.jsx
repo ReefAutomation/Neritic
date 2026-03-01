@@ -17,16 +17,15 @@ export function PresetsCard({ presets, effects, activePreset, applyPreset }) {
           } else {
             const pctStep = 100 / (stops.length - 1);
             const colorStops = stops
-              .map((c, i) => `${c  } ${  i * pctStep  }%`)
+              .map((c, i) => `${c} ${i * pctStep}%`)
               .join(', ');
-            gradient = `linear-gradient(135deg, ${  colorStops  })`;
+            gradient = `linear-gradient(135deg, ${colorStops})`;
           }
           return (
             <button
-              className={
-                `preset-card${ 
-                Object.is(activePreset, preset.id) ? ' active' : ''}`
-              }
+              className={`preset-card${
+                Object.is(activePreset, preset.id) ? ' active' : ''
+              }`}
               key={preset.id}
               type="button"
               onClick={() => applyPreset(preset.id)}
@@ -39,7 +38,7 @@ export function PresetsCard({ presets, effects, activePreset, applyPreset }) {
                 className="preset-color-preview"
                 style={{ background: gradient }}
                 aria-hidden="true"
-               />
+              />
             </button>
           );
         })}

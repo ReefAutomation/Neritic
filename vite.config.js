@@ -10,7 +10,7 @@ export default defineConfig({
       output: {
         entryFileNames: 'index.js',
         chunkFileNames: 'index.js',
-        assetFileNames: ({names}) => {
+        assetFileNames: ({ names }) => {
           if (names[0]?.endsWith('.css')) return 'style.css';
           return '[name]';
         },

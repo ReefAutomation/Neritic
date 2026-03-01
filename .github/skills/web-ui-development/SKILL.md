@@ -11,6 +11,14 @@ metadata:
 
 As an AI assistant, your task is to modify the React-based web UI located in the `web/` directory. You must follow this entire protocol to ensure changes are correctly implemented and deployed.
 
+### Environment Prerequisite
+
+For this repository, commands that use project Python tooling (`python`, `platformio`) must run with `.venv` activated:
+
+```bash
+source .venv/bin/activate && <command>
+```
+
 ### Step 1: Understand the Request & The Backend Contract
 
 1.  **Clarify the Goal:** What specific changes are needed for the web UI?
@@ -41,7 +49,7 @@ As an AI assistant, your task is to modify the React-based web UI located in the
 1.  The newly built web assets must be converted into C++ headers to be included in the firmware binary.
 2.  Execute the following Python script from the project root:
     ```bash
-    python scripts/embed_assets.py
+    source .venv/bin/activate && python scripts/embed_assets.py
     ```
 3.  This script will update the `.inc` files in the `src/inc/` directory. Verify the script runs without errors.
 
@@ -50,4 +58,4 @@ As an AI assistant, your task is to modify the React-based web UI located in the
 1.  Once the assets are embedded, your task for modifying the web UI is complete.
 2.  Inform the user that the UI changes have been built and embedded.
 3.  **Crucially, advise the user that they must now rebuild and upload the firmware** for the changes to take effect on their device. You can suggest the command:
-    `platformio run -e esp32d_debug --target upload`
+    `source .venv/bin/activate && platformio run -e esp32d_debug --target upload`

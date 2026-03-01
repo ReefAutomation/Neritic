@@ -10,13 +10,13 @@ export const TABS = Object.freeze({
 // Hook to get current tab from URL hash
 export function useCurrentTab() {
   const [tab, setTab] = useState(() => {
-    if (globalThis.location.hash === `#${  TABS.CONFIG}`) return TABS.CONFIG;
-    if (globalThis.location.hash === `#${  TABS.HOME}`) return TABS.HOME;
+    if (globalThis.location.hash === `#${TABS.CONFIG}`) return TABS.CONFIG;
+    if (globalThis.location.hash === `#${TABS.HOME}`) return TABS.HOME;
     return TABS.HOME;
   });
   useEffect(() => {
     const onHashChange = () => {
-      if (globalThis.location.hash === `#${  TABS.CONFIG}`) setTab(TABS.CONFIG);
+      if (globalThis.location.hash === `#${TABS.CONFIG}`) setTab(TABS.CONFIG);
       else setTab(TABS.HOME);
     };
     globalThis.addEventListener('hashchange', onHashChange);
@@ -48,8 +48,8 @@ export function getHandshakeType(tab) {
 export function useTabs() {
   // Tab state from URL hash, fallback to localStorage, then home
   const getInitialTab = () => {
-    if (globalThis.location.hash === `#${  TABS.CONFIG}`) return TABS.CONFIG;
-    if (globalThis.location.hash === `#${  TABS.HOME}`) return TABS.HOME;
+    if (globalThis.location.hash === `#${TABS.CONFIG}`) return TABS.CONFIG;
+    if (globalThis.location.hash === `#${TABS.HOME}`) return TABS.HOME;
     let saved;
     try {
       saved = localStorage.getItem('deepglow_tab');
@@ -64,7 +64,7 @@ export function useTabs() {
   // Update tab when hash changes
   useEffect(() => {
     const onHashChange = () => {
-      if (globalThis.location.hash === `#${  TABS.CONFIG}`) setTab(TABS.CONFIG);
+      if (globalThis.location.hash === `#${TABS.CONFIG}`) setTab(TABS.CONFIG);
       else setTab(TABS.HOME);
     };
     globalThis.addEventListener('hashchange', onHashChange);
@@ -76,10 +76,10 @@ export function useTabs() {
     try {
       if (tab === TABS.CONFIG) {
         localStorage.setItem('deepglow_tab', TABS.CONFIG);
-        globalThis.location.hash = `#${  TABS.CONFIG}`;
+        globalThis.location.hash = `#${TABS.CONFIG}`;
       } else {
         localStorage.setItem('deepglow_tab', TABS.HOME);
-        globalThis.location.hash = `#${  TABS.HOME}`;
+        globalThis.location.hash = `#${TABS.HOME}`;
       }
     } catch {}
   }, [tab]);

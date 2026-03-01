@@ -11,6 +11,14 @@ metadata:
 
 As an AI assistant, your goal is to actively guide the user through diagnosing and solving problems with their IoT device. Do not just display this document. Follow these steps to interactively troubleshoot.
 
+### Environment Prerequisite
+
+In this repository, use `.venv` for PlatformIO commands:
+
+```bash
+source .venv/bin/activate && <platformio-command>
+```
+
 ### Step 1: Initial Diagnosis
 
 1.  Start by asking the user to describe the problem in detail.
@@ -58,7 +66,7 @@ Based on the problem category and log analysis, proceed with the following inter
     *   Ask the user to try pinging the IP address from their terminal (`ping <ip-address>`).
     *   Ask the user to try accessing `http://<ip-address>`.
 4.  **Check for Filesystem Errors:** Look for `"Failed to mount FS"` or `"FS Not Found"` in the logs.
-    *   If found, instruct the user to run the command `platformio run --target uploadfs` and provide you with the output.
+    *   If found, instruct the user to run the command `source .venv/bin/activate && platformio run --target uploadfs` and provide you with the output.
 
 #### If WiFi Connection Fails:
 

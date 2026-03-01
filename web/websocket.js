@@ -7,7 +7,7 @@ export function createWebSocket({ handshake, onMessage, onBinary }) {
   const BASE_URL = getBaseUrl();
   let wsUrl;
   if (BASE_URL) {
-    wsUrl = `${BASE_URL.replace(/^http/, 'ws')  }/ws`;
+    wsUrl = `${BASE_URL.replace(/^http/, 'ws')}/ws`;
   } else {
     const wsProtocol =
       globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:';
