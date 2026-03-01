@@ -1,7 +1,5 @@
 #pragma once
 
-#ifdef ESP_PLATFORM
-
 #include <stdint.h>
 
 /**
@@ -61,5 +59,3 @@ private:
   void *_mutex; // Actually a SemaphoreHandle_t, but avoid including FreeRTOS in
                 // header
 };
-
-#endif // ESP_PLATFORM

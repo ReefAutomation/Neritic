@@ -94,7 +94,7 @@ static void setPendingTransitionFromPreset(const Preset &preset, size_t n) {
   pendingTransition.preset = preset.id;
 }
 static void captureCurrentFrameForTransition() {
-  BusNeoPixel *neo = busManager.getNeoPixelBus();
+  BusNeoPixel *neo = busManager.getLedBus();
   size_t count = busManager.getPixelCount();
   std::vector<uint32_t> prevFrame(count);
   for (size_t i = 0; i < count; ++i) {
@@ -188,7 +188,6 @@ void applyPreset(uint8_t presetId, uint8_t brightness) {
     return;
 
   transition._previousState = transition._currentState;
-  bool doTransition = (state.prevEffect >= 0);
   webServer.applyTransitionTimeLimit(state.transitionTime);
 
   size_t count = busManager.getPixelCount();
@@ -272,7 +271,7 @@ void setEffect(uint8_t effect, const EffectParams &params) {
     state.params.colors.push_back(std::string(hex));
   }
 
-  BusNeoPixel *neo = busManager.getNeoPixelBus();
+  BusNeoPixel *neo = busManager.getLedBus();
   if (!neo || !neo->getStrip())
     return;
   if (effect < effectRegistry.size() && effectRegistry[effect].fn) {
@@ -292,7 +291,7 @@ void setUserColor(const uint32_t *newColor, size_t count) {
   setEffect(state.effect, state.params);
 }
 void updateLEDs() {
-  BusNeoPixel *neo = busManager.getNeoPixelBus();
+  BusNeoPixel *neo = busManager.getLedBus();
   if (!neo || !neo->getStrip())
     return;
   if (!state.power) {

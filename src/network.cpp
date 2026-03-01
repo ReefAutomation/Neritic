@@ -228,7 +228,6 @@ void networkSetup(Configuration &config) {
 
   const std::string &ssid = config.network.ssid;
   const std::string &password = config.network.password;
-  const std::string &apPass = config.network.apPassword;
   const std::string &hostname = config.network.hostname;
 
   if (!ssid.empty()) {

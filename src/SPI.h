@@ -1,6 +1,6 @@
 /**
  * Minimal SPI.h compatibility stub for ESP-IDF builds.
- * Satisfies NeoPixelBus SPI method headers without linking real SPI.
+ * Provides minimal SPI symbols for compatibility without linking real SPI.
  * SPI-based LED methods (DotStar) are never instantiated in this project.
  */
 #pragma once

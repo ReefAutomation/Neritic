@@ -1,5 +1,3 @@
-#ifdef ESP_PLATFORM
-
 #include "neo_rmt.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -288,5 +286,3 @@ void NeoRmtStrip::GetPixelBytes(uint16_t index, uint8_t *bytes) const {
   if (_mutex)
     xSemaphoreGive((SemaphoreHandle_t)_mutex);
 }
-
-#endif // ESP_PLATFORM

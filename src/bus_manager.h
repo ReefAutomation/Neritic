@@ -44,7 +44,7 @@ public:
   void beginFrame();
   void endFrame();
   void turnOffLEDs();
-  BusNeoPixel *getNeoPixelBus();
+  BusNeoPixel *getLedBus();
   void addBus(std::unique_ptr<Bus> bus) { buses.push_back(std::move(bus)); }
   void setupStrip(const std::string &type, const std::string &colorOrder,
                   uint8_t pin, uint16_t count);

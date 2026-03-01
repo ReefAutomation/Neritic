@@ -241,17 +241,12 @@ REGISTER_EFFECT(3, "Moonlight", effect_moonlight)
 
 // Lightning effect: emulates a storm seen from underwater
 void effect_lightning() {
-  // Debug: print speed and delay info
-  static uint8_t lastDebugSpeed = 0;
-  static uint32_t lastDebugDelay = 0;
   static uint8_t lastSpeed = 0;
   if (!g_effectBuffer || g_ledCount == 0)
     return;
 
   static uint32_t lastFlash = 0;
   static bool inBurst = false;
-  static uint32_t burstStart = 0;
-  static uint32_t burstDuration = 0;
   static uint32_t burstFlashCount = 0;
   static uint32_t burstFlashIdx = 0;
   static uint32_t flashStart = 0;
@@ -290,11 +285,6 @@ void effect_lightning() {
   // Recalculate delay immediately if speed changes
   uint8_t userSpeed = state.params.speed > 0 ? state.params.speed : 1;
   if (userSpeed != lastSpeed) {
-    // Clamp to [1,255]
-    if (userSpeed < 1)
-      userSpeed = 1;
-    if (userSpeed > 255)
-      userSpeed = 255;
     uint32_t maxDelay = 60000; // 60s
     uint32_t minDelay = 5000;  // 5s
     float t = (userSpeed - 1) / 254.0f;
@@ -307,8 +297,6 @@ void effect_lightning() {
   if (!inBurst && now - lastFlash > nextDelay) {
     // Start a burst (lightning event)
     inBurst = true;
-    burstStart = now;
-    burstDuration = 180 + (uint32_t)(randf() * 220); // 180-400ms burst
     burstFlashCount = 2 + (uint32_t)(randf() * 4);   // 2-5 flashes per burst
     burstFlashIdx = 0;
     flashTime = now;

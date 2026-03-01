@@ -21,13 +21,18 @@ This skill outlines the common tasks for building and deploying the project.
 
 ### Building the Firmware
 
-*   **Command:** `source .venv/bin/activate && platformio run -e esp32c6_debug`
-*   **Example:** To build for the primary ESP32-C6 debug environment, run:
+*   **Command:** `source .venv/bin/activate && platformio run -e <environment_name>`
+*   **Supported ESP-IDF environments:** `esp32d`, `esp32c6`, `esp32`, `esp32c3`, `esp32s3` and their `_debug` variants.
+*   **Example:** To build for the ESP32-C6 debug environment, run:
   ```bash
   source .venv/bin/activate && platformio run -e esp32c6_debug
   ```
+*   **Example:** To build for the ESP32-C3 debug environment, run:
+  ```bash
+  source .venv/bin/activate && platformio run -e esp32c3_debug
+  ```
 *   Always activate the Python virtual environment before building.
-*   You can also use the "Build for esp32c6_debug" task available in the workspace.
+*   You can also use the board-specific build tasks available in the workspace.
 
 ### Building the Web Interface
 

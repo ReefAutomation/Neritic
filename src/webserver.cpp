@@ -420,6 +420,8 @@ void WebServerManager::setupWebSocket() {
       .handler = wsHandler,
       .user_ctx = this,
       .is_websocket = true,
+      .handle_ws_control_frames = false,
+      .supported_subprotocol = nullptr,
   };
   httpd_register_uri_handler(_server, &ws_uri);
 }
@@ -427,8 +429,14 @@ void WebServerManager::setupWebSocket() {
 void WebServerManager::setupRoutes() {
 #define URI(path, meth, fn)                                                    \
   {                                                                            \
-    httpd_uri_t _u = {                                                         \
-        .uri = path, .method = meth, .handler = fn, .user_ctx = this};         \
+    httpd_uri_t _u = {};                                                       \
+    _u.uri = path;                                                             \
+    _u.method = meth;                                                          \
+    _u.handler = fn;                                                           \
+    _u.user_ctx = this;                                                        \
+    _u.is_websocket = false;                                                   \
+    _u.handle_ws_control_frames = false;                                       \
+    _u.supported_subprotocol = nullptr;                                        \
     httpd_register_uri_handler(_server, &_u);                                  \
   }
 

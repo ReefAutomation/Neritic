@@ -40,8 +40,6 @@ struct LEDConfig {
 
 // Conversion helpers
 inline uint8_t percentToHex(uint8_t percent) {
-  if (percent < 0)
-    percent = 0;
   if (percent > 100)
     percent = 100;
   return (uint8_t)((percent * 255 + 50) / 100); // round to nearest

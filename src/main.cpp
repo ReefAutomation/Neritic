@@ -59,7 +59,6 @@ std::vector<Timer> lastTimers;
 int8_t lastScheduledPreset = -1;
 
 extern TransitionEngine transition;
-static bool apFallbackTriggered = false;
 
 // Function declarations
 void setupLEDs();

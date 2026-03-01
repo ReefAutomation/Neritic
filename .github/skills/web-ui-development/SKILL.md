@@ -58,4 +58,5 @@ source .venv/bin/activate && <command>
 1.  Once the assets are embedded, your task for modifying the web UI is complete.
 2.  Inform the user that the UI changes have been built and embedded.
 3.  **Crucially, advise the user that they must now rebuild and upload the firmware** for the changes to take effect on their device. You can suggest the command:
-    `source .venv/bin/activate && platformio run -e esp32d_debug --target upload`
+    `source .venv/bin/activate && platformio run -e <environment_name> --target upload`
+    where `<environment_name>` is one of `esp32d_debug`, `esp32c6_debug`, `esp32_debug`, `esp32c3_debug`, or `esp32s3_debug`.
