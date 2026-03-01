@@ -451,7 +451,7 @@ esp_err_t WebServerManager::hUpdatePost(httpd_req_t *req) {
 #else
     const BaseType_t otaCore = 1;
 #endif
-    xTaskCreatePinnedToCore(otaTask, "otaTask", 24576, nullptr, 4, nullptr, otaCore);
+    xTaskCreatePinnedToCore(otaTask, "otaTask", 24576, nullptr, 6, nullptr, otaCore);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"success\":true,\"message\":\"OTA started\"}");
     return ESP_OK;
