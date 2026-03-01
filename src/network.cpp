@@ -34,6 +34,15 @@ static bool s_dns_task_started = false;
 
 static void dns_task(void *arg);
 
+static void disable_wifi_power_save() {
+  esp_err_t rc = esp_wifi_set_ps(WIFI_PS_NONE);
+  if (rc == ESP_OK) {
+    ESP_LOGI(TAG, "WiFi power save disabled (WIFI_PS_NONE)");
+  } else {
+    ESP_LOGW(TAG, "Failed to disable WiFi power save: rc=%d", rc);
+  }
+}
+
 static void configure_ap(const Configuration &config) {
   wifi_config_t ap_cfg = {};
   const std::string &hostname = config.network.hostname;
@@ -243,6 +252,7 @@ void networkSetup(Configuration &config) {
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     configure_ap(config);
     ESP_ERROR_CHECK(esp_wifi_start());
+    disable_wifi_power_save();
     s_ap_mode = true;
     esp_netif_ip_info_t ip_info;
     if (esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
@@ -265,6 +275,7 @@ void networkSetup(Configuration &config) {
   sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
   ESP_ERROR_CHECK(esp_wifi_start());
+  disable_wifi_power_save();
   esp_netif_set_hostname(s_sta_netif, hostname.c_str());
   s_last_disconnect_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
   s_failure_streak_start_ms = s_last_disconnect_ms;

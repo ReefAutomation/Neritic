@@ -33,6 +33,9 @@
 
 static const char *TAG = "webserver";
 
+#define WEBSERVER_HEALTH_CHECK_INTERVAL_MS 30000
+#define WEBSERVER_HEALTH_FAILS_BEFORE_RECOVER 3
+
 extern TransitionEngine transition;
 extern SystemState state;
 extern TransitionEngine::PendingTransitionState pendingTransition;
@@ -45,6 +48,10 @@ extern WebServerManager *webServerPtr;
 // Cached effects JSON
 static std::string cachedEffectsJson;
 static bool effectsCacheReady = false;
+
+static void health_probe_work(void *arg) {
+  (void)arg;
+}
 
 #define LIVE_LED_BROADCAST_INTERVAL_MS 400
 
@@ -180,22 +187,35 @@ WebServerManager::WebServerManager(Configuration *config,
 
 // ── begin
 // ─────────────────────────────────────────────────────────────────────
-void WebServerManager::begin() {
+bool WebServerManager::startHttpServer() {
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.max_uri_handlers = 48;
   cfg.max_open_sockets = 7; // 7 + 1 listen = 8; fits within LWIP_MAX_SOCKETS=16
                             // with room for outbound TLS
+  cfg.lru_purge_enable = true;
   cfg.stack_size =
       24576; // Large enough for JSON handlers + gz OTA decompression
 
   if (httpd_start(&_server, &cfg) != ESP_OK) {
     ESP_LOGE(TAG, "httpd_start failed");
-    return;
+    _server = nullptr;
+    return false;
   }
 
   setupWebSocket();
   setupRoutes();
   buildEffectsCache();
+
+  _lastHealthCheckMs = (uint32_t)(esp_timer_get_time() / 1000ULL);
+  _healthProbeFailures = 0;
+
+  return true;
+}
+
+void WebServerManager::begin() {
+  if (!startHttpServer()) {
+    return;
+  }
 
   // Live LED broadcast timer
   esp_timer_create_args_t ta = {};
@@ -209,9 +229,63 @@ void WebServerManager::begin() {
   ESP_LOGI(TAG, "Web server started");
 }
 
+void WebServerManager::recoverHttpServer() {
+  ESP_LOGW(TAG, "Recovering HTTP server after health probe failures");
+
+  if (_server) {
+    esp_err_t stopRc = httpd_stop(_server);
+    if (stopRc != ESP_OK) {
+      ESP_LOGW(TAG, "httpd_stop returned %d during recovery", stopRc);
+    }
+    _server = nullptr;
+  }
+
+  _wsHandshaked.clear();
+  _otaClients.clear();
+
+  if (startHttpServer()) {
+    ESP_LOGI(TAG, "HTTP server recovered successfully");
+  } else {
+    ESP_LOGE(TAG, "HTTP server recovery failed");
+  }
+}
+
+void WebServerManager::runHealthCheck() {
+  if (!_server || otaInProgress) {
+    return;
+  }
+
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
+  if ((now - _lastHealthCheckMs) < WEBSERVER_HEALTH_CHECK_INTERVAL_MS) {
+    return;
+  }
+  _lastHealthCheckMs = now;
+
+  esp_err_t rc = httpd_queue_work(_server, health_probe_work, nullptr);
+  if (rc == ESP_OK) {
+    if (_healthProbeFailures > 0) {
+      ESP_LOGI(TAG, "HTTP health probe recovered");
+    }
+    _healthProbeFailures = 0;
+    return;
+  }
+
+  _healthProbeFailures++;
+  ESP_LOGW(TAG,
+           "HTTP health probe failed rc=%d (consecutive=%u)",
+           rc,
+           (unsigned)_healthProbeFailures);
+
+  if (_healthProbeFailures >= WEBSERVER_HEALTH_FAILS_BEFORE_RECOVER) {
+    recoverHttpServer();
+  }
+}
+
 // ── update (called from main_task)
 // ────────────────────────────────────────────
 void WebServerManager::update() {
+  runHealthCheck();
+
   if (!_liveLedTick)
     return;
   _liveLedTick = false;

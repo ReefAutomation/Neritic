@@ -48,6 +48,8 @@ private:
   httpd_handle_t _server = nullptr;
 
   uint32_t _lastBroadcast = 0;
+  uint32_t _lastHealthCheckMs = 0;
+  uint8_t _healthProbeFailures = 0;
 
   // Callbacks
   void (*_powerCallback)(bool) = nullptr;
@@ -70,6 +72,9 @@ private:
   void setupWebSocket();
   void setupRoutes();
   void buildEffectsCache();
+  bool startHttpServer();
+  void recoverHttpServer();
+  void runHealthCheck();
   void broadcastText(const std::string &msg, bool otaClientsOnly = false);
   void broadcastBinary(const uint8_t *data, size_t len);
   void cleanupDisconnectedClients();
