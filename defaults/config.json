@@ -5,6 +5,13 @@
     "hostname": "Neritic",
     "apPassword": ""
   },
+  "homekit": {
+    "enabled": true,
+    "bridgeMode": "native",
+    "accessoryName": "Neritic",
+    "setupCode": "031-45-154",
+    "setupId": "DG01"
+  },
   "led": {
     "pin": 14,
     "count": 34,

@@ -88,6 +88,14 @@ struct NetworkConfig {
   std::string password;
 };
 
+struct HomeKitConfig {
+  bool enabled = false;
+  std::string bridgeMode = "homebridge-http";
+  std::string accessoryName = "Neritic";
+  std::string setupCode = "031-45-154";
+  std::string setupId = "DG01";
+};
+
 struct TimeConfig {
   std::string ntpServer;
   std::string timezone; // IANA timezone string, e.g. "America/Los_Angeles"
@@ -132,6 +140,7 @@ public:
   SafetyConfig safety;
   TransitionTimesConfig transitionTimes;
   NetworkConfig network;
+  HomeKitConfig homekit;
   TimeConfig time;
   std::vector<Preset> presets;
 

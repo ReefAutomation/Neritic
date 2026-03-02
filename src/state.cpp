@@ -4,6 +4,8 @@
 #include "driver/gpio.h"
 #include "effects.h"
 #include "esp_log.h"
+#include "homekit_bridge.h"
+#include "native_homekit.h"
 #include "transition.h"
 #include "webserver.h"
 #include <algorithm>
@@ -289,7 +291,6 @@ void setPower(bool power) {
                          targetBrightness);
     transition.setTargetFrame(targetFrame);
   }
-
   transition.startTransition({targetBrightness, curColors},
                              state.transitionTime);
 
@@ -301,6 +302,8 @@ void setPower(bool power) {
            (unsigned)state.transitionTime,
            (unsigned)state.brightness);
 
+  homekitBridgeSync(state);
+  nativeHomeKitSync(state);
   webServer.broadcastState();
 }
 void setBrightness(uint8_t brightness) {
@@ -323,6 +326,8 @@ void setBrightness(uint8_t brightness) {
   captureCurrentFrameForTransition();
   transition.startTransition({brightness, transition._currentState.colors},
                              state.transitionTime);
+  homekitBridgeSync(state);
+  nativeHomeKitSync(state);
   webServer.broadcastState();
 }
 void setEffect(uint8_t effect, const EffectParams &params) {

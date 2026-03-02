@@ -47,8 +47,21 @@ pio device monitor -b 115200
 - `minTransitionTime`: `5000` ms or more
 - Avoid fast flashing effects during fish acclimation
 
+## HomeKit (optional)
+
+Bridge/HomeKit mapping checklist:
+
+- [ ] Enable bridge mode in config (`homekit.enabled: true`)
+- [ ] Give the controller a stable LAN address (DHCP reservation)
+- [ ] `GET /api/homekit` returns the expected metadata
+- [ ] `POST /api/state` with `{"power":true}` and `{"brightness":60}` works
+- [ ] Map the bridge plugin actions to `POST /api/state` (`power`, `brightness`)
+
+Full guide: [HOMEKIT.md](HOMEKIT.md)
+
 ## Next
 
 - Fine tune configuration: [CONFIGURATION.md](CONFIGURATION.md)
 - Connect API clients: [API.md](API.md)
+- Set up HomeKit bridging: [HOMEKIT.md](HOMEKIT.md)
 - If anything fails: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)

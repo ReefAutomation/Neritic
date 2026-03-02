@@ -52,6 +52,24 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
 - `hostname`: mDNS/host label
 - `apPassword`: AP password (empty means default behavior)
 
+### `homekit`
+```json
+{
+  "homekit": {
+    "enabled": false,
+    "bridgeMode": "homebridge-http",
+    "accessoryName": "Neritic",
+    "setupCode": "031-45-154",
+    "setupId": "DG01"
+  }
+}
+```
+- `enabled`: turns bridge metadata mode on/off
+- `bridgeMode`: profile name used by integrations (`homebridge-http`, `hybrid`,
+  or `native`)
+- `accessoryName`: friendly name shown in the bridge/HomeKit
+- `setupCode`, `setupId`: values exposed by `/api/homekit` for bridge workflows
+
 ### `led`
 - `pin`: LED data pin
 - `count`: number of LEDs

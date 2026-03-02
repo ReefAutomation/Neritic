@@ -30,6 +30,21 @@ From `platformio.ini`:
 - `esp32s3_debug`
 - `esp32c6`
 - `esp32c6_debug`
+- `esp32d_native`
+- `esp32d_native_debug`
+
+## HomeKit
+
+Neritic exposes HomeKit bridge metadata at `GET /api/homekit`, so it can be driven
+from Homebridge or the Home Assistant HomeKit Bridge. Control stays on
+`POST /api/state` with JSON such as `{"power":true,"brightness":60}`.
+
+Configure it with the `homekit` block in `config.json` (`enabled`, `bridgeMode`,
+`accessoryName`, `setupCode`, `setupId`); see [docs/HOMEKIT.md](docs/HOMEKIT.md)
+for mapping, validation, and pairing details.
+
+Direct (native) pairing support is still scaffold-only and is built by the
+`esp32d_native` / `esp32d_native_debug` environments.
 
 ## Quick Start
 
@@ -97,6 +112,7 @@ If you build for a specific environment, add `-e <env>` as usual (for example `-
 - [Quick Start](docs/QUICKSTART.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [API](docs/API.md)
+- [HomeKit Bridge](docs/HOMEKIT.md)
 - [Preset Effects](docs/PRESET_EFFECTS.md)
 - [Wiring](docs/WIRING.md)
 - [Safety Guidelines](docs/SAFETY_GUIDELINES.md)

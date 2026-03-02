@@ -1,6 +1,10 @@
 dependencies:
   idf:
     version: ">=6.1"
+  espressif/libsodium:
+    version: "^1.0.20"
+  espressif/mdns:
+    version: "^1.4.2"
   espressif/led_strip: "^3.1.0~1"
   espressif/zlib: "^1.3.2~1"
   espressif/cjson: "^1.7.19~2"

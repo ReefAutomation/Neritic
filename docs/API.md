@@ -133,6 +133,49 @@ Base URL: `http://<device-ip>`
   - The list is loaded from the runtime timezone data (`/data/timezones.json`
     on the filesystem) when present, otherwise from the embedded bootstrap list.
 
+### HomeKit bridge
+
+- `GET /api/homekit`
+  - Returns HomeKit bridge compatibility metadata and endpoint hints.
+
+    ```json
+    {
+      "enabled": true,
+      "nativePairingSupported": false,
+      "nativeScaffoldCompiled": true,
+      "nativeScaffoldStatus": "scaffold-active",
+      "bridgeMode": "homebridge-http",
+      "accessoryName": "Neritic",
+      "setupCode": "031-45-154",
+      "setupId": "DG01",
+      "power": true,
+      "brightness": 60,
+      "ip": "192.168.1.50",
+      "endpoints": {
+        "stateGet": "/api/state",
+        "stateSet": "/api/state",
+        "metadata": "/api/homekit"
+      },
+      "hint": "Configure your HomeKit bridge plugin to POST JSON to /api/state with {\"power\":true|false,\"brightness\":0..100}."
+    }
+    ```
+
+  - Fields:
+    - `enabled`: HomeKit bridge mode enabled in config
+    - `nativePairingSupported`: direct Apple Home pairing flag (`false` while
+      only the bridge/scaffold path exists)
+    - `nativeScaffoldCompiled`: whether native scaffold code is in this build
+    - `nativeScaffoldStatus`: `not-compiled`, `disabled`, `bridge-mode`,
+      `pending`, or `adapter-ready`
+    - `bridgeMode`, `accessoryName`, `setupCode`, `setupId`: values from the
+      `homekit` config block
+    - `power`, `brightness`, `ip`: current state snapshot
+    - `endpoints`: endpoints to map in the bridge plugin
+
+- `GET /api/homekit/qr`
+  - Returns pairing status for QR requests: `409` in bridge mode (direct pairing
+    unsupported), `404` when setup data is unavailable.
+
 ## WebSocket
 
 Endpoint: `ws://<device-ip>/ws`
