@@ -41,3 +41,22 @@
   border-radius: 6px;
   margin-top: 8px;
 }
+
+.homekit-qr-wrap {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 16px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.homekit-qr-image {
+  width: 100%;
+  max-width: 220px;
+  border-radius: 12px;
+  background: var(--bg-light);
+}
+
+.homekit-qr-meta {
+  width: 100%;
+}

@@ -62,6 +62,25 @@ Edit in web interface or modify `config.json`:
 }
 ```
 
+## HomeKit Bridge Mode
+```json
+{
+  "homekit": {
+    "enabled": false,
+    "bridgeMode": "homebridge-http",
+    "accessoryName": "DeepGlow",
+    "setupCode": "031-45-154",
+    "setupId": "DG01"
+  }
+}
+```
+
+Field notes:
+- `enabled`: Turns bridge metadata mode on/off.
+- `bridgeMode`: Profile name used by integrations.
+- `accessoryName`: Friendly name shown in bridge/HomeKit.
+- `setupCode` and `setupId`: Values exposed by `/api/homekit` for bridge workflows.
+
 ## Timers
 ```json
 {

@@ -172,9 +172,11 @@ static bool jsonBoolOr(const cJSON *obj, const char *key, bool fallback) {
   return fallback;
 }
 
-static void mergeJson(cJSON *dst, const cJSON *src) {
+static bool mergeJson(cJSON *dst, const cJSON *src) {
   if (!cJSON_IsObject(dst) || !cJSON_IsObject(src))
-    return;
+    return false;
+
+  bool changed = false;
 
   for (const cJSON *item = src->child; item; item = item->next) {
     const char *key = item->string;
@@ -184,17 +186,24 @@ static void mergeJson(cJSON *dst, const cJSON *src) {
     cJSON *dstItem = cJSON_GetObjectItemCaseSensitive(dst, key);
     if (!dstItem) {
       cJSON_AddItemToObject(dst, key, cJSON_Duplicate(item, 1));
+      changed = true;
       continue;
     }
 
     if (cJSON_IsNull(dstItem)) {
       cJSON_ReplaceItemInObjectCaseSensitive(dst, key, cJSON_Duplicate(item, 1));
+      changed = true;
       continue;
     }
 
-    if (cJSON_IsObject(dstItem) && cJSON_IsObject(item))
-      mergeJson(dstItem, item);
+    if (cJSON_IsObject(dstItem) && cJSON_IsObject(item)) {
+      if (mergeJson(dstItem, item)) {
+        changed = true;
+      }
+    }
   }
+
+  return changed;
 }
 
 static void debugDumpFileContents(const char *path) {
@@ -261,6 +270,15 @@ std::string Configuration::toJsonString() {
   cJSON_AddStringToObject(netObj, "hostname", network.hostname.c_str());
   cJSON_AddStringToObject(netObj, "apPassword", network.apPassword.c_str());
   cJSON_AddStringToObject(netObj, "ssid", network.ssid.c_str());
+
+  cJSON *homekitObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "homekit", homekitObj);
+  cJSON_AddBoolToObject(homekitObj, "enabled", homekit.enabled);
+  cJSON_AddStringToObject(homekitObj, "bridgeMode", homekit.bridgeMode.c_str());
+  cJSON_AddStringToObject(homekitObj, "accessoryName",
+                          homekit.accessoryName.c_str());
+  cJSON_AddStringToObject(homekitObj, "setupCode", homekit.setupCode.c_str());
+  cJSON_AddStringToObject(homekitObj, "setupId", homekit.setupId.c_str());
 
   cJSON *tObj = cJSON_CreateObject();
   cJSON_AddItemToObject(doc, "transitionTimes", tObj);
@@ -394,8 +412,7 @@ bool Configuration::load() {
       updated = true;
     }
   } else {
-    mergeJson(doc, defaultsDoc);
-    updated = true;
+    updated = mergeJson(doc, defaultsDoc);
   }
 
   cJSON *ledObj = jsonObjectItem(doc, "led");
@@ -437,6 +454,19 @@ bool Configuration::load() {
     network.apPassword = jsonStringOr(netObj, "apPassword", "");
     network.ssid = jsonStringOr(netObj, "ssid", "");
     network.password = jsonStringOr(netObj, "password", "");
+  }
+
+  cJSON *homekitObj = jsonObjectItem(doc, "homekit");
+  if (cJSON_IsObject(homekitObj)) {
+    homekit.enabled = jsonBoolOr(homekitObj, "enabled", homekit.enabled);
+    homekit.bridgeMode =
+        jsonStringOr(homekitObj, "bridgeMode", homekit.bridgeMode.c_str());
+    homekit.accessoryName = jsonStringOr(homekitObj, "accessoryName",
+                                         homekit.accessoryName.c_str());
+    homekit.setupCode =
+        jsonStringOr(homekitObj, "setupCode", homekit.setupCode.c_str());
+    homekit.setupId =
+        jsonStringOr(homekitObj, "setupId", homekit.setupId.c_str());
   }
   ESP_LOGI(TAG, "Config load: ssid='%s' len=%u", network.ssid.c_str(),
            (unsigned)network.ssid.size());
@@ -494,6 +524,15 @@ bool Configuration::save() {
   cJSON_AddStringToObject(netObj, "apPassword", network.apPassword.c_str());
   cJSON_AddStringToObject(netObj, "ssid", network.ssid.c_str());
   cJSON_AddStringToObject(netObj, "password", network.password.c_str());
+
+  cJSON *homekitObj = cJSON_CreateObject();
+  cJSON_AddItemToObject(doc, "homekit", homekitObj);
+  cJSON_AddBoolToObject(homekitObj, "enabled", homekit.enabled);
+  cJSON_AddStringToObject(homekitObj, "bridgeMode", homekit.bridgeMode.c_str());
+  cJSON_AddStringToObject(homekitObj, "accessoryName",
+                          homekit.accessoryName.c_str());
+  cJSON_AddStringToObject(homekitObj, "setupCode", homekit.setupCode.c_str());
+  cJSON_AddStringToObject(homekitObj, "setupId", homekit.setupId.c_str());
 
   cJSON *timeObj = cJSON_CreateObject();
   cJSON_AddItemToObject(doc, "time", timeObj);
@@ -589,6 +628,24 @@ void Configuration::partialUpdate(const cJSON *update) {
     }
   }
 
+  const cJSON *homekitObj = jsonObjectItemConst(update, "homekit");
+  if (cJSON_IsObject(homekitObj)) {
+    if (jsonObjectItemConst(homekitObj, "enabled"))
+      homekit.enabled = jsonBoolOr(homekitObj, "enabled", homekit.enabled);
+    if (jsonObjectItemConst(homekitObj, "bridgeMode"))
+      homekit.bridgeMode =
+          jsonStringOr(homekitObj, "bridgeMode", homekit.bridgeMode.c_str());
+    if (jsonObjectItemConst(homekitObj, "accessoryName"))
+      homekit.accessoryName = jsonStringOr(homekitObj, "accessoryName",
+                                           homekit.accessoryName.c_str());
+    if (jsonObjectItemConst(homekitObj, "setupCode"))
+      homekit.setupCode =
+          jsonStringOr(homekitObj, "setupCode", homekit.setupCode.c_str());
+    if (jsonObjectItemConst(homekitObj, "setupId"))
+      homekit.setupId =
+          jsonStringOr(homekitObj, "setupId", homekit.setupId.c_str());
+  }
+
   const cJSON *timeObj = jsonObjectItemConst(update, "time");
   if (cJSON_IsObject(timeObj)) {
     if (jsonObjectItemConst(timeObj, "ntpServer"))
@@ -643,6 +700,7 @@ void Configuration::setDefaults() {
   led = LEDConfig();
   safety = SafetyConfig();
   network = NetworkConfig();
+  homekit = HomeKitConfig();
   time = TimeConfig();
 
   std::string defaultsContent((const char *)web_config_default,

@@ -1,6 +1,10 @@
 dependencies:
   idf:
     version: ">=5.5.0"
+  espressif/libsodium:
+    version: "^1.0.20"
+  espressif/mdns:
+    version: "^1.4.2"
   espressif/led_strip: "^3.0.3"
   espressif/zlib: "^1.3.2"
   joltwallet/littlefs: "^1.20.4"

@@ -116,6 +116,8 @@ private:
   static esp_err_t hFactoryReset(httpd_req_t *req);
   static esp_err_t hTimerPost(httpd_req_t *req);
   static esp_err_t hTimezones(httpd_req_t *req);
+  static esp_err_t hHomeKit(httpd_req_t *req);
+  static esp_err_t hHomeKitQr(httpd_req_t *req);
   static esp_err_t hOptions(httpd_req_t *req);
   static esp_err_t hNotFound(httpd_req_t *req, httpd_err_code_t err);
 

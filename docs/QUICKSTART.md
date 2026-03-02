@@ -235,6 +235,23 @@ See Troubleshooting section below.
    - Brightness
 3. Save changes
 
+### 5. HomeKit Bridge Setup (Optional)
+
+Quick checklist:
+
+- [ ] Enable HomeKit bridge mode in config (`homekit.enabled: true`)
+- [ ] Confirm controller is reachable on LAN with stable IP/DHCP reservation
+- [ ] Test endpoints:
+  - [ ] `GET /api/homekit`
+  - [ ] `POST /api/state` with `{"power":true}`
+  - [ ] `POST /api/state` with `{"brightness":60}`
+- [ ] Map Homebridge actions to DeepGlow API:
+  - [ ] On → `POST /api/state` body `{"power":true}`
+  - [ ] Off → `POST /api/state` body `{"power":false}`
+  - [ ] Brightness → `POST /api/state` body `{"brightness":<0..100>}`
+
+See full guide: [HOMEKIT.md](HOMEKIT.md)
+
 ---
 
 ## Troubleshooting
@@ -331,6 +348,7 @@ After first boot, edit configuration via web interface or create `config.json`:
 - 📖 **Full Documentation**: [README.md](../README.md)
 - 🔌 **Wiring Guide**: [docs/WIRING.md](WIRING.md)
 - 🔧 **API Documentation**: [docs/API.md](API.md)
+- 🍎 **HomeKit Bridge Guide**: [docs/HOMEKIT.md](HOMEKIT.md)
 
 ### Support
 

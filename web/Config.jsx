@@ -11,6 +11,7 @@ import { TransitionSettings } from './Settings/TransitionSettings.jsx';
 import { LocationTimeSettings } from './Settings/LocationTimeSettings.jsx';
 import { FirmwareUpdate } from './Settings/FirmwareUpdate.jsx';
 import { DeviceActions } from './Settings/DeviceActions.jsx';
+import { HomeKitSettings } from './Settings/HomeKitSettings.jsx';
 import { Schedule } from './Settings/Schedule.jsx';
 
 export function Config({
@@ -205,6 +206,7 @@ export function Config({
             localOtaProgress={localOtaProgress}
             setLocalOtaProgress={setLocalOtaProgress}
           />
+          <HomeKitSettings showToast={showToast} />
           <DeviceActions showToast={showToast} />
         </div>
         <Schedule

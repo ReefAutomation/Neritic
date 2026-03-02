@@ -18,6 +18,8 @@
 #include "effects.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "homekit_bridge.h"
+#include "native_homekit.h"
 #include "network.h"
 #include "nvs_flash.h"
 #include "ota.h"
@@ -72,7 +74,7 @@ extern "C" void app_main() {
   // app_main has a small stack — do nothing heavy here.
   // Just delay for USB enumeration, then hand off to main_task.
   vTaskDelay(pdMS_TO_TICKS(3000));
-  xTaskCreate(main_task, "main_task", 32768, NULL, 5, NULL);
+  xTaskCreate(main_task, "main_task", 16384, NULL, 5, NULL);
 }
 
 void main_task(void *pvParameters) {
@@ -201,9 +203,11 @@ void main_task(void *pvParameters) {
     }
   });
 
+  nativeHomeKitSetup(config);
   webServer.begin();
   scheduler.begin();
   setupArduinoOTA(config.network.hostname.c_str());
+  homekitBridgeSetup(config);
 
   enum NetworkReadyState {
     NET_READY_NONE = 0,
@@ -218,6 +222,8 @@ void main_task(void *pvParameters) {
   // check mode below
   for (int i = 0; i < 5; i++) {
     networkLoop(config);
+    homekitBridgeLoop();
+    nativeHomeKitLoop();
     scheduler.update();
     vTaskDelay(pdMS_TO_TICKS(100));
   }
@@ -230,6 +236,8 @@ void main_task(void *pvParameters) {
     ESP_LOGI("main", "Waiting for time sync...");
     for (int i = 0; i < 30; i++) {
       networkLoop(config);
+      homekitBridgeLoop();
+      nativeHomeKitLoop();
       scheduler.update();
 
       bool staConnectedNow = networkIsStaConnected();
@@ -293,6 +301,8 @@ void main_task(void *pvParameters) {
     handleArduinoOTA();
     scheduler.update();
     webServer.update();
+    homekitBridgeLoop();
+    nativeHomeKitLoop();
     transition.update();
     networkLoop(config);
 

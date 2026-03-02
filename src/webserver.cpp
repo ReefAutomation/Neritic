@@ -11,6 +11,8 @@
 #include "config.h"
 #include "debug.h"
 #include "effects.h"
+#include "homekit_bridge.h"
+#include "native_homekit.h"
 #include "network.h"
 #include "ota.h"
 #include "presets.h"
@@ -21,8 +23,15 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#if defined(ENABLE_NATIVE_HOMEKIT)
+extern "C" {
+#include <hap.h>
+}
+#endif
 
 #include <cJSON.h>
 #include <algorithm>
@@ -48,6 +57,56 @@ extern WebServerManager *webServerPtr;
 // Cached effects JSON
 static std::string cachedEffectsJson;
 static bool effectsCacheReady = false;
+
+static esp_err_t eraseNvsNamespace(const char *partitionName,
+                                   const char *namespaceName) {
+  nvs_handle_t handle;
+  esp_err_t err =
+      nvs_open_from_partition(partitionName, namespaceName, NVS_READWRITE, &handle);
+  if (err == ESP_ERR_NVS_NOT_FOUND) {
+    ESP_LOGI(TAG, "NVS namespace already absent: %s/%s", partitionName,
+             namespaceName);
+    return ESP_OK;
+  }
+  if (err == ESP_ERR_NOT_FOUND) {
+    ESP_LOGI(TAG, "NVS partition not found (skip): %s", partitionName);
+    return ESP_OK;
+  }
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to open NVS namespace %s/%s: %s", partitionName,
+             namespaceName, esp_err_to_name(err));
+    return err;
+  }
+
+  err = nvs_erase_all(handle);
+  if (err == ESP_OK) {
+    err = nvs_commit(handle);
+  }
+  nvs_close(handle);
+
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to erase NVS namespace %s/%s: %s", partitionName,
+             namespaceName, esp_err_to_name(err));
+  } else {
+    ESP_LOGI(TAG, "Erased NVS namespace %s/%s", partitionName, namespaceName);
+  }
+  return err;
+}
+
+static bool hardWipeHomeKitNvs() {
+  const char *partitions[] = {"nvs", "factory_nvs"};
+  const char *namespaces[] = {"hap_ctrl", "hap_main"};
+  bool allOk = true;
+
+  for (size_t p = 0; p < (sizeof(partitions) / sizeof(partitions[0])); p++) {
+    for (size_t n = 0; n < (sizeof(namespaces) / sizeof(namespaces[0])); n++) {
+      esp_err_t err = eraseNvsNamespace(partitions[p], namespaces[n]);
+      allOk = allOk && (err == ESP_OK);
+    }
+  }
+
+  return allOk;
+}
 
 static void health_probe_work(void *arg) {
   (void)arg;
@@ -193,8 +252,8 @@ bool WebServerManager::startHttpServer() {
   cfg.max_open_sockets = 7; // 7 + 1 listen = 8; fits within LWIP_MAX_SOCKETS=16
                             // with room for outbound TLS
   cfg.lru_purge_enable = true;
-  cfg.stack_size =
-      24576; // Large enough for JSON handlers + gz OTA decompression
+    cfg.stack_size =
+      12288; // Keep memory headroom for native HomeKit HTTP server task
 
   if (httpd_start(&_server, &cfg) != ESP_OK) {
     ESP_LOGE(TAG, "httpd_start failed");
@@ -551,6 +610,8 @@ void WebServerManager::setupRoutes() {
   URI("/api/timer", HTTP_POST, hTimerPost)
   URI("/api/timer", HTTP_OPTIONS, hOptions)
   URI("/api/timezones", HTTP_GET, hTimezones)
+  URI("/api/homekit", HTTP_GET, hHomeKit)
+  URI("/api/homekit/qr", HTTP_GET, hHomeKitQr)
 
   httpd_register_err_handler(_server, HTTPD_404_NOT_FOUND, hNotFound);
 #undef URI
@@ -638,18 +699,77 @@ esp_err_t WebServerManager::hCommand(httpd_req_t *req) {
   setCors(req);
   std::string body = readBody(req);
   bool doReboot = false;
+  bool didHandle = false;
+  bool success = true;
+  std::string message = "OK";
   if (!body.empty()) {
     cJSON *doc = parseJsonBody(body);
     if (doc) {
       std::string cmd = jsonStringOr(doc, "command", "");
       ESP_LOGI(TAG, "hCommand body: %s", body.c_str());
-      if (cmd == "reboot")
+      if (cmd == "reboot") {
         doReboot = true;
+        didHandle = true;
+      }
+#if defined(ENABLE_NATIVE_HOMEKIT)
+      else if (cmd == "homekit_reset_pairings") {
+        didHandle = true;
+        int rc = hap_reset_pairings();
+        if (rc == HAP_SUCCESS) {
+          success = true;
+          doReboot = false;
+          message = "HomeKit pairings reset requested; SDK will reboot after erase";
+        } else {
+          success = hardWipeHomeKitNvs();
+          doReboot = success;
+          message = success ? "HomeKit pairings fallback wipe applied; rebooting"
+                            : "Failed to reset HomeKit pairings";
+        }
+      } else if (cmd == "homekit_reset_data") {
+        didHandle = true;
+        int rc = hap_reset_to_factory();
+        if (rc == HAP_SUCCESS) {
+          success = true;
+          doReboot = false;
+          message = "HomeKit factory reset requested; SDK will reboot after erase";
+        } else {
+          int dataRc = hap_reset_homekit_data();
+          if (dataRc == HAP_SUCCESS) {
+            success = true;
+            doReboot = false;
+            message = "HomeKit data reset requested; SDK will reboot after erase";
+          } else {
+            success = hardWipeHomeKitNvs();
+            doReboot = success;
+            message = success ? "HomeKit data fallback wipe applied; rebooting"
+                              : "Failed to reset HomeKit data";
+          }
+        }
+      }
+#endif
       cJSON_Delete(doc);
     }
   }
   httpd_resp_set_type(req, "application/json");
-  httpd_resp_sendstr(req, "{\"success\":true,\"message\":\"OK\"}");
+  if (!didHandle) {
+    success = false;
+    message = "Unknown command";
+  }
+
+  cJSON *resp = cJSON_CreateObject();
+  cJSON_AddBoolToObject(resp, "success", success);
+  cJSON_AddStringToObject(resp, "message", message.c_str());
+  char *printed = cJSON_PrintUnformatted(resp);
+  std::string json = printed ? printed : "{\"success\":false}";
+  if (printed) {
+    cJSON_free(printed);
+  }
+  cJSON_Delete(resp);
+
+  if (!success) {
+    httpd_resp_set_status(req, "400 Bad Request");
+  }
+  httpd_resp_send(req, json.c_str(), json.size());
   if (doReboot) {
     vTaskDelay(pdMS_TO_TICKS(200));
     esp_restart();
@@ -926,6 +1046,56 @@ esp_err_t WebServerManager::hTimezones(httpd_req_t *req) {
   cJSON_Delete(arr);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_send(req, json.c_str(), json.size());
+  return ESP_OK;
+}
+
+// /api/homekit GET
+esp_err_t WebServerManager::hHomeKit(httpd_req_t *req) {
+  WebServerManager *mgr = fromReq(req);
+  setCors(req);
+  httpd_resp_set_type(req, "application/json");
+  std::string ip = getCurrentIpString(*mgr->_config);
+  std::string json =
+      homekitBridgeGetStatusJson(*mgr->_config, state, ip);
+  httpd_resp_send(req, json.c_str(), json.size());
+  return ESP_OK;
+}
+
+// /api/homekit/qr GET
+esp_err_t WebServerManager::hHomeKitQr(httpd_req_t *req) {
+  WebServerManager *mgr = fromReq(req);
+  if (!nativeHomeKitCompiled() || !nativeHomeKitModeEnabled(*mgr->_config)) {
+    setCors(req);
+    httpd_resp_set_status(req, "409 Conflict");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req,
+                       "{\"error\":\"Direct HomeKit pairing unsupported\","
+                       "\"message\":\"Enable native or hybrid HomeKit mode to use pairing QR\"}");
+    return ESP_OK;
+  }
+
+  const std::string setupUri = homekitBridgeGetSetupUri(*mgr->_config);
+  if (setupUri.empty()) {
+    setCors(req);
+    httpd_resp_set_status(req, "404 Not Found");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\":\"QR not available\"}");
+    return ESP_OK;
+  }
+
+  const std::string qrUrl = homekitBridgeGetQrCodeUrl(*mgr->_config);
+  if (qrUrl.empty()) {
+    setCors(req);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\":\"Failed to generate QR\"}");
+    return ESP_OK;
+  }
+
+  setCors(req);
+  httpd_resp_set_status(req, "302 Found");
+  httpd_resp_set_hdr(req, "Location", qrUrl.c_str());
+  httpd_resp_send(req, nullptr, 0);
   return ESP_OK;
 }
 

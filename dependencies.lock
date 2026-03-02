@@ -9,6 +9,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 3.0.3
+  espressif/libsodium:
+    component_hash: 6ee084dee7a4d664498274870aa65391c9ec9d38dcdb34d2ad2b8518726f8b5e
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.20~3
   espressif/zlib:
     component_hash: 64ea2fd6754c5a05951f1ddb312ac835cd782e68cb5bd9dfcd1c3a107c8fbfbc
     dependencies:
@@ -33,11 +43,19 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.20.4
+  mdns:
+    dependencies: []
+    source:
+      path: /Users/kabroxiko/DeepGlow/external/esp-protocols/components/mdns
+      type: local
+    version: 1.10.0
 direct_dependencies:
 - espressif/led_strip
+- espressif/libsodium
+- espressif/mdns
 - espressif/zlib
 - idf
 - joltwallet/littlefs
-manifest_hash: 7867660aa6624aba481ac0b00ea6d82b3e2eeb7281130f105bd1da8cccaf95f0
+manifest_hash: 1fd9ac4e7c0fc05cb7eb8bb0a3441890571956d807b465db063a8ef1ec54c46a
 target: esp32
 version: 2.0.0

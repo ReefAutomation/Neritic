@@ -1,9 +1,16 @@
 {
   "network": {
-    "ssid": "",
-    "password": "",
+    "ssid": "BERTOLUCCI",
+    "password": "Pibitaelemental",
     "hostname": "AquariumLED",
     "apPassword": ""
+  },
+  "homekit": {
+    "enabled": true,
+    "bridgeMode": "native",
+    "accessoryName": "DeepGlow",
+    "setupCode": "031-45-154",
+    "setupId": "DG01"
   },
   "led": {
     "pin": 14,

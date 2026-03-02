@@ -258,6 +258,61 @@ Update configuration.
 
 ---
 
+### HomeKit Bridge Metadata
+
+#### GET /api/homekit
+
+Get HomeKit bridge compatibility metadata and endpoint hints.
+
+**Response** (200 OK):
+```json
+{
+  "enabled": true,
+  "nativePairingSupported": false,
+  "nativeScaffoldCompiled": true,
+  "nativeScaffoldStatus": "scaffold-active",
+  "bridgeMode": "homebridge-http",
+  "accessoryName": "DeepGlow",
+  "setupCode": "031-45-154",
+  "setupId": "DG01",
+  "power": true,
+  "brightness": 60,
+  "ip": "192.168.1.50",
+  "endpoints": {
+    "stateGet": "/api/state",
+    "stateSet": "/api/state",
+    "metadata": "/api/homekit"
+  },
+  "hint": "Configure your HomeKit bridge plugin to POST JSON to /api/state with {\"power\":true|false,\"brightness\":0..100}."
+}
+```
+
+**Fields:**
+- `enabled` (boolean): Whether HomeKit bridge mode is enabled in config
+- `nativePairingSupported` (boolean): Direct Apple Home pairing support flag (`false` in bridge mode)
+- `nativeScaffoldCompiled` (boolean): Whether native scaffold code is included in this firmware build
+- `nativeScaffoldStatus` (string): Native scaffold runtime status (`not-compiled`, `disabled`, `bridge-mode`, `pending`, `adapter-ready`)
+- `bridgeMode` (string): Bridge mode profile
+- `accessoryName` (string): Display name for bridge accessory
+- `setupCode` (string): HomeKit-style setup code value
+- `setupId` (string): HomeKit-style setup ID value
+- `power` (boolean): Current DeepGlow power state
+- `brightness` (0–100): Current DeepGlow brightness (percent)
+- `ip` (string): Current detected device IP address
+- `endpoints` (object): API endpoints for bridge wiring
+
+#### GET /api/homekit/qr
+
+Returns pairing status for QR requests.
+
+Behavior:
+- `409` with JSON message in bridge mode (direct HomeKit pairing unsupported).
+- `404` with JSON error if setup data is unavailable.
+
+Use this endpoint as a diagnostic response when troubleshooting pairing setup.
+
+---
+
 ### Timer Management
 
 #### GET /api/timers
@@ -530,6 +585,23 @@ automation:
       data:
         preset_id: 0
 ```
+
+      ### Homebridge (Generic HTTP Mapping)
+
+      Map these requests in your plugin configuration UI:
+
+      - On: `POST http://<device-ip>/api/state` with body `{"power":true}`
+      - Off: `POST http://<device-ip>/api/state` with body `{"power":false}`
+      - Brightness: `POST http://<device-ip>/api/state` with body `{"brightness":<value-0-100>}`
+      - Read state: `GET http://<device-ip>/api/state`
+
+      Validation commands:
+
+      ```bash
+      curl http://<device-ip>/api/homekit
+      curl -X POST http://<device-ip>/api/state -H "Content-Type: application/json" -d '{"power":true}'
+      curl -X POST http://<device-ip>/api/state -H "Content-Type: application/json" -d '{"brightness":60}'
+      ```
 
 ### Node-RED
 
