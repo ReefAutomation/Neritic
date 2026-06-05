@@ -7,7 +7,7 @@
   },
   "led": {
     "pin": 14,
-    "count": 38,
+    "count": 34,
     "type": "SK6812",
     "colorOrder": "GRB",
     "relayPin": 2,

@@ -66,56 +66,104 @@ void effect_solid() {
 REGISTER_EFFECT(0, "Solid", effect_solid)
 
 void effect_sunrise() {
-  if (!g_effectBuffer)
+  if (!g_effectBuffer || g_ledCount == 0)
     return;
+
   size_t colorCount = state.params.colors.size();
-  if (colorCount < 2) {
+  if (colorCount == 0) {
     for (size_t i = 0; i < g_ledCount; ++i)
       (*g_effectBuffer)[i] = 0;
     return;
   }
-  // Prepare palette
+
+  // Prepare palette stops
   std::vector<uint32_t> stops;
   for (size_t i = 0; i < colorCount; ++i) {
     const char *cstr = state.params.colors[i].c_str();
-    stops.push_back(
-        (uint32_t)strtoul(cstr + (cstr[0] == '#' ? 1 : 0), nullptr, 16));
+    stops.push_back((uint32_t)strtoul(cstr + (cstr[0] == '#' ? 1 : 0),
+                                      nullptr, 16));
   }
-  // Persistent pixel buffer for blending
-  static std::vector<uint32_t> blendBuffer;
-  if (blendBuffer.size() != g_ledCount)
-    blendBuffer.assign(g_ledCount, stops[0]);
-  // Timing and speed
+
+  // Helper: get color from palette (wraps and blends between stops)
+  auto get_palette_color = [&](float pos) -> uint32_t {
+    if (colorCount == 0)
+      return 0;
+    // pos expected in [0,1]
+    if (pos < 0.0f)
+      pos = 0.0f;
+    if (pos > 1.0f)
+      pos = 1.0f;
+    float scaled = pos * float(colorCount);
+    size_t i0 = size_t(floorf(scaled)) % colorCount;
+    size_t i1 = (i0 + 1) % colorCount;
+    float frac = scaled - floorf(scaled);
+    uint32_t c0 = stops[i0];
+    uint32_t c1 = stops[i1];
+    uint8_t r, g, b, w;
+    blend_rgbw_brightness(c0, c1, frac, state.brightness, r, g, b, w);
+    return pack_rgbw(r, g, b, w);
+  };
+
   uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
   uint8_t speed = state.params.speed > 0 ? state.params.speed : 50;
   uint8_t intensity = state.params.intensity > 0 ? state.params.intensity : 255;
-  // Intensity modifier: scale blendSpeed
-  uint8_t blendSpeed = 10 + ((speed - 1) * (128 - 10) / 99);
-  blendSpeed = 1 + ((blendSpeed - 1) * intensity) / 255;
-  // Phase for palette shift
-  uint32_t shift = (now * ((speed >> 3) + 1)) >> 8;
+
+  // Map speed to total duration (ms): faster speed = shorter duration
+  // speed=255 -> ~10s, speed=1 -> ~6.5min
+  uint32_t durationMs = 10000 + (uint32_t)(255 - speed) * 1500;
+
+  // Persist start time across frames and reset when speed or LED count changes
+  static uint32_t startTime = 0;
+  static uint8_t lastSpeed = 0;
+  static size_t lastLedCount = 0;
+  if (startTime == 0 || lastSpeed != speed || lastLedCount != g_ledCount) {
+    startTime = now;
+    lastSpeed = speed;
+    lastLedCount = g_ledCount;
+  }
+
+  uint32_t elapsed = now - startTime;
+  float progress = durationMs > 0 ? float(elapsed) / float(durationMs) : 1.0f;
+  if (progress > 1.0f)
+    progress = 1.0f;
+
+  // Compute expanding radius from center
+  float maxRadius = float(g_ledCount) * 0.5f;
+  float currentRadius = progress * maxRadius;
+
+  // Center position (allow fractional center for even counts)
+  float center = (float(g_ledCount) - 1.0f) * 0.5f;
+
+  // Edge softness based on intensity (higher intensity => sharper edge)
+  float edgeSoft = 0.5f + 4.0f * (1.0f - (float(intensity) / 255.0f));
+
   for (size_t i = 0; i < g_ledCount; ++i) {
-    // Wavy offset for each pixel (quadwave8 analog)
-    float wave =
-        128.0f * (1.0f - cosf(2.0f * 3.14159265f * (float(i + 1) * 16) /
-                              256.0f)); // quadwave8 approx
-    size_t paletteIdx = (shift + (uint32_t)wave) % (colorCount * 256);
-    size_t stopIdx = paletteIdx / 256;
-    float frac = (paletteIdx % 256) / 255.0f;
-    uint32_t c1 = stops[stopIdx];
-    uint32_t c2 = stops[(stopIdx + 1) % colorCount];
-    // Blend previous color toward target palette color
-    uint32_t target;
-    {
-      uint8_t r, g, b, w;
-      blend_rgbw_brightness(c1, c2, frac, state.brightness, r, g, b, w);
-      target = pack_rgbw(r, g, b, w);
+    float dist = fabsf(float(i) - center);
+    // Determine coverage of this LED in [0,1]
+    float cover = (currentRadius - dist) / edgeSoft;
+    if (cover <= 0.0f) {
+      (*g_effectBuffer)[i] = 0;
+      continue;
     }
-    // Blend current pixel toward target using blendSpeed
-    uint32_t prev = blendBuffer[i];
-    uint8_t br = blendSpeed;
-    blendBuffer[i] = color_blend(prev, target, br);
-    (*g_effectBuffer)[i] = blendBuffer[i];
+    if (cover > 1.0f)
+      cover = 1.0f;
+
+    // Map distance to palette position: center -> 0.0, edge -> 1.0
+    float pos = dist / maxRadius;
+    if (pos < 0.0f)
+      pos = 0.0f;
+    if (pos > 1.0f)
+      pos = 1.0f;
+    uint32_t target = get_palette_color(1.0f - pos);
+
+    // Blend target with black based on cover to create soft leading edge
+    if (cover < 1.0f) {
+      // cover in [0,1] -> blend percent
+      uint8_t blendPct = uint8_t(cover * 255.0f);
+      (*g_effectBuffer)[i] = color_blend(0, target, blendPct);
+    } else {
+      (*g_effectBuffer)[i] = target;
+    }
   }
 }
 REGISTER_EFFECT(1, "Sunrise", effect_sunrise)

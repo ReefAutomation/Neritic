@@ -16,17 +16,38 @@ jobs:
   deps:
     runs-on: ubuntu-latest
     outputs:
-      cache-key: ${{ steps.cache-deps.outputs.cache-key }}
+      cache-key: ${{ steps.cache-key.outputs.cache-key }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
+      - name: Compute key
+        id: cache-key
+        run: |
+          echo "cache-key=${{ runner.os }}-deps-${{ hashFiles('dependencies.lock') }}" >> $GITHUB_OUTPUT
+
+      - name: Restore cache (v5)
+        id: cache-restore
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            .pio
+            ~/.platformio/.cache
+            ~/.platformio/lib
+            ~/.npm
+            web/node_modules
+          key: ${{ steps.cache-key.outputs.cache-key }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
       - name: Create Python venv
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           python -m venv .venv
 
@@ -34,24 +55,39 @@ jobs:
         run: |
           source .venv/bin/activate
           pip install --upgrade pip
-          pip install platformio intelhex
+          pip install --upgrade platformio intelhex
 
       - name: Install PlatformIO libraries (explicit)
         run: |
           source .venv/bin/activate
           pio pkg install
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+
+      - name: Install npm dependencies
+        run: |
+          npm ci
+
       - name: Cache Python venv, PlatformIO, and node_modules
-        id: cache-deps
-        uses: actions/cache@v4
+        id: cache-save
+        uses: actions/cache@v5
         with:
           path: |
             .venv
             .pio
             ~/.platformio/.cache
             ~/.platformio/lib
+            ~/.npm
             web/node_modules
-          key: cache-deps
+          key: ${{ steps.cache-key.outputs.cache-key }}
+
+      - name: Show save outputs
+        run: |
+          echo "cache-save.cache-hit='${{ steps.cache-save.outputs.cache-hit }}'"
+          echo "cache-save.cache-key='${{ steps.cache-save.outputs.cache-key }}'"
 
   build:
     needs: deps
@@ -63,31 +99,36 @@ jobs:
       envs: ${{ toJson(matrix.env) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Restore PlatformIO dependencies
-        uses: actions/cache@v4
+        id: cache-restore
+        uses: actions/cache@v5
         with:
           path: |
             .venv
             .pio
             ~/.platformio/.cache
             ~/.platformio/lib
-          key: cache-deps
+            ~/.npm
+            web/node_modules
+          key: ${{ needs.deps.outputs.cache-key }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20.x'
 
       - name: Install npm dependencies
         run: |
           npm ci
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Build firmware for ${{ matrix.env }} (with retry)
         run: |
@@ -125,7 +166,7 @@ jobs:
         run: echo "${{ matrix.env }}" > built_envs_${{ matrix.env }}.txt
 
       - name: Upload build artifacts and env file for ${{ matrix.env }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.env }}
           path: |
@@ -137,10 +178,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all build artifacts and env files
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: build-*
           path: .pio/build
@@ -186,7 +227,7 @@ jobs:
           ENVS: ${{ env.ENVS }}
 
       - name: Upload manifest.json
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-json
           path: manifest.json
@@ -197,12 +238,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: .pio/build
 
       - name: Download manifest.json
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: manifest-json
           path: .
@@ -215,7 +256,7 @@ jobs:
           ls -lh manifest.json
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             .pio/build/**/*.bin.gz
