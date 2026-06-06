@@ -1,0 +1,15 @@
+---
+name: Branch Push CI
+
+on:
+  push:
+    # Run on any branch except the principal 'main' branch
+    branches-ignore:
+      - main
+
+jobs:
+  build:
+    uses: ./.github/workflows/ci-workflow.yml
+    with:
+      run_web: true
+      run_firmware: true

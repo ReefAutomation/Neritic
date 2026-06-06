@@ -1,0 +1,15 @@
+---
+name: Pull Request CI
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+    branches:
+      - main
+
+jobs:
+  build:
+    uses: ./.github/workflows/ci-workflow.yml
+    with:
+      run_web: true
+      run_firmware: true

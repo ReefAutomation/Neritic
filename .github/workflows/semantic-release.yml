@@ -1,0 +1,162 @@
+---
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.release_meta.outputs.should_run }}
+      release_tag: ${{ steps.release_meta.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run semantic-release action
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v6
+        with:
+          semantic_version: 24
+          extra_plugins: |
+            conventional-changelog-conventionalcommits
+            @semantic-release/commit-analyzer
+            @semantic-release/exec
+            @semantic-release/git
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: DeepGlow Release Bot
+          GIT_AUTHOR_EMAIL: deepglow-release-bot@users.noreply.github.com
+          GIT_COMMITTER_NAME: DeepGlow Release Bot
+          GIT_COMMITTER_EMAIL: deepglow-release-bot@users.noreply.github.com
+
+      - name: Resolve release metadata
+        id: release_meta
+        run: |
+          TAG="${{ steps.semantic.outputs.new_release_git_tag }}"
+          if [[ -z "$TAG" ]]; then
+            VERSION=$(cat VERSION)
+            if [[ $VERSION != v* ]]; then
+              VERSION="v$VERSION"
+            fi
+            TAG="$VERSION"
+          fi
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [release]
+    if: needs.release.outputs.should_run == 'true'
+    uses: ./.github/workflows/ci-workflow.yml
+    with:
+      checkout_ref: ${{ needs.release.outputs.release_tag }}
+      run_web: true
+      run_firmware: true
+
+  manifest:
+    needs: [release, build]
+    if: needs.release.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.release_tag.outputs.release_tag }}
+    steps:
+      - name: Checkout released ref
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.release_tag }}
+
+      - name: Set release tag
+        id: release_tag
+        run: |
+          echo "release_tag=${{ needs.release.outputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_TAG=${{ needs.release.outputs.release_tag }}" >> "$GITHUB_ENV"
+
+      - name: Download all build artifacts and env files
+        uses: actions/download-artifact@v8
+        with:
+          pattern: build-*
+          path: .pio/build
+
+      - name: List built_envs files
+        run: find . -name 'built_envs_*.txt' -exec ls -l {} \; || echo 'No built_envs_*.txt found'
+
+      - name: Collect all unique envs
+        id: collect_envs
+        run: |
+          find . -name 'built_envs_*.txt' -exec cat {} \; | sort | uniq | tr '\n' ' ' > all_envs.txt
+          echo "ENVS=$(cat all_envs.txt)" >> $GITHUB_ENV
+
+      - name: Set manifest environment variables
+        run: |
+          echo "FIRMWARE_TYPE=DeepGlow" >> $GITHUB_ENV
+          echo "FIRMWARE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/" >> $GITHUB_ENV
+
+      - name: Generate manifest.json for OTA
+        run: |
+          VERSION=$(cat VERSION)
+          if [[ $VERSION != v* ]]; then
+            VERSION="v$VERSION"
+          fi
+          FIRMWARE_TYPE="${FIRMWARE_TYPE:-DeepGlow}"
+          BASE_URL="${FIRMWARE_BASE_URL:-https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/}"
+          tmpfile=$(mktemp)
+          echo '[' > "$tmpfile"
+          first=1
+          for ENV in $ENVS; do
+            FILENAME="firmware_${ENV}_${VERSION}.bin.gz"
+            [ $first -eq 0 ] && echo ',' >> "$tmpfile"
+            echo "  {\"type\": \"${FIRMWARE_TYPE}\", \"env\": \"${ENV}\", \"version\": \"${VERSION}\", \"url\": \"${BASE_URL}${FILENAME}\"}" >> "$tmpfile"
+            first=0
+          done
+          echo ']' >> "$tmpfile"
+          cat "$tmpfile" | jq '.' > manifest.json
+          rm "$tmpfile"
+        env:
+          FIRMWARE_TYPE: ${{ env.FIRMWARE_TYPE }}
+          FIRMWARE_BASE_URL: ${{ env.FIRMWARE_BASE_URL }}
+          ENVS: ${{ env.ENVS }}
+
+      - name: Upload manifest.json
+        uses: actions/upload-artifact@v7
+        with:
+          name: manifest-json
+          path: manifest.json
+
+  github_release:
+    needs: [release, manifest]
+    if: needs.release.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: .pio/build
+
+      - name: Download manifest.json
+        uses: actions/download-artifact@v8
+        with:
+          name: manifest-json
+          path: .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.manifest.outputs.release_tag }}
+          files: |
+            .pio/build/**/*.bin.gz
+            manifest.json
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

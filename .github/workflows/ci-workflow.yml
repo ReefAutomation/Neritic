@@ -1,0 +1,223 @@
+---
+name: CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        type: string
+        default: ''
+      run_web:
+        type: boolean
+        default: true
+      run_firmware:
+        type: boolean
+        default: true
+    outputs:
+      cache-key:
+        description: 'Cache key computed by deps job'
+        value: ${{ jobs.deps.outputs.cache-key }}
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.cache-key }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      - name: Compute cache key
+        id: cache-key
+        run: |
+          KEY="${{ runner.os }}-deps-${{ hashFiles('package-lock.json','web/package-lock.json','package.json','requirements.txt') }}"
+          echo "cache-key=$KEY" >> $GITHUB_OUTPUT
+          echo "Computed cache-key: $KEY"
+
+      - name: Restore cache (deps)
+        id: cache-restore
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            .pio
+            ~/.platformio/.cache
+            ~/.platformio/lib
+            ~/.cache/pip
+            ~/.npm
+            node_modules
+          key: ${{ steps.cache-key.outputs.cache-key }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+
+      - name: Set up Python
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Create Python venv
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+
+      - name: Activate venv and install PlatformIO
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        run: |
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install PlatformIO libraries (explicit)
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        run: |
+          source .venv/bin/activate
+          pio pkg install
+
+      - name: Set up Node.js
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: Install npm dependencies
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        run: |
+          npm ci
+
+      - name: Save cache (deps)
+        id: cache-save
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            .pio
+            ~/.platformio/.cache
+            ~/.platformio/lib
+            ~/.cache/pip
+            ~/.npm
+            node_modules
+          key: ${{ steps.cache-key.outputs.cache-key }}
+
+  web:
+    if: ${{ inputs.run_web }}
+    needs: deps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      - name: Restore cache (deps)
+        id: cache-restore
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            .pio
+            ~/.platformio/.cache
+            ~/.platformio/lib
+            ~/.cache/pip
+            ~/.npm
+            node_modules
+          key: ${{ needs.deps.outputs.cache-key }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: Lint web sources
+        run: |
+          npm run lint
+
+      - name: Build web bundle
+        run: |
+          npm run build
+
+  firmware:
+    if: ${{ inputs.run_firmware }}
+    needs: deps
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [esp32d, esp32c6, esp32, esp32c3, esp32s3]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      - name: Restore cache (deps)
+        id: cache-restore
+        uses: actions/cache@v5
+        with:
+          path: |
+            .venv
+            .pio
+            ~/.platformio/.cache
+            ~/.platformio/lib
+            ~/.cache/pip
+            ~/.npm
+            node_modules
+          key: ${{ needs.deps.outputs.cache-key }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: Build firmware for ${{ matrix.env }}
+        run: |
+          source .venv/bin/activate
+          n=0
+          until [ "$n" -ge 3 ]
+          do
+            platformio run -e ${{ matrix.env }} && break
+            n=$((n+1))
+            echo "Build failed, retrying ($n/3)..."
+            sleep 10
+          done
+          if [ "$n" -ge 3 ]; then
+            echo "Build failed after 3 attempts." >&2
+            exit 1
+          fi
+
+      - name: Compress firmware binaries
+        run: |
+            find .pio/build/${{ matrix.env }} -type f -name '*.bin' -exec gzip -k -n {} \;
+
+      - name: Rename .bin.gz files with env and version
+        run: |
+            VERSION=$(cat VERSION)
+            if [[ $VERSION != v* ]]; then
+                VERSION="v$VERSION"
+            fi
+            for f in .pio/build/${{ matrix.env }}/*.bin.gz; do \
+                BASE=$(basename "$f" .bin.gz); \
+                mv "$f" ".pio/build/${{ matrix.env }}/${BASE}_${{ matrix.env }}_${VERSION}.bin.gz"; \
+            done
+
+      - name: Record built environment
+        run: echo "${{ matrix.env }}" > built_envs_${{ matrix.env }}.txt
+
+      - name: Upload build artifacts and env file for ${{ matrix.env }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ matrix.env }}
+          path: |
+              .pio/build/${{ matrix.env }}/*.bin.gz
+              built_envs_${{ matrix.env }}.txt

@@ -1,0 +1,26 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits"
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "analyzeCommitsCmd": "if git log -1 --pretty=%s | grep -q '^chore(release):'; then echo; else echo patch; fi",
+        "prepareCmd": "node scripts/bump-version.cjs ${nextRelease.version}"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["VERSION"],
+        "message": "chore(release): ${nextRelease.version}"
+      }
+    ]
+  ]
+}
