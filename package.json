@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Preact UI for Aquarium LED Controller",
   "main": "web/index.js",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -10,17 +11,16 @@
     "lint": "eslint web/**/*.jsx web/**/*.js"
   },
   "dependencies": {
-    "@preact/preset-vite": "^2.10.3",
-    "preact": "^10.19.2"
+    "@preact/preset-vite": "^2.10.5",
+    "preact": "^10.29.2"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.3",
-    "eslint": "^9.39.2",
-    "eslint-config-preact": "^2.0.0",
-    "eslint-plugin-react": "^7.37.5",
-    "prettier": "^3.8.1",
-    "rollup": "^3.30.0",
+    "@eslint-react/eslint-plugin": "^5.8.16",
+    "@eslint/eslintrc": "^3.3.5",
+    "eslint": "^10.4.1",
+    "prettier": "^3.8.3",
+    "rollup": "^4.61.1",
     "sass": "^1.97.3",
-    "vite": "^7.3.5"
+    "vite": "^8.0.16"
   }
 }

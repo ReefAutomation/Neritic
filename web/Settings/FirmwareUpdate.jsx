@@ -127,6 +127,48 @@ export function FirmwareUpdate({
     }
   }, [otaProgress]);
 
+  const otaProgressBar = (() => {
+    const rawProgress = Number(otaProgress);
+    if (!Number.isFinite(rawProgress) || rawProgress < 0) return null;
+    const progress = Math.max(0, Math.min(100, Math.round(rawProgress)));
+    const isUploading = progress < 100;
+    const progressText = isUploading
+      ? `Flashing... ${progress}%`
+      : 'Update complete! Rebooting...';
+
+    return (
+      <div style={{ width: '100%', marginTop: '1em' }}>
+        <div
+          style={{
+            height: '12px',
+            background: '#eee',
+            borderRadius: '6px',
+            overflow: 'hidden',
+            boxShadow: '0 1px 2px #aaa inset',
+          }}
+        >
+          <div
+            style={{
+              width: `${progress}%`,
+              height: '100%',
+              background: isUploading ? '#66ccff' : '#4caf50',
+              transition: 'width 0.2s',
+            }}
+          />
+        </div>
+        <div
+          style={{
+            fontSize: '0.9em',
+            marginTop: '2px',
+            textAlign: 'right',
+          }}
+        >
+          {progressText}
+        </div>
+      </div>
+    );
+  })();
+
   return (
     <Fragment>
       <Modal
@@ -299,46 +341,7 @@ export function FirmwareUpdate({
           </button>
         </form>
         {/* OTA Progress Bar */}
-        {(() => {
-          const rawProgress = Number(otaProgress);
-          if (!Number.isFinite(rawProgress) || rawProgress < 0) return null;
-          const progress = Math.max(0, Math.min(100, Math.round(rawProgress)));
-          const isUploading = progress < 100;
-          const progressText = isUploading
-            ? `Flashing... ${progress}%`
-            : 'Update complete! Rebooting...';
-          return (
-            <div style={{ width: '100%', marginTop: '1em' }}>
-              <div
-                style={{
-                  height: '12px',
-                  background: '#eee',
-                  borderRadius: '6px',
-                  overflow: 'hidden',
-                  boxShadow: '0 1px 2px #aaa inset',
-                }}
-              >
-                <div
-                  style={{
-                    width: `${progress}%`,
-                    height: '100%',
-                    background: isUploading ? '#66ccff' : '#4caf50',
-                    transition: 'width 0.2s',
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  fontSize: '0.9em',
-                  marginTop: '2px',
-                  textAlign: 'right',
-                }}
-              >
-                {progressText}
-              </div>
-            </div>
-          );
-        })()}
+        {otaProgressBar}
       </section>
     </Fragment>
   );

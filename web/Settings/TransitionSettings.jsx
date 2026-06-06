@@ -1,5 +1,12 @@
 import { steppedTransitionValue, formatTransitionTime } from '../util.js';
 
+const transitionSliderPosition = (millis) => {
+  const sec = Math.round(Number(millis) / 1000);
+  if (sec <= 59) return sec;
+  if (sec < 3600) return 59 + Math.round(sec / 60);
+  return 119 + Math.round(sec / 3600);
+};
+
 export function TransitionSettings({ config, setConfig }) {
   return (
     <section className="card">
@@ -13,14 +20,7 @@ export function TransitionSettings({ config, setConfig }) {
             min="0"
             max="127"
             className="slider-input"
-            value={(() => {
-              const sec = Math.round(
-                Number(config?.transitionTimes?.powerOn) / 1000
-              );
-              if (sec <= 59) return sec;
-              if (sec < 3600) return 59 + Math.round(sec / 60);
-              return 119 + Math.round(sec / 3600);
-            })()}
+            value={transitionSliderPosition(config?.transitionTimes?.powerOn)}
             onInput={(e) =>
               setConfig((c) => ({
                 ...c,
@@ -45,14 +45,7 @@ export function TransitionSettings({ config, setConfig }) {
             min="0"
             max="127"
             className="slider-input"
-            value={(() => {
-              const sec = Math.round(
-                Number(config?.transitionTimes?.schedule) / 1000
-              );
-              if (sec <= 59) return sec;
-              if (sec < 3600) return 59 + Math.round(sec / 60);
-              return 119 + Math.round(sec / 3600);
-            })()}
+            value={transitionSliderPosition(config?.transitionTimes?.schedule)}
             onInput={(e) =>
               setConfig((c) => ({
                 ...c,
@@ -77,14 +70,7 @@ export function TransitionSettings({ config, setConfig }) {
             min="0"
             max="127"
             className="slider-input"
-            value={(() => {
-              const sec = Math.round(
-                Number(config?.transitionTimes?.manual) / 1000
-              );
-              if (sec <= 59) return sec;
-              if (sec < 3600) return 59 + Math.round(sec / 60);
-              return 119 + Math.round(sec / 3600);
-            })()}
+            value={transitionSliderPosition(config?.transitionTimes?.manual)}
             onInput={(e) =>
               setConfig((c) => ({
                 ...c,
@@ -109,14 +95,7 @@ export function TransitionSettings({ config, setConfig }) {
             min="0"
             max="127"
             className="slider-input"
-            value={(() => {
-              const sec = Math.round(
-                Number(config?.transitionTimes?.effect) / 1000
-              );
-              if (sec <= 59) return sec;
-              if (sec < 3600) return 59 + Math.round(sec / 60);
-              return 119 + Math.round(sec / 3600);
-            })()}
+            value={transitionSliderPosition(config?.transitionTimes?.effect)}
             onInput={(e) =>
               setConfig((c) => ({
                 ...c,
