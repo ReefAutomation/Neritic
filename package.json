@@ -10,7 +10,7 @@
     "lint": "eslint web/**/*.jsx web/**/*.js"
   },
   "dependencies": {
-    "@preact/preset-vite": "^2.10.3",
+    "@preact/preset-vite": "^2.10.5",
     "preact": "^10.29.2"
   },
   "devDependencies": {
