@@ -1,6 +1,13 @@
 import { steppedTransitionValue, formatTransitionTime } from '../util.js';
 
 export function SafetySettings({ config, setConfig }) {
+  const transitionSliderPosition = (millis) => {
+    const sec = Math.round(Number(millis) / 1000);
+    if (sec <= 59) return sec;
+    if (sec < 3600) return 59 + Math.round(sec / 60);
+    return 119 + Math.round(sec / 3600);
+  };
+
   return (
     <section className="card">
       <h2>Safety</h2>
@@ -31,14 +38,7 @@ export function SafetySettings({ config, setConfig }) {
             min="0"
             max="127"
             className="slider-input"
-            value={(() => {
-              const sec = Math.round(
-                Number(config?.safety?.minTransitionTime) / 1000
-              );
-              if (sec <= 59) return sec;
-              if (sec < 3600) return 59 + Math.round(sec / 60);
-              return 119 + Math.round(sec / 3600);
-            })()}
+            value={transitionSliderPosition(config?.safety?.minTransitionTime)}
             onInput={(e) =>
               setConfig((c) => ({
                 ...c,

@@ -3,20 +3,20 @@ import { sortTimers } from '../util.js';
 
 export function Schedule({ config, setConfig, presets, sunTimes }) {
   const [displayTimers, setDisplayTimers] = useState([]);
-  const didInitFromConfig = useRef(false);
-  const nextUiKey = useRef(1);
+  const didInitFromConfigRef = useRef(false);
+  const nextUiKeyRef = useRef(1);
 
   const withUiKeys = (timers) =>
     timers.map((timer) => {
       if (timer.__uiKey) return timer;
-      const uiKey = `t_${nextUiKey.current++}`;
+      const uiKey = `t_${nextUiKeyRef.current++}`;
       return { ...timer, __uiKey: uiKey };
     });
 
   useEffect(() => {
-    if (!didInitFromConfig.current && Array.isArray(config?.timers)) {
+    if (!didInitFromConfigRef.current && Array.isArray(config?.timers)) {
       setDisplayTimers(withUiKeys(sortTimers(config.timers)));
-      didInitFromConfig.current = true;
+      didInitFromConfigRef.current = true;
     }
   }, [config?.timers]);
 
@@ -43,7 +43,32 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
           </thead>
           <tbody>
             {displayTimers.length > 0
-              ? displayTimers.map((timer, idx) => (
+              ? displayTimers.map((timer, idx) => {
+                  let timeCell;
+                  if (timer.type === 1) {
+                    timeCell = <span>{sunTimes.sunrise || ''}</span>;
+                  } else if (timer.type === 2) {
+                    timeCell = <span>{sunTimes.sunset || ''}</span>;
+                  } else {
+                    timeCell = (
+                      <input
+                        type="time"
+                        value={`${String(timer.hour).padStart(2, '0')}:${String(timer.minute).padStart(2, '0')}`}
+                        onChange={(e) => {
+                          const [h, m] = e.target.value.split(':').map(Number);
+                          const timers = [...displayTimers];
+                          timers[idx] = {
+                            ...timers[idx],
+                            hour: h || 0,
+                            minute: m || 0,
+                          };
+                          updateTimers(timers);
+                        }}
+                      />
+                    );
+                  }
+
+                  return (
                   <tr key={timer.__uiKey}>
                     {/* Enabled checkbox */}
                     <td>
@@ -91,32 +116,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                       ))}
                     </td>
                     {/* Time input or sunrise/sunset label */}
-                    <td>
-                      {(() => {
-                        if (timer.type === 1)
-                          return <span>{sunTimes.sunrise || ''}</span>;
-                        if (timer.type === 2)
-                          return <span>{sunTimes.sunset || ''}</span>;
-                        return (
-                          <input
-                            type="time"
-                            value={`${String(timer.hour).padStart(2, '0')}:${String(timer.minute).padStart(2, '0')}`}
-                            onChange={(e) => {
-                              const [h, m] = e.target.value
-                                .split(':')
-                                .map(Number);
-                              const timers = [...displayTimers];
-                              timers[idx] = {
-                                ...timers[idx],
-                                hour: h || 0,
-                                minute: m || 0,
-                              };
-                              updateTimers(timers);
-                            }}
-                          />
-                        );
-                      })()}
-                    </td>
+                    <td>{timeCell}</td>
                     {/* Preset select */}
                     <td>
                       <select
@@ -181,7 +181,8 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
                       </button>
                     </td>
                   </tr>
-                ))
+                );
+                })
               : null}
           </tbody>
         </table>
@@ -194,7 +195,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
             const newTimers = [
               ...displayTimers,
               {
-                __uiKey: `t_${nextUiKey.current++}`,
+                __uiKey: `t_${nextUiKeyRef.current++}`,
                 enabled: true,
                 type: 0,
                 hour: 12,
