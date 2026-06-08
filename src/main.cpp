@@ -102,6 +102,13 @@ void main_task(void *pvParameters) {
   if (!config.load()) {
     config.setDefaults();
     config.save();
+    // Re-initialize onboard LED after defaults are set
+    #ifdef CONFIG_IDF_TARGET_ESP32C6
+      uint8_t ledPin = ONBOARD_LED_OUTPUT;
+      gpio_set_direction((gpio_num_t)ledPin, GPIO_MODE_OUTPUT);
+      gpio_set_level((gpio_num_t)ledPin, 1);
+      ESP_LOGI("main", "Onboard LED (GPIO %d) set to ON after config reload", ledPin);
+    #endif
   }
   lastConfiguration = config;
   ESP_LOGI("main", "step: presets");
@@ -130,6 +137,16 @@ void main_task(void *pvParameters) {
   gpio_set_level((gpio_num_t)config.led.relayPin,
                  config.led.relayActiveHigh ? 0 : 1);
 
+  // Initialize onboard LED (GPIO) - hardcoded to ON at boot
+  #ifdef CONFIG_IDF_TARGET_ESP32C6
+    uint8_t ledPin = ONBOARD_LED_OUTPUT;
+    
+    // Configure for OUTPUT mode (LED always on when power is on)
+    gpio_set_direction((gpio_num_t)ledPin, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)ledPin, 1);
+    ESP_LOGI("main", "Onboard LED (GPIO %d) ENABLED - HARDWARE ON at boot", ledPin);
+  #endif
+
   // Initialize transition engine brightness to default
   transition.forceCurrentBrightness(state.brightness);
   ESP_LOGI("main", "step: network");
@@ -151,11 +168,15 @@ void main_task(void *pvParameters) {
   webServer.onPresetApply([](uint8_t presetId) {
     applyPreset(presetId, transition._targetState.brightness);
   });
+  // Onboard LED is hardcoded ON when power is on (no API control)
   webServer.onConfigChange([]() {
     gpio_set_direction((gpio_num_t)config.led.relayPin, GPIO_MODE_OUTPUT);
     gpio_set_level((gpio_num_t)config.led.relayPin,
                    state.power ? (config.led.relayActiveHigh ? 1 : 0)
                                : (config.led.relayActiveHigh ? 0 : 1));
+
+    // Onboard LED is hardcoded ON at boot (no config changes needed)
+
     bool locationChanged =
         config.time.latitude != lastConfiguration.time.latitude ||
         config.time.longitude != lastConfiguration.time.longitude;

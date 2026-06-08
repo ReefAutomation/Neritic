@@ -11,7 +11,9 @@
     "type": "SK6812",
     "colorOrder": "GRB",
     "relayPin": 2,
-    "relayActiveHigh": true
+    "relayActiveHigh": true,
+    "onboardLedPin": 1,
+    "onboardLedEnabled": false
   },
   "safety": {
     "maxBrightness": 80,

@@ -59,6 +59,7 @@ DeepGlow stores runtime settings as JSON. Most users should configure via web UI
 - `type`: LED chipset name
 - `colorOrder`: e.g. `GRB`, `RGB`
 - `relayPin`, `relayActiveHigh`: optional relay control
+- `onboardLedPin`, `onboardLedEnabled`: optional onboard LED control
 
 ### `safety`
 - `maxBrightness`: hard cap for manual/API requests

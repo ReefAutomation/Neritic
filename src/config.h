@@ -21,9 +21,10 @@
 #define CONFIG_FILE "/config.json"
 #define PRESET_FILE "/presets.json"
 
-// Limits
-
-// Presets now use effect index directly (uint8_t)
+// Onboard LED Configuration (Hardcoded)
+#define ONBOARD_LED_ENABLED true
+#define ONBOARD_LED_POWER true
+#define ONBOARD_LED_OUTPUT 15
 
 // Timer Types
 enum TimerType { TIMER_REGULAR = 0, TIMER_SUNRISE = 1, TIMER_SUNSET = 2 };
