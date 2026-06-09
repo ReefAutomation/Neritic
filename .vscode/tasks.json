@@ -1,0 +1,174 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build PlatformIO project",
+			"type": "shell",
+			"command": "platformio run"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32 firmware (esp32d_debug)",
+			"type": "shell",
+			"command": "pio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32 firmware (esp32d_debug)",
+			"type": "shell",
+			"command": "pio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32 firmware (esp32d_debug)",
+			"type": "shell",
+			"command": "pio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32 firmware (esp32d_debug)",
+			"type": "shell",
+			"command": "pio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32 firmware (esp32d_debug)",
+			"type": "shell",
+			"command": "pio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d",
+			"type": "shell",
+			"command": "pio run -e esp32d",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp8266",
+			"type": "shell",
+			"command": "platformio run -e esp8266",
+			"group": "build"
+		},
+		{
+			"label": "Build PlatformIO project",
+			"type": "shell",
+			"command": "platformio run"
+		},
+		{
+			"label": "Build PlatformIO project",
+			"type": "shell",
+			"command": "platformio run"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug"
+		},
+		{
+			"label": "Build for esp8266",
+			"type": "shell",
+			"command": "platformio run -e esp8266",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp8266",
+			"type": "shell",
+			"command": "platformio run -e esp8266",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp8266",
+			"type": "shell",
+			"command": "platformio run -e esp8266",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp8266",
+			"type": "shell",
+			"command": "platformio run -e esp8266",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp8266",
+			"type": "shell",
+			"command": "platformio run -e esp8266",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build for esp32d_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32d_debug",
+			"group": "build"
+		},
+		{
+			"label": "Build PlatformIO project",
+			"type": "shell",
+			"command": "platformio run"
+		},
+		{
+			"label": "Build for esp32c6_debug",
+			"type": "shell",
+			"command": "platformio run -e esp32c6_debug",
+			"group": "build"
+		}
+	]
+}

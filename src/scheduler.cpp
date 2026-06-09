@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string>
 #include <time.h>
+#include "onboard_led.h"
 
 static const char *TAG = "scheduler";
 
@@ -36,8 +37,15 @@ void Scheduler::begin() {
     strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
     ESP_LOGI("scheduler", "SNTP sync notification: system time set to %s", buf);
     // Set persistent time valid flag
-    if (Scheduler::_instance)
+    if (Scheduler::_instance) {
+    #ifdef ONBOARD_RGB_LED
+      setOnboardRgbLedGreen(); // GREEN when got IP
+    #endif
+    #ifdef ONBOARD_STATUS_LED
+      turnOnStatusLed();
+    #endif
       Scheduler::_instance->_timeValid = true;
+    }
   });
   esp_sntp_init();
   _lastNTPUpdate = (uint64_t)(esp_timer_get_time() / 1000ULL);

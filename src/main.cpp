@@ -30,6 +30,7 @@
 #include "display.h"
 #include "inc/version.inc"
 #include "inc/version_def.inc"
+#include "onboard_led.h"
 
 // Global BusManager instance
 BusManager busManager;
@@ -103,6 +104,14 @@ void main_task(void *pvParameters) {
     config.setDefaults();
     config.save();
   }
+
+#ifdef ONBOARD_STATUS_LED
+  turnOffStatusLed();
+#endif
+#ifdef ONBOARD_RGB_LED
+  initOnboardRgbLed();
+#endif
+  
   lastConfiguration = config;
   ESP_LOGI("main", "step: presets");
 
@@ -156,6 +165,7 @@ void main_task(void *pvParameters) {
     gpio_set_level((gpio_num_t)config.led.relayPin,
                    state.power ? (config.led.relayActiveHigh ? 1 : 0)
                                : (config.led.relayActiveHigh ? 0 : 1));
+
     bool locationChanged =
         config.time.latitude != lastConfiguration.time.latitude ||
         config.time.longitude != lastConfiguration.time.longitude;

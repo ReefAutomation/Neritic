@@ -170,12 +170,11 @@ export function App() {
       setConfig(config);
       setTimezones(timezones);
       setTimers(config?.timers);
-      setLoaded({ presets: true, timezones: true, config: true });
-      // Set version string if available
-      if (version?.version) {
-        const vEl = document.getElementById('versionString');
-        if (vEl) vEl.textContent = `Version: ${version.version}`;
+      if (version) {
+        const v = typeof version === 'string' ? version : (version.version || '');
+        setState((prev) => ({ ...prev, version: v }));
       }
+      setLoaded({ presets: true, timezones: true, config: true });
     });
   }, []);
 

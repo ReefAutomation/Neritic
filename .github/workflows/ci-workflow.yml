@@ -32,74 +32,70 @@ jobs:
       - name: Compute cache key
         id: cache-key
         run: |
-          KEY="${{ runner.os }}-deps-${{ hashFiles('package-lock.json','web/package-lock.json','package.json','requirements.txt') }}"
+          KEY="${{ runner.os }}-deps-${{ hashFiles('package.json','package-lock.json','requirements.txt') }}"
           echo "cache-key=$KEY" >> $GITHUB_OUTPUT
           echo "Computed cache-key: $KEY"
 
       - name: Restore cache (deps)
         id: cache-restore
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: |
             .venv
             .pio
             ~/.platformio/.cache
             ~/.platformio/lib
-            ~/.cache/pip
+            ~/.cache
             ~/.npm
             node_modules
+            managed_components
           key: ${{ steps.cache-key.outputs.cache-key }}
           restore-keys: |
             ${{ runner.os }}-deps-
 
 
       - name: Set up Python
-        if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Create Python venv
-        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           python -m venv .venv
 
       - name: Activate venv and install PlatformIO
-        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           source .venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Install PlatformIO libraries (explicit)
-        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           source .venv/bin/activate
           pio pkg install
 
       - name: Set up Node.js
-        if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: '24.x'
 
       - name: Install npm dependencies
-        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           npm ci
 
       - name: Save cache (deps)
         id: cache-save
-        uses: actions/cache@v5
+        uses: actions/cache/save@v5
         with:
           path: |
             .venv
             .pio
             ~/.platformio/.cache
             ~/.platformio/lib
-            ~/.cache/pip
+            ~/.cache
             ~/.npm
             node_modules
+            managed_components
           key: ${{ steps.cache-key.outputs.cache-key }}
 
   web:
@@ -114,16 +110,17 @@ jobs:
 
       - name: Restore cache (deps)
         id: cache-restore
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: |
             .venv
             .pio
             ~/.platformio/.cache
             ~/.platformio/lib
-            ~/.cache/pip
+            ~/.cache
             ~/.npm
             node_modules
+            managed_components
           key: ${{ needs.deps.outputs.cache-key }}
           restore-keys: |
             ${{ runner.os }}-deps-
@@ -146,6 +143,7 @@ jobs:
     needs: deps
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         env: [esp32d, esp32c6, esp32, esp32c3, esp32s3]
     steps:
@@ -156,16 +154,17 @@ jobs:
 
       - name: Restore cache (deps)
         id: cache-restore
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: |
             .venv
             .pio
             ~/.platformio/.cache
             ~/.platformio/lib
-            ~/.cache/pip
+            ~/.cache
             ~/.npm
             node_modules
+            managed_components
           key: ${{ needs.deps.outputs.cache-key }}
           restore-keys: |
             ${{ runner.os }}-deps-
@@ -173,7 +172,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -183,18 +182,8 @@ jobs:
       - name: Build firmware for ${{ matrix.env }}
         run: |
           source .venv/bin/activate
-          n=0
-          until [ "$n" -ge 3 ]
-          do
-            platformio run -e ${{ matrix.env }} && break
-            n=$((n+1))
-            echo "Build failed, retrying ($n/3)..."
-            sleep 10
-          done
-          if [ "$n" -ge 3 ]; then
-            echo "Build failed after 3 attempts." >&2
-            exit 1
-          fi
+          platformio run -e ${{ matrix.env }}
+          ls -l ~/.cache ~/.cache/Espressif || true
 
       - name: Compress firmware binaries
         run: |

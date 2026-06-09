@@ -96,13 +96,13 @@ export function FirmwareUpdate({
         });
         setOtaInstallToastId(toastId);
       } else {
-        setRemoteStartPending(false);
+        setTimeout(() => setRemoteStartPending(false), 16);
         showToast(result?.message ? result.message : 'No update found.', {
           type: 'info',
         });
       }
     } catch (e) {
-      setRemoteStartPending(false);
+      setTimeout(() => setRemoteStartPending(false), 16);
       console.error('Update install failed:', e);
       showToast('Update install failed!', { type: 'error' });
     }
@@ -110,20 +110,18 @@ export function FirmwareUpdate({
     setInstalling(false);
   };
 
-  // Dismiss OTA install toast when:
-  //  a) progress actually started (> 0), or
-  //  b) an error arrived before progress began (otaProgress sentinel < -1)
+  // Dismiss OTA install toast when progress starts or error arrives before progress
   useEffect(() => {
     if (!otaInstallToastId) return;
     if (otaProgress > 0 || localOtaProgress > 0 || otaProgress < -1) {
       if (typeof hideToast === 'function') hideToast(otaInstallToastId);
-      setOtaInstallToastId(null);
+      setTimeout(() => setOtaInstallToastId(null), 16);
     }
   }, [otaProgress, localOtaProgress, otaInstallToastId, hideToast]);
 
   useEffect(() => {
     if (otaProgress < -1) {
-      setRemoteStartPending(false);
+      setTimeout(() => setRemoteStartPending(false), 16);
     }
   }, [otaProgress]);
 

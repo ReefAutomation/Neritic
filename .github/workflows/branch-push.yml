@@ -4,8 +4,9 @@ name: Branch Push CI
 on:
   push:
     # Run on any branch except the principal 'main' branch
-    branches-ignore:
-      - main
+    # branches-ignore:
+    #   - main
+  workflow_dispatch:    
 
 jobs:
   build:
