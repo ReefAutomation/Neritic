@@ -1,16 +1,97 @@
 {
-  "$schema": "https://renovatebot.com",
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "recreateWhen": "always",
+  "rebaseWhen": "behind-base-branch",
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+  "commitMessagePrefix": "🤖",
+  "commitMessageTopic": "{{depName}}",
+  "commitMessageExtra": "to {{newVersion}}",
+  "commitMessageSuffix": "",
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/(^|/)platformio\\.ini$/"],
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
       "matchStrings": [
-        "platform\\s*=\\s*(?<depName>espressif32)@(?<currentValue>[0-9.]+)"
+        "platform\\s*=\\s*(?<depName>[^@\\s\\n]+)@(?<currentValue>[0-9.]+)"
       ],
-      "packageNameTemplate": "platformio/platform-espressif32",
-      "datasourceTemplate": "github-releases"
+      "matchStringsStrategy": "any",
+      "datasourceTemplate": "custom.ds-pio-platform",
+      "depNameTemplate": "{{depName}}",
+      "versioningTemplate": "loose",
+      "depTypeTemplate": "dep-pio-platform"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "lib_deps\\s*=\\s*(?<dependencies>(?:[^\\n]+|\\n\\t+)+)",
+        "(?<depName>[a-zA-Z0-9_-]+)@(?<currentValue>[0-9.]+)"
+      ],
+      "datasourceTemplate": "custom.ds-pio-library",
+      "depNameTemplate": "{{depName}}",
+      "versioningTemplate": "loose",
+      "depTypeTemplate": "dep-pio-library"
+    },
+    {
+      "customType": "regex",
+      "description": "Extractor universal para todos los componentes e idf engine",
+      "managerFilePatterns": ["/^src/idf_component\\.yml$/"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "^dependencies:\\s*(?<dependencies>(?:[^\\n]+|\\n[ \\t]+)+)",
+        "(?:^|\\n)[ \\t]+(?<depName>[a-zA-Z0-9_\\-\\/]+):\\s*(?:version:\\s*)?[\"']?(?<replaceString>(?:[~^]|>=|<=|>|<)?(?<currentValue>v?[0-9.]+(?:~[0-9]+)?))[\"']?"
+      ],
+      "datasourceTemplate": "{{#if (equals depName 'idf')}}github-releases{{else}}custom.ds-espressif-component{{/if}}",
+      "packageNameTemplate": "{{#if (equals depName 'idf')}}espressif/esp-idf{{else}}{{{depName}}}{{/if}}",
+      "versioningTemplate": "loose",
+      "depTypeTemplate": "{{#if (equals depName 'idf')}}dep-idf-engine{{else}}dep-idf-component{{/if}}"
+    }
+  ],
+  "customDatasources": {
+    "ds-pio-platform": {
+      "description": "PlatformIO Platform Registry",
+      "defaultRegistryUrlTemplate": "https://api.registry.platformio.org/v3/packages/{{#if (containsString packageName '/')}}{{{replace '/.*' '' packageName}}}{{else}}platformio{{/if}}/platform/{{{replace '.*/' '' packageName}}}",
+      "format": "json",
+      "transformTemplates": [
+        "{\"releases\": [$map($.versions, function($v) { { \"version\": $v.name, \"releaseTimestamp\": $v.released_at } })], \"homepage\": $encodeUrl($join([\"https://registry.platformio.org/\",$.type,\"/\",$.owner.username,\"/\",$.name])) }"
+      ]
+    },
+    "ds-pio-library": {
+      "description": "PlatformIO Library Registry",
+      "defaultRegistryUrlTemplate": "https://api.registry.platformio.org/v3/packages?query={{{packageName}}}&page=1&limit=1",
+      "format": "json",
+      "transformTemplates": [
+        "{\"releases\": [$map($.items[0], function($v) { { \"version\": $v.version.name, \"releaseTimestamp\": $v.version.released_at } })], \"homepage\": $encodeUrl($join([\"https://registry.platformio.org/\",$.items[0].type,\"/\",$.items[0].owner.username,\"/\",$.items[0].name])) }"
+      ]
+    },
+    "ds-espressif-component": {
+      "description": "Espressif Component Registry Static JSON Endpoint",
+      "defaultRegistryUrlTemplate": "https://components-file.espressif.com/components/{{{packageName}}}.json",
+      "format": "json",
+      "transformTemplates": [
+        "{\"releases\": [$map($.versions, function($v) { { \"version\": $v.version, \"releaseTimestamp\": $v.created_at } })], \"homepage\": \"https://components.espressif.com/components/{{{packageName}}}\" }"
+      ]
+    }
+  },
+  "packageRules": [
+    {
+      "matchDepTypes": ["dep-pio-platform", "dep-pio-library"],
+      "addLabels": ["dependencies", "platformio"]
+    },
+    {
+      "matchDepTypes": ["dep-idf-engine"],
+      "addLabels": ["dependencies", "idf"]
+    },
+    {
+      "matchDepTypes": ["dep-idf-component"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:~(?<build>\\d+))?$",
+      "addLabels": ["dependencies", "idf"]
     }
   ]
 }

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
+import viteCompression from 'vite-plugin-compression'
 
 export default defineConfig({
   root: 'web',
@@ -17,5 +18,16 @@ export default defineConfig({
       },
     },
   },
-  plugins: [preact()],
+  plugins: [
+    preact(),
+    viteCompression({
+      algorithm: 'gzip',
+      ext: '.gz',
+      threshold: 1024,
+      deleteOriginFile: true,
+      compressionOptions: {
+        level: 9
+      }
+    })
+  ],
 });

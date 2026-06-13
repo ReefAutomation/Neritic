@@ -2,11 +2,6 @@
 // webserver.cpp – ESP-IDF HTTP server (esp_http_server)
 // Replaces ESPAsyncWebServer
 // ============================================================
-#include "inc/index_html.inc"
-#include "inc/index_js.inc"
-#include "inc/style_css.inc"
-#include "inc/version.inc"
-
 #include "config.h"
 #include "effects.h"
 #include "network.h"
@@ -29,6 +24,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "assets.h"
 
 static const char *TAG = "webserver";
 
@@ -705,7 +701,7 @@ esp_err_t WebServerManager::hVersion(httpd_req_t *req) {
   ESP_LOGI(TAG, "hVersion called: %s", req->uri);
   setCors(req);
   httpd_resp_set_type(req, "application/json");
-  std::string json = std::string("{\"version\":\"") + FW_VERSION + "\"}";
+  std::string json = std::string("{\"version\":\"") + (const char *)version + "\"}";
   httpd_resp_sendstr(req, json.c_str());
   return ESP_OK;
 }
@@ -727,7 +723,7 @@ esp_err_t WebServerManager::hUpdateGet(httpd_req_t *req) {
     return ESP_OK;
   }
   // Return {"current":"x.x.x","latest":[...manifest array...]}
-  std::string json = std::string("{\"current\":\"") + FW_VERSION +
+  std::string json = std::string("{\"current\":\"") + (const char *)version +
                      "\",\"latest\":" + manifest + "}";
   httpd_resp_send(req, json.c_str(), json.size());
   return ESP_OK;
@@ -809,7 +805,7 @@ esp_err_t WebServerManager::hIndexJs(httpd_req_t *req) {
   ESP_LOGI(TAG, "hIndexJs called: %s", req->uri);
   httpd_resp_set_type(req, "application/javascript");
   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-  httpd_resp_send(req, (const char *)web_index_js, web_index_js_len);
+  httpd_resp_send(req, (const char *)web_index_js, INDEX_JS_SIZE);
   return ESP_OK;
 }
 
@@ -818,7 +814,7 @@ esp_err_t WebServerManager::hStyleCss(httpd_req_t *req) {
   ESP_LOGI(TAG, "hStyleCss called: %s", req->uri);
   httpd_resp_set_type(req, "text/css");
   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-  httpd_resp_send(req, (const char *)web_style_css, web_style_css_len);
+  httpd_resp_send(req, (const char *)web_style_css, STYLE_CSS_SIZE);
   return ESP_OK;
 }
 
@@ -826,8 +822,7 @@ esp_err_t WebServerManager::hStyleCss(httpd_req_t *req) {
 esp_err_t WebServerManager::hRoot(httpd_req_t *req) {
   ESP_LOGI(TAG, "hRoot called: %s", req->uri);
   httpd_resp_set_type(req, "text/html");
-  httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-  httpd_resp_send(req, (const char *)web_index_html, web_index_html_len);
+  httpd_resp_send(req, (const char *)web_index_html, INDEX_HTML_SIZE);
   return ESP_OK;
 }
 
@@ -835,8 +830,7 @@ esp_err_t WebServerManager::hRoot(httpd_req_t *req) {
 esp_err_t WebServerManager::hWifiGet(httpd_req_t *req) {
   ESP_LOGI(TAG, "hWifiGet called: %s", req->uri);
   httpd_resp_set_type(req, "text/html");
-  httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-  httpd_resp_send(req, (const char *)web_index_html, web_index_html_len);
+  httpd_resp_send(req, (const char *)web_index_html, INDEX_HTML_SIZE);
   return ESP_OK;
 }
 
@@ -940,8 +934,7 @@ esp_err_t WebServerManager::hWifiPost(httpd_req_t *req) {
     return ESP_OK;
   }
   httpd_resp_set_type(req, "text/html");
-  httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-  httpd_resp_send(req, (const char *)web_index_html, web_index_html_len);
+  httpd_resp_send(req, (const char *)web_index_html, INDEX_HTML_SIZE);
   return ESP_OK;
 }
 

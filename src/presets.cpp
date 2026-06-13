@@ -3,13 +3,13 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "inc/presets_json.inc"
 #include <cJSON.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "assets.h"
 
 #define PRESET_MOUNT_POINT "/data"
 #define PRESET_FILE "/presets.json"
@@ -64,8 +64,7 @@ bool loadPresets(std::vector<Preset> &presets) {
     loaded = !content.empty();
   } else {
     // Load from embedded asset if file missing or invalid
-    content.assign((const char *)web_presets_json,
-                   (size_t)web_presets_json_len);
+    content.assign((const char *)presets_json, PRESETS_JSON_SIZE);
     loaded = !content.empty();
   }
   if (!loaded)

@@ -2,9 +2,8 @@
 # PlatformIO SCons extra_script for User_Setup.h generation
 
 import os
-import sys
 import logging
-from SCons.Script import DefaultEnvironment
+from SCons.Script import DefaultEnvironment # type: ignore
 
 env = DefaultEnvironment()
 
@@ -100,7 +99,7 @@ def main():
                 os.makedirs(tft_dir, exist_ok=True)
                 logging.info(f"Created TFT_eSPI directory: {tft_dir}")
             except Exception as e:
-                logging.error(f"Failed to create TFT_eSPI directory {tft_dir}: {e}")
+                logging.exception(f"Failed to create TFT_eSPI directory {tft_dir}: {e}")
                 return
         user_setup_dst = os.path.join(tft_dir, 'User_Setup.h')
         try:
@@ -108,7 +107,7 @@ def main():
             generate_user_setup_h(user_setup_dst, vals)
             logging.info(f"Generated {user_setup_dst}")
         except Exception as e:
-            logging.error(f"Failed to generate {user_setup_dst}: {e}")
+            logging.exception(f"Failed to generate {user_setup_dst}: {e}")
             return
 
 main()
