@@ -15,22 +15,19 @@
 #include "config.h"
 #include "driver/gpio.h"
 #include "effects.h"
+#include "display.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "network.h"
 #include "nvs_flash.h"
 #include "ota.h"
+#include "onboard_led.h"
 #include "presets.h"
 #include "scheduler.h"
 #include "state.h"
 #include "transition.h"
 #include "webserver.h"
 #include <string.h>
-
-#include "display.h"
-#include "inc/version.inc"
-#include "inc/version_def.inc"
-#include "onboard_led.h"
 
 // Global BusManager instance
 BusManager busManager;
