@@ -4,7 +4,7 @@
   "recreateWhen": "always",
   "prHourlyLimit": 0,
   "prConcurrentLimit": 0,
-  "vulnerabilityAlerts": {"enabled": false},
+  "vulnerabilityAlerts": { "enabled": false },
   "commitMessagePrefix": "🤖",
   "commitMessageTopic": "{{depName}}",
   "commitMessageExtra": "to {{newVersion}}",
@@ -87,14 +87,14 @@
       "addLabels": ["dependencies", "platformio"]
     },
     {
-      "matchManagers": ["regex"],
+      "matchManagers": ["custom.regex"],
       "matchPackageNames": ["!idf"],
       "extractVersion": "^v?(?<version>.*)$",
       "depType": "dep-idf-component",
       "addLabels": ["dependencies", "idf"]
     },
     {
-      "matchManagers": ["regex"],
+      "matchManagers": ["custom.regex"],
       "matchPackageNames": ["idf"],
       "depType": "dep-idf-engine",
       "addLabels": ["dependencies", "idf"]
