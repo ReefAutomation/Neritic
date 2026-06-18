@@ -6,7 +6,11 @@
   "prHourlyLimit": 0,
   "prConcurrentLimit": 0,
   "vulnerabilityAlerts": {
-    "enabled": false
+    "enabled": true,
+    "labels": ["security"],
+    "schedule": ["at any time"],
+    "dependencyDashboardApproval": false,
+    "prCreation": "immediate"
   },
   "commitMessagePrefix": "🤖",
   "commitMessageTopic": "{{depName}}",

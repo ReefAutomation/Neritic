@@ -5,18 +5,16 @@ on:
     - cron: '0 0 * * *' # Runs daily at midnight
   workflow_dispatch:
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  security-events: write
-
 env:
   RENOVATE_VERSION: 43.220.0
   
 jobs:
   renovate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      security-events: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
