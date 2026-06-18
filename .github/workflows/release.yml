@@ -24,6 +24,14 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Run semantic-release action
         id: semantic
@@ -36,7 +44,7 @@ jobs:
             @semantic-release/exec
             @semantic-release/git
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
           GIT_AUTHOR_NAME: DeepGlow Release Bot
           GIT_AUTHOR_EMAIL: deepglow-release-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: DeepGlow Release Bot
