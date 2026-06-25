@@ -62,11 +62,14 @@ function createSharedConnection(wsUrl) {
   };
 
   const connect = () => {
+    // Do not attempt connection if manually closed, no listeners, or page is hidden
     if (manualClose || listeners.size === 0 || document.hidden) return;
     socket = new globalThis.WebSocket(wsUrl);
     socket.binaryType = 'arraybuffer';
 
     socket.onopen = () => {
+      // Reset backoff counter on successful connection
+      reconnectAttempt = 0;
       forEachListener('onOpen');
     };
 
@@ -94,25 +97,47 @@ function createSharedConnection(wsUrl) {
   };
 
   const handleVisibilityChange = () => {
-    if (document.hidden || !document.hasFocus()) {
-      // Close the socket when the page is hidden/blurred
+    if (document.hidden) {
+      // Page is hidden → close socket and clear any pending reconnect
+      if (reconnectTimer) {
+        globalThis.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       if (socket && socket.readyState !== globalThis.WebSocket.CLOSED) {
         socket.close();
         socket = null;
       }
-    } else if (!manualClose && listeners.size > 0 && (socket?.readyState !== globalThis.WebSocket.OPEN)) {
-      // Try to reconnect when the page is focused/visible
+    } else if (!manualClose && listeners.size > 0 && socket?.readyState !== globalThis.WebSocket.OPEN) {
+      // Clear any stale timer and reset attempt to avoid long backoff after a manual hide/show
+      if (reconnectTimer) {
+        globalThis.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      reconnectAttempt = 0; // Reset backoff so reconnection is immediate
       connect();
     }
   };
 
+  // Use only visibilitychange (covers both tab switch and minimize)
   globalThis.addEventListener('visibilitychange', handleVisibilityChange);
-  globalThis.onblur = handleVisibilityChange;
-  globalThis.addEventListener('focus', () => {
-    if (!manualClose && listeners.size > 0 && (socket?.readyState !== globalThis.WebSocket.OPEN)) {
-      connect();
+
+  // Cleanup on page unload to prevent reconnection attempts
+  const handlePageUnload = () => {
+    manualClose = true;
+    if (reconnectTimer) {
+      globalThis.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     }
-  });
+    if (socket) {
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+      socket = null;
+    }
+  };
+  globalThis.addEventListener('beforeunload', handlePageUnload);
 
   const shutdown = (code, reason) => {
     manualClose = true;
@@ -136,7 +161,8 @@ function createSharedConnection(wsUrl) {
       manualClose = false;
       if (socket?.readyState === globalThis.WebSocket.OPEN) {
         safeInvoke(listener.onOpen);
-      } else if (!reconnectTimer) {
+      } else if (!reconnectTimer && !document.hidden) {
+        // Only attempt connection if page is visible
         connect();
       }
     },
