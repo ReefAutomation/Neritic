@@ -537,6 +537,13 @@ esp_err_t WebServerManager::wsHandler(httpd_req_t *req) {
   if (req->method == HTTP_GET) {
     // New WS connection – initialize tracking
     ESP_LOGI(TAG, "WS connect fd=%d", fd);
+
+    // Only one WebSocket client allowed at a time
+    if (!mgr->_wsHandshaked.empty()) {
+      ESP_LOGW(TAG, "Connection rejected: another user is already connected.");
+      return ESP_FAIL;
+    }
+
     mgr->_wsBlocked.erase(fd);
     mgr->_wsHandshaked[fd] = false;
     mgr->_otaClients.erase(fd);
@@ -580,14 +587,7 @@ esp_err_t WebServerManager::wsHandler(httpd_req_t *req) {
   }
 
   // Subsequent messages
-  if (msg.find("\"type\":\"ping\"") != std::string::npos) {
-    httpd_ws_frame_t resp = {};
-    static const char pong[] = "{\"type\":\"pong\"}";
-    resp.type = HTTPD_WS_TYPE_TEXT;
-    resp.payload = (uint8_t *)pong;
-    resp.len = sizeof(pong) - 1;
-    httpd_ws_send_frame(req, &resp);
-  } else if (msg.find("\"type\":\"ota_client\"") != std::string::npos) {
+  if (msg.find("\"type\":\"ota_client\"") != std::string::npos) {
     mgr->_otaClients.insert(fd);
   } else if (msg.find("\"type\":\"state\"") != std::string::npos) {
     mgr->_otaClients.erase(fd);

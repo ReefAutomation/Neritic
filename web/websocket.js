@@ -21,13 +21,9 @@ function createSharedConnection(wsUrl) {
   let socket = null;
   let manualClose = false;
   let reconnectTimer = null;
-  let heartbeatTimer = null;
   let reconnectAttempt = 0;
-  let lastPongMs = 0;
 
   const MAX_BACKOFF_MS = 8000;
-  const HEARTBEAT_INTERVAL_MS = 4000;
-  const HEARTBEAT_TIMEOUT_MS = 12000;
 
   const computeBackoffMs = (attempt) => {
     return Math.min(MAX_BACKOFF_MS, 500 * 2 ** Math.min(attempt, 6));
@@ -65,65 +61,12 @@ function createSharedConnection(wsUrl) {
     }, delay);
   };
 
-  const stopHeartbeat = () => {
-    if (!heartbeatTimer) return;
-    globalThis.clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  };
-
-  const forceReconnectFromStaleSocket = () => {
-    if (manualClose) return;
-
-    stopHeartbeat();
-
-    const staleSocket = socket;
-    socket = null;
-
-    if (staleSocket) {
-      staleSocket.onopen = null;
-      staleSocket.onmessage = null;
-      staleSocket.onerror = null;
-      staleSocket.onclose = null;
-      try {
-        staleSocket.close();
-      } catch {
-        // noop
-      }
-    }
-
-    scheduleReconnect();
-    forEachListener('onClose');
-  };
-
-  const startHeartbeat = () => {
-    stopHeartbeat();
-    heartbeatTimer = globalThis.setInterval(() => {
-      if (manualClose || socket?.readyState !== globalThis.WebSocket.OPEN) {
-        return;
-      }
-
-      try {
-        if (Date.now() - lastPongMs > HEARTBEAT_TIMEOUT_MS) {
-          forceReconnectFromStaleSocket();
-          return;
-        }
-        socket.send('{"type":"ping"}');
-      } catch {
-        forceReconnectFromStaleSocket();
-      }
-    }, HEARTBEAT_INTERVAL_MS);
-  };
-
   const connect = () => {
-    if (manualClose || listeners.size === 0) return;
+    if (manualClose || listeners.size === 0 || document.hidden) return;
     socket = new globalThis.WebSocket(wsUrl);
     socket.binaryType = 'arraybuffer';
 
     socket.onopen = () => {
-      reconnectAttempt = 0;
-      lastPongMs = Date.now();
-
-      startHeartbeat();
       forEachListener('onOpen');
     };
 
@@ -134,10 +77,6 @@ function createSharedConnection(wsUrl) {
       }
       try {
         const data = JSON.parse(event.data);
-        if (data?.type === 'pong') {
-          lastPongMs = Date.now();
-          return;
-        }
         forEachListener('onMessage', data);
       } catch (e) {
         console.error('WebSocket message JSON parse error:', e);
@@ -149,15 +88,34 @@ function createSharedConnection(wsUrl) {
     };
 
     socket.onclose = () => {
-      stopHeartbeat();
       if (!manualClose) scheduleReconnect();
       forEachListener('onClose');
     };
   };
 
+  const handleVisibilityChange = () => {
+    if (document.hidden || !document.hasFocus()) {
+      // Close the socket when the page is hidden/blurred
+      if (socket && socket.readyState !== globalThis.WebSocket.CLOSED) {
+        socket.close();
+        socket = null;
+      }
+    } else if (!manualClose && listeners.size > 0 && (socket?.readyState !== globalThis.WebSocket.OPEN)) {
+      // Try to reconnect when the page is focused/visible
+      connect();
+    }
+  };
+
+  globalThis.addEventListener('visibilitychange', handleVisibilityChange);
+  globalThis.onblur = handleVisibilityChange;
+  globalThis.addEventListener('focus', () => {
+    if (!manualClose && listeners.size > 0 && (socket?.readyState !== globalThis.WebSocket.OPEN)) {
+      connect();
+    }
+  });
+
   const shutdown = (code, reason) => {
     manualClose = true;
-    stopHeartbeat();
     if (reconnectTimer) {
       globalThis.clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -207,15 +165,15 @@ export function createWebSocket({
   onError,
 }) {
   const wsUrl = buildWsUrl();
-  if (!sharedConnection || sharedConnection.url !== wsUrl) {
-    if (sharedConnection?.manager) {
+  if (sharedConnection) {
+    if (sharedConnection.manager) {
       sharedConnection.manager.close();
     }
-    sharedConnection = {
-      url: wsUrl,
-      manager: createSharedConnection(wsUrl),
-    };
   }
+  sharedConnection = {
+    url: wsUrl,
+    manager: createSharedConnection(wsUrl),
+  };
 
   const listener = { onMessage, onBinary, onOpen, onClose, onError };
   sharedConnection.manager.addListener(listener);
