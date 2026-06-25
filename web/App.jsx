@@ -40,7 +40,7 @@ export function App() {
     tabRef.current = tab;
   }, [tab]);
 
-  // Shared WebSocket connection
+  // Shared WebSocket connection (control messages only)
   const wsRef = useRef(null);
   const [, setWsReady] = useState(false);
   const [, setWsError] = useState(null);
@@ -76,14 +76,7 @@ export function App() {
           }
         }
       },
-      onBinary: (buffer) => {
-        if (
-          ledBarRef.current &&
-          typeof ledBarRef.current.updateBuffer === 'function'
-        ) {
-          ledBarRef.current.updateBuffer(buffer);
-        }
-      },
+      // onBinary removed – live LED stream now uses SSE (see below)
       onOpen: () => {
         setWsReady(true);
         setWsError(null);
@@ -104,12 +97,40 @@ export function App() {
     };
   }, [setWsError, setWsReady, showToast]);
 
+  // Live LED stream via SSE
+  useEffect(() => {
+    const eventSource = new EventSource('/api/live');
+
+    eventSource.onmessage = (event) => {
+      try {
+        const binaryString = atob(event.data);
+        const len = binaryString.length;
+        const buffer = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          buffer[i] = binaryString.codePointAt(i);
+        }
+        if (ledBarRef.current && typeof ledBarRef.current.updateBuffer === 'function') {
+          ledBarRef.current.updateBuffer(buffer.buffer);
+        }
+      } catch (e) {
+        console.warn('SSE decode error', e);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn('SSE error, will auto-reconnect', err);
+    };
+
+    return () => eventSource.close();
+  }, []); // runs once on mount
+
   // Send handshake/subscription message on tab change
   useEffect(() => {
     if (wsRef.current?.readyState === 1) {
       wsRef.current.send(JSON.stringify(getHandshakeType(tab)));
     }
   }, [tab]);
+
   // Home state
   const [presets, setPresets] = useState([]);
   const [timers, setTimers] = useState([]);
@@ -132,9 +153,6 @@ export function App() {
       setTimers(config.timers);
     }
   }, [config]);
-
-  // Toast helper
-  // Duplicate showToast removed (already defined above)
 
   // Fetch shared data (presets, timers, effects, version, config, timezones) in parallel
   useEffect(() => {

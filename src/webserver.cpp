@@ -21,6 +21,7 @@
 #include <cJSON.h>
 #include <algorithm>
 #include <map>
+#include <mbedtls/base64.h>
 #include <set>
 #include <string>
 #include <vector>
@@ -48,42 +49,7 @@ static void health_probe_work(void *arg) {
   (void)arg;
 }
 
-void WebServerManager::liveBinaryBroadcastWork(void *arg) {
-  WebServerManager *mgr = static_cast<WebServerManager *>(arg);
-  if (!mgr || !mgr->_liveFrameMutex) {
-    return;
-  }
-
-  while (true) {
-    std::vector<uint8_t> frame;
-
-    if (xSemaphoreTake(mgr->_liveFrameMutex, pdMS_TO_TICKS(5)) != pdTRUE) {
-      return;
-    }
-
-    if (!mgr->_liveFrameDirty || mgr->_pendingLiveFrame.empty()) {
-      mgr->_liveFrameQueued = false;
-      xSemaphoreGive(mgr->_liveFrameMutex);
-      return;
-    }
-
-    frame = mgr->_pendingLiveFrame;
-    mgr->_liveFrameDirty = false;
-    xSemaphoreGive(mgr->_liveFrameMutex);
-
-    mgr->broadcastBinary(frame.data(), frame.size());
-  }
-}
-
-#define LIVE_LED_BROADCAST_INTERVAL_MS 400
-
-// ── CORS helper
-// ───────────────────────────────────────────────────────────────
-static void setCors(httpd_req_t *req) {
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
-}
+#define LIVE_LED_BROADCAST_INTERVAL_MS 100
 
 // ── Read full request body
 // ────────────────────────────────────────────────────
@@ -206,6 +172,14 @@ WebServerManager::WebServerManager(Configuration *config,
   _config = config;
   _scheduler = scheduler;
   _liveFrameMutex = xSemaphoreCreateMutex();
+  _sseClientMutex = xSemaphoreCreateMutex();
+}
+
+// ── CORS helper
+static void setCors(httpd_req_t *req) {
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
 }
 
 // ── begin
@@ -332,13 +306,14 @@ void WebServerManager::update() {
   }
 
   uint16_t n = _config->led.count;
-  if (n == 0)
+  if (n == 0 || !_server || !_liveFrameMutex)
     return;
 
   const std::vector<uint32_t> *src =
       (g_outputFramePtr && g_outputFramePtr->size() >= n) ? g_outputFramePtr
                                                           : nullptr;
 
+  // Prepare RGBA frame (4 bytes per LED)
   std::vector<uint8_t> buf(n * 4, 0);
   if (src) {
     for (uint16_t i = 0; i < n; ++i) {
@@ -350,37 +325,15 @@ void WebServerManager::update() {
     }
   }
 
-  if (!_server || !_liveFrameMutex)
-    return;
-
-  bool shouldQueueWork = false;
-  if (xSemaphoreTake(_liveFrameMutex, 0) != pdTRUE) {
-    return;
-  }
-
-  _pendingLiveFrame.swap(buf);
-  _liveFrameDirty = true;
-  if (!_liveFrameQueued) {
-    _liveFrameQueued = true;
-    shouldQueueWork = true;
-  }
-  xSemaphoreGive(_liveFrameMutex);
-
-  if (shouldQueueWork) {
+  // Store the frame for SSE clients
+  if (xSemaphoreTake(_liveFrameMutex, 0) == pdTRUE) {
+    _pendingLiveFrame.swap(buf);
+    _liveFrameDirty = true;
+    xSemaphoreGive(_liveFrameMutex);
     _lastBroadcast = nowMs;
-    esp_err_t rc = httpd_queue_work(_server, liveBinaryBroadcastWork, this);
-    if (rc != ESP_OK) {
-      if (xSemaphoreTake(_liveFrameMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-        _liveFrameQueued = false;
-        xSemaphoreGive(_liveFrameMutex);
-      }
-      ESP_LOGW(TAG, "Failed to queue live WS work rc=%d", rc);
-    }
   }
 }
 
-// ── WebSocket broadcast helpers
-// ───────────────────────────────────────────────
 void WebServerManager::cleanupDisconnectedClients() {
   if (!_server)
     return;
@@ -459,48 +412,6 @@ void WebServerManager::broadcastText(const std::string &msg,
         ESP_LOGW(TAG, "Dropping WS client fd=%d after %u send failures", fd,
                  (unsigned)streak);
         httpd_sess_trigger_close(_server, fd);
-      }
-    }
-  }
-}
-
-void WebServerManager::broadcastBinary(const uint8_t *data, size_t len) {
-  if (!_server)
-    return;
-  static uint32_t lastDropLogMs = 0;
-  static uint32_t droppedSinceLastLog = 0;
-  cleanupDisconnectedClients();
-  size_t n = 16;
-  int fds[16];
-  httpd_get_client_list(_server, &n, fds);
-  for (size_t i = 0; i < n; i++) {
-    if (httpd_ws_get_fd_info(_server, fds[i]) != HTTPD_WS_CLIENT_WEBSOCKET)
-      continue;
-    if (_wsBlocked.count(fds[i]))
-      continue;
-    bool isOta = _otaClients.count(fds[i]) > 0;
-    if (isOta)
-      continue; // skip OTA clients for live LED data
-    httpd_ws_frame_t frame = {};
-    frame.type = HTTPD_WS_TYPE_BINARY;
-    frame.payload = (uint8_t *)data;
-    frame.len = len;
-    esp_err_t rc = httpd_ws_send_frame_async(_server, fds[i], &frame);
-    if (rc == ESP_OK) {
-      _wsSendFailStreak[fds[i]] = 0;
-    } else {
-      // Live strip stream is best-effort realtime: drop this frame for this
-      // client and continue. Do not close the socket due to transient misses.
-      droppedSinceLastLog++;
-      const uint32_t nowMs = (uint32_t)(esp_timer_get_time() / 1000ULL);
-      if ((nowMs - lastDropLogMs) >= 2000U) {
-        ESP_LOGD(TAG, "Dropped %u live binary frames in last %ums (latest fd=%d rc=%d)",
-                 (unsigned)droppedSinceLastLog,
-                 (unsigned)(nowMs - lastDropLogMs),
-                 fds[i],
-                 rc);
-        droppedSinceLastLog = 0;
-        lastDropLogMs = nowMs;
       }
     }
   }
@@ -671,6 +582,7 @@ void WebServerManager::setupRoutes() {
   URI("/api/timer", HTTP_POST, hTimerPost)
   URI("/api/timer", HTTP_OPTIONS, hOptions)
   URI("/api/timezones", HTTP_GET, hTimezones)
+  URI("/api/live", HTTP_GET, hSseLive)
 
   httpd_register_err_handler(_server, HTTPD_404_NOT_FOUND, hNotFound);
 #undef URI
@@ -1043,6 +955,71 @@ esp_err_t WebServerManager::hTimezones(httpd_req_t *req) {
   cJSON_Delete(arr);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_send(req, json.c_str(), json.size());
+  return ESP_OK;
+}
+
+// ── SSE live LED stream
+esp_err_t WebServerManager::hSseLive(httpd_req_t *req) {
+  WebServerManager *mgr = fromReq(req);
+  int fd = httpd_req_to_sockfd(req);
+
+  // Set SSE headers
+  httpd_resp_set_type(req, "text/event-stream");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(req, "Retry-After", "100");
+  httpd_resp_set_hdr(req, "Connection", "keep-alive");
+  setCors(req);
+
+  // Add client to SSE set
+  if (mgr->_sseClientMutex) {
+    xSemaphoreTake(mgr->_sseClientMutex, portMAX_DELAY);
+    mgr->_sseClients.insert(fd);
+    xSemaphoreGive(mgr->_sseClientMutex);
+  }
+
+  // Send initial heartbeat
+  httpd_resp_send_chunk(req, ": heartbeat\n\n", strlen(": heartbeat\n\n"));
+
+  while (true) {
+    bool hasData = false;
+    std::vector<uint8_t> frame;
+    if (xSemaphoreTake(mgr->_liveFrameMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if (mgr->_liveFrameDirty && !mgr->_pendingLiveFrame.empty()) {
+        frame = mgr->_pendingLiveFrame;
+        mgr->_liveFrameDirty = false;
+        hasData = true;
+      }
+      xSemaphoreGive(mgr->_liveFrameMutex);
+    }
+
+    if (hasData) {
+      size_t b64_len = 4 * ((frame.size() + 2) / 3) + 1;
+      char *b64 = (char*)malloc(b64_len);
+      if (b64) {
+        size_t out_len;
+        mbedtls_base64_encode((unsigned char*)b64, b64_len, &out_len,
+                              frame.data(), frame.size());
+        std::string payload = "data: ";
+        payload.append(b64, out_len);
+        payload += "\n\n";
+        free(b64);
+        esp_err_t rc = httpd_resp_send_chunk(req, payload.c_str(), payload.size());
+        if (rc != ESP_OK) break;
+      }
+    } else {
+      // keep-alive comment
+      httpd_resp_send_chunk(req, ": \n\n", 4);
+      vTaskDelay(pdMS_TO_TICKS(20));
+    }
+  }
+
+  // Cleanup
+  if (mgr->_sseClientMutex) {
+    xSemaphoreTake(mgr->_sseClientMutex, portMAX_DELAY);
+    mgr->_sseClients.erase(fd);
+    xSemaphoreGive(mgr->_sseClientMutex);
+  }
+  httpd_resp_send_chunk(req, nullptr, 0);
   return ESP_OK;
 }
 

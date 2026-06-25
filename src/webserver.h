@@ -5,6 +5,7 @@
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "freertos/semphr.h"
+#include <mbedtls/base64.h>
 #include "scheduler.h"
 #include <map>
 #include <set>
@@ -65,6 +66,10 @@ private:
   std::set<int> _wsBlocked;          // fds failed on send; ignore until gone
   std::map<int, uint8_t> _wsSendFailStreak; // fd -> consecutive send failures
 
+  // SSE clients for live LED stream
+  std::set<int> _sseClients;
+  SemaphoreHandle_t _sseClientMutex = nullptr;
+
   // Live LED broadcast tick flag (set by esp_timer callback)
   volatile bool _liveLedTick = false;
 
@@ -85,7 +90,6 @@ private:
   void recoverHttpServer();
   void runHealthCheck();
   void broadcastText(const std::string &msg, bool otaClientsOnly = false);
-  void broadcastBinary(const uint8_t *data, size_t len);
   void cleanupDisconnectedClients();
 
   // Handlers (called from static C handlers)
@@ -126,11 +130,11 @@ private:
   static esp_err_t hTimerPost(httpd_req_t *req);
   static esp_err_t hTimezones(httpd_req_t *req);
   static esp_err_t hOptions(httpd_req_t *req);
+  static esp_err_t hSseLive(httpd_req_t *req);
   static esp_err_t hNotFound(httpd_req_t *req, httpd_err_code_t err);
 
-  // Live LED timer callback
+  // Live LED timer callback (no longer used for broadcast work)
   static void liveLedTimerCb(void *arg);
-  static void liveBinaryBroadcastWork(void *arg);
 };
 
 #endif // WEBSERVER_H

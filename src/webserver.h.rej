@@ -1,0 +1,8 @@
+@@ -39,6 +40,7 @@
+   // State/preset JSON generation (public for use in handlers)
+   std::string getStateJSON();
+   std::string getPresetsJSON();
++  std::string getTimersJSON();
+ 
+ private:
+   Configuration *_config;
