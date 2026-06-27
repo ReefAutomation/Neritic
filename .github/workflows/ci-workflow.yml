@@ -38,7 +38,7 @@ jobs:
 
       - name: Restore cache (deps)
         id: cache-restore
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             .venv
@@ -85,7 +85,7 @@ jobs:
 
       - name: Save cache (deps)
         id: cache-save
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: |
             .venv
@@ -110,7 +110,7 @@ jobs:
 
       - name: Restore cache (deps)
         id: cache-restore
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             .venv
@@ -154,7 +154,7 @@ jobs:
 
       - name: Restore cache (deps)
         id: cache-restore
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             .venv
