@@ -1,4 +1,5 @@
 #include "network.h"
+#include "onboard_led.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -142,6 +143,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id,
       s_failure_streak_start_ms = 0;
     } else if (id == IP_EVENT_STA_LOST_IP) {
       s_sta_connected = false;
+      #ifdef ONBOARD_RGB_LED
+      setOnboardRgbLedRed(); // RED when lost IP (even if still connected at WiFi level)
+      #endif
       if (s_failure_streak_start_ms == 0) {
         s_failure_streak_start_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
       }

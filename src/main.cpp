@@ -15,21 +15,19 @@
 #include "config.h"
 #include "driver/gpio.h"
 #include "effects.h"
+#include "display.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "network.h"
 #include "nvs_flash.h"
 #include "ota.h"
+#include "onboard_led.h"
 #include "presets.h"
 #include "scheduler.h"
 #include "state.h"
 #include "transition.h"
 #include "webserver.h"
 #include <string.h>
-
-#include "display.h"
-#include "inc/version.inc"
-#include "inc/version_def.inc"
 
 // Global BusManager instance
 BusManager busManager;
@@ -103,6 +101,14 @@ void main_task(void *pvParameters) {
     config.setDefaults();
     config.save();
   }
+
+#ifdef ONBOARD_STATUS_LED
+  turnOffStatusLed();
+#endif
+#ifdef ONBOARD_RGB_LED
+  initOnboardRgbLed();
+#endif
+  
   lastConfiguration = config;
   ESP_LOGI("main", "step: presets");
 
@@ -156,6 +162,7 @@ void main_task(void *pvParameters) {
     gpio_set_level((gpio_num_t)config.led.relayPin,
                    state.power ? (config.led.relayActiveHigh ? 1 : 0)
                                : (config.led.relayActiveHigh ? 0 : 1));
+
     bool locationChanged =
         config.time.latitude != lastConfiguration.time.latitude ||
         config.time.longitude != lastConfiguration.time.longitude;
