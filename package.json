@@ -11,17 +11,17 @@
     "lint": "eslint web/**/*.jsx web/**/*.js"
   },
   "dependencies": {
-    "@preact/preset-vite": "^2.10.5",
-    "preact": "^10.29.2"
+    "@preact/preset-vite": "^2.10.6",
+    "preact": "^10.29.8"
   },
   "devDependencies": {
-    "@eslint-react/eslint-plugin": "^5.8.16",
-    "@eslint/eslintrc": "^3.3.5",
-    "eslint": "^10.4.1",
-    "prettier": "^3.8.3",
-    "rollup": "^4.61.1",
-    "sass": "^1.100.0",
-    "vite": "^8.0.16",
+    "@eslint-react/eslint-plugin": "^5.20.8",
+    "@eslint/eslintrc": "^3.3.7",
+    "eslint": "^10.11.0",
+    "prettier": "^3.9.9",
+    "rollup": "^4.63.5",
+    "sass": "^1.105.0",
+    "vite": "^8.3.1",
     "vite-plugin-compression": "^0.5.1"
   }
 }

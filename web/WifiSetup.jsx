@@ -207,12 +207,6 @@ export function WifiSetup() {
             {error}
           </div>
         )}
-        <div
-          className="footer"
-          style={{ marginTop: 18, color: '#aaa', fontSize: '0.95em' }}
-        >
-          Neritic &copy; 2026
-        </div>
       </section>
     </div>
   );
