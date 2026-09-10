@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@preact/preset-vite": "^2.10.5",
-    "preact": "^10.29.2"
+    "preact": "^10.29.8"
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "^5.8.16",
