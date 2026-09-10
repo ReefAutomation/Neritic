@@ -7,6 +7,10 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include <string>
+#include "neo_rmt.h"
+
+extern NeoRmtStrip* s_onboardRgbLed;
+extern bool s_onboardRgbLedInitialized;
 
 // Setup WiFi (STA+AP) and captive portal DNS task
 void networkSetup(Configuration &config);
