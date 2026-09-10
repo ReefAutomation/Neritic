@@ -13,7 +13,7 @@ This guide gets a new board running quickly with safe defaults.
 ## Flash and boot
 
 ```bash
-cd DeepGlow
+cd Neritic
 
 # Build + upload filesystem + upload firmware
 pio run -e esp32d_debug

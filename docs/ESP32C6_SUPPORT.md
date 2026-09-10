@@ -1,6 +1,6 @@
 # ESP32-C6 Support
 
-DeepGlow includes PlatformIO environments for ESP32-C6:
+Neritic includes PlatformIO environments for ESP32-C6:
 
 - `esp32c6`
 - `esp32c6_debug`

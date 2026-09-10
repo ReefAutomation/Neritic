@@ -73,6 +73,21 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
+/* Reusable logo title style to match header H1 (gradient text) */
+.logo-title {
+  font-size: 1.3em;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.12em;
+}
+
 .status-bar {
   display: flex;
   align-items: center;

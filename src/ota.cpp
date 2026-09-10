@@ -1,4 +1,4 @@
-#define DEEPGLOW_REPO_URL "https://github.com/kabroxiko/DeepGlow"
+#define DEEPGLOW_REPO_URL "https://github.com/ReefAutomation/Neritic"
 
 #include "ota.h"
 #include "config.h"
