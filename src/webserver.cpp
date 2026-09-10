@@ -646,6 +646,7 @@ void WebServerManager::setupRoutes() {
   URI("/ncsi.txt", HTTP_GET, hCaptive)
   URI("/connecttest.txt", HTTP_GET, hCaptive)
   URI("/favicon.ico", HTTP_GET, hNoContent)
+  URI("/neritic.svg", HTTP_GET, hNeriticSvg)
   URI("/wpad.dat", HTTP_GET, hNoContent)
   URI("/index.js", HTTP_GET, hIndexJs)
   URI("/app.js", HTTP_GET, hIndexJs)
@@ -797,6 +798,14 @@ esp_err_t WebServerManager::hNoContent(httpd_req_t *req) {
   ESP_LOGI(TAG, "hNoContent called: %s", req->uri);
   httpd_resp_set_status(req, "204 No Content");
   httpd_resp_send(req, NULL, 0);
+  return ESP_OK;
+}
+
+// /neritic.svg — serve embedded asset
+esp_err_t WebServerManager::hNeriticSvg(httpd_req_t *req) {
+  ESP_LOGI(TAG, "hNeriticSvg called: %s", req->uri);
+  httpd_resp_set_type(req, "image/svg+xml");
+  httpd_resp_send(req, (const char *)web_neritic_svg, NERITIC_SVG_SIZE);
   return ESP_OK;
 }
 

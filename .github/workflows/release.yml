@@ -45,10 +45,10 @@ jobs:
             @semantic-release/git
         env:
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
-          GIT_AUTHOR_NAME: DeepGlow Release Bot
-          GIT_AUTHOR_EMAIL: deepglow-release-bot@users.noreply.github.com
-          GIT_COMMITTER_NAME: DeepGlow Release Bot
-          GIT_COMMITTER_EMAIL: deepglow-release-bot@users.noreply.github.com
+          GIT_AUTHOR_NAME: Neritic Release Bot
+          GIT_AUTHOR_EMAIL: neritic-release-bot@users.noreply.github.com
+          GIT_COMMITTER_NAME: Neritic Release Bot
+          GIT_COMMITTER_EMAIL: neritic-release-bot@users.noreply.github.com
 
       - name: Resolve release metadata
         id: release_meta
@@ -108,7 +108,7 @@ jobs:
 
       - name: Set manifest environment variables
         run: |
-          echo "FIRMWARE_TYPE=DeepGlow" >> $GITHUB_ENV
+          echo "FIRMWARE_TYPE=Neritic" >> $GITHUB_ENV
           echo "FIRMWARE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/" >> $GITHUB_ENV
 
       - name: Generate manifest.json for OTA
@@ -117,7 +117,7 @@ jobs:
           if [[ $VERSION != v* ]]; then
             VERSION="v$VERSION"
           fi
-          FIRMWARE_TYPE="${FIRMWARE_TYPE:-DeepGlow}"
+          FIRMWARE_TYPE="${FIRMWARE_TYPE:-Neritic}"
           BASE_URL="${FIRMWARE_BASE_URL:-https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/}"
           tmpfile=$(mktemp)
           echo '[' > "$tmpfile"

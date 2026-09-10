@@ -105,8 +105,9 @@ export function WifiSetup() {
         className="card"
         style={{ maxWidth: 400, margin: '12px auto 0 auto' }}
       >
-        <h2 style={{ fontSize: '1.3em', marginBottom: 8, textAlign: 'center' }}>
-          🐠 Aquarium Control
+        <h2 className="logo-title">
+          <img src="/neritic.svg" alt="Neritic" style={{ height: '1.1em', verticalAlign: 'middle', marginRight: 8 }} />
+          NERITIC
         </h2>
         <div
           style={{
@@ -210,7 +211,7 @@ export function WifiSetup() {
           className="footer"
           style={{ marginTop: 18, color: '#aaa', fontSize: '0.95em' }}
         >
-          Aquarium LED Controller &copy; 2026
+          Neritic &copy; 2026
         </div>
       </section>
     </div>

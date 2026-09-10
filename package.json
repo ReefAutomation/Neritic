@@ -1,7 +1,7 @@
 {
-  "name": "deepglow-ui-preact",
+  "name": "neritic-ui-preact",
   "version": "1.0.0",
-  "description": "Preact UI for Aquarium LED Controller",
+  "description": "Preact UI for Neritic",
   "main": "web/index.js",
   "type": "module",
   "scripts": {

@@ -15,7 +15,7 @@ logging.basicConfig(
 env_name = env["PIOENV"]
 
 USER_SETUP_TEMPLATE = """
-// TEST UNIQUE HEADER: DeepGlow PlatformIO overwrite check
+// TEST UNIQUE HEADER: Neritic PlatformIO overwrite check
 #define ST7735_DRIVER
 #define RGB_TFT
 #define TFT_WIDTH {TFT_WIDTH}

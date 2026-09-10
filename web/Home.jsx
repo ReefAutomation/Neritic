@@ -126,7 +126,10 @@ export function Home({
         <LedBar ref={ledBarRef} />
         {/* Header */}
         <header className="header">
-          <h1>🐠 Aquarium Control</h1>
+          <h1 className="logo-title">
+            <img src="/neritic.svg" alt="Neritic" style={{ height: '1.1em', verticalAlign: 'middle', marginRight: 8 }} />
+            NERITIC
+          </h1>
           <StatusBar
             setTab={setTab}
             time={

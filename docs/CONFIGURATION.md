@@ -1,6 +1,6 @@
 # Configuration Reference
 
-DeepGlow stores runtime settings as JSON. Most users should configure via web UI, but API and file-level flows use the same structure.
+Neritic stores runtime settings as JSON. Most users should configure via web UI, but API and file-level flows use the same structure.
 
 ## Value conventions
 
