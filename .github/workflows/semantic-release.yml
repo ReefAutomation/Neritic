@@ -21,7 +21,7 @@ jobs:
       release_tag: ${{ steps.release_meta.outputs.release_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -73,7 +73,7 @@ jobs:
       release_tag: ${{ steps.release_tag.outputs.release_tag }}
     steps:
       - name: Checkout released ref
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release.outputs.release_tag }}
 
