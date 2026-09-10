@@ -12,7 +12,7 @@
 
 ```bash
 git clone <your-repo-url>
-cd DeepGlow
+cd Neritic
 ```
 
 ## 2) Select your PlatformIO environment

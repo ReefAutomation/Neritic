@@ -1,8 +1,8 @@
-# DeepGlow
+# Neritic
 
 Standalone ESP-IDF based aquarium LED controller for ESP32-family boards.
 
-DeepGlow provides:
+Neritic provides:
 - Real-time LED control with smooth transitions
 - Presets, timers, sunrise/sunset scheduling, and safety limits
 - Embedded web UI + REST API + WebSocket updates
@@ -25,7 +25,24 @@ From `platformio.ini`:
 
 ## Quick Start
 
-1. Install PlatformIO (CLI or VS Code extension)
+
+1. Install PlatformIO (CLI). Recommended: install the CLI into a Python virtual environment and use the pinned dependencies in `requirements.txt`:
+
+```bash
+# create and activate a venv (recommended to keep tools isolated)
+python3 -m venv .venv
+source .venv/bin/activate
+
+# upgrade pip then install pinned tooling from this repo
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+# verify installation
+pio --version
+```
+
+These instructions install the PlatformIO CLI into a local virtual environment. On Windows use the equivalent venv activation command for your shell.
+
 2. Clone this repository
 3. Build firmware
 4. Upload filesystem assets
@@ -33,7 +50,7 @@ From `platformio.ini`:
 
 ```bash
 git clone <your-repo-url>
-cd DeepGlow
+cd Neritic
 
 # Build (default env: esp32d)
 pio run

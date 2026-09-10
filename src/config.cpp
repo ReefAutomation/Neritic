@@ -430,7 +430,7 @@ bool Configuration::load() {
 
   cJSON *netObj = jsonObjectItem(doc, "network");
   if (cJSON_IsObject(netObj)) {
-    network.hostname = jsonStringOr(netObj, "hostname", "deepglow");
+    network.hostname = jsonStringOr(netObj, "hostname", "neritic");
     network.apPassword = jsonStringOr(netObj, "apPassword", "");
     network.ssid = jsonStringOr(netObj, "ssid", "");
     network.password = jsonStringOr(netObj, "password", "");

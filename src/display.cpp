@@ -33,9 +33,9 @@ void setup_display() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_CYAN, TFT_BLACK);
   tft.setTextSize(2);
-  int w = tft.textWidth("DeepGlow");
+  int w = tft.textWidth("Neritic");
   tft.setCursor((TFT_HEIGHT - w) / 2, 5);
-  tft.println("DeepGlow");
+  tft.println("Neritic");
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setTextSize(1);
   w = tft.textWidth("Aquarium LED Controller");
