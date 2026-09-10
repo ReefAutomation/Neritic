@@ -9,6 +9,7 @@ on:
 
 jobs:
   build:
+    if: ${{ github.actor == 'renovate[bot]' && github.event.pull_request.state != 'closed' }}
     uses: ./.github/workflows/ci-workflow.yml
     with:
       run_web: true
