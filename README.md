@@ -1,6 +1,14 @@
-# Neritic
+<img src="docs/images//neritic-logo-title.svg" alt="Neritic logo" width="240" style="vertical-align: middle; margin-right: 10px;">
+
+## Intelligent aquarium lighting
+
+Programmable lighting that recreates sunrises, sunsets, and natural effects to keep your corals and fish in optimal conditions.
+
+![Visualization — aquarium with device](docs/images/aquarium.jpg)
 
 Standalone ESP-IDF based aquarium LED controller for ESP32-family boards.
+
+![LED strip test bench](docs/images/led_strip.jpg)
 
 Neritic provides:
 - Real-time LED control with smooth transitions
