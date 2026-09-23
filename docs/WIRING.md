@@ -2,12 +2,7 @@
 
 ## Minimum reliable wiring
 
-```
-ESP GPIO (data pin) --[470Ω]--> LED DIN
-ESP GND -----------------------> LED GND
-5V PSU + ----------------------> LED +5V
-5V PSU GND --------------------> LED GND
-```
+![Wiring diagram](images/wiring-diagram.svg)
 
 Important: ESP GND and LED PSU GND must be connected together.
 

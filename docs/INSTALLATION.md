@@ -54,7 +54,7 @@ pio device monitor -b 115200
 
 ## 6) First configuration
 
-1. Connect to AP SSID `AquariumLED`
+1. Connect to AP SSID `Neritic`
 2. Open `http://192.168.4.1`
 3. Set Wi-Fi credentials and timezone
 4. Save and allow reboot

@@ -20,7 +20,8 @@ idf_component_register(
         led_strip
     EMBED_TXTFILES
         "../dist/index.html"
-        "../dist/neritic.svg"
+        "../dist/favicon.svg"
+        "../dist/images/neritic.svg"
         "../dist/index.js.gz"
         "../dist/style.css.gz"
         "../.pio/.version"

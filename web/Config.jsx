@@ -75,7 +75,9 @@ export function Config({
         }}
       >
         <header class="header">
-          <h1>Configuration</h1>
+          <h1 className="logo-title">
+            <img src="/images/neritic.svg" alt="Neritic" style={{ height: '1.6em', verticalAlign: 'middle', marginRight: 8 }} />
+          </h1>
           <StatusBar
             setTab={setTab}
             time={state && typeof state.time === 'string' ? state.time : '--:--'}
