@@ -106,8 +106,7 @@ export function WifiSetup() {
         style={{ maxWidth: 400, margin: '12px auto 0 auto' }}
       >
         <h2 className="logo-title">
-          <img src="/neritic.svg" alt="Neritic" style={{ height: '1.1em', verticalAlign: 'middle', marginRight: 8 }} />
-          NERITIC
+          <img src="/images/neritic.svg" alt="Neritic" style={{ height: '1.6em', verticalAlign: 'middle', marginRight: 8 }} />
         </h2>
         <div
           style={{

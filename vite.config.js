@@ -8,9 +8,12 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        index: './web/index.html'
+      },
       output: {
-        entryFileNames: 'index.js',
-        chunkFileNames: 'index.js',
+        entryFileNames: '[name].js',
+        chunkFileNames: '[name]-[hash].js',
         assetFileNames: ({ names }) => {
           if (names[0]?.endsWith('.css')) return 'style.css';
           return '[name][extname]';
