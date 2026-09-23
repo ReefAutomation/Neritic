@@ -336,6 +336,28 @@ void networkLoop(Configuration &config) {
   }
 }
 
+void applyHostnameChange(const std::string &hostname) {
+  // Update AP SSID if AP config exists
+  if (s_ap_mode) {
+    wifi_config_t ap_cfg = {};
+    if (esp_wifi_get_config(WIFI_IF_AP, &ap_cfg) == ESP_OK) {
+      strncpy((char *)ap_cfg.ap.ssid, hostname.c_str(), sizeof(ap_cfg.ap.ssid) - 1);
+      ap_cfg.ap.ssid_len = (uint8_t)strnlen((char *)ap_cfg.ap.ssid, sizeof(ap_cfg.ap.ssid));
+      ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+      ESP_LOGI(TAG, "AP SSID updated to %s", hostname.c_str());
+    }
+  }
+
+  // Update STA hostname if netif exists
+  if (s_sta_netif) {
+    esp_err_t rc = esp_netif_set_hostname(s_sta_netif, hostname.c_str());
+    if (rc == ESP_OK)
+      ESP_LOGI(TAG, "STA hostname updated to %s", hostname.c_str());
+    else
+      ESP_LOGW(TAG, "Failed to set STA hostname: %d", rc);
+  }
+}
+
 // ── Status helpers
 // ────────────────────────────────────────────────────────────
 bool networkIsStaConnected() { return s_sta_connected; }

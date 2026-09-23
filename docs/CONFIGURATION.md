@@ -15,7 +15,7 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
   "network": {
     "ssid": "",
     "password": "",
-    "hostname": "AquariumLED",
+    "hostname": "Neritic",
     "apPassword": ""
   },
   "led": {

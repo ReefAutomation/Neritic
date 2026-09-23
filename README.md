@@ -1,6 +1,14 @@
-# Neritic
+<img src="web/images/neritic.svg" alt="Neritic logo" width="240" style="vertical-align: middle; margin-right: 10px;">
+
+## Intelligent aquarium lighting
+
+Programmable lighting that recreates sunrises, sunsets, and natural effects to keep your corals and fish in optimal conditions.
+
+![Visualization — aquarium with device](docs/images/aquarium.jpg)
 
 Standalone ESP-IDF based aquarium LED controller for ESP32-family boards.
+
+![LED strip test bench](docs/images/led_strip.jpg)
 
 Neritic provides:
 - Real-time LED control with smooth transitions
@@ -64,11 +72,21 @@ pio run -e esp32d_debug -t upload
 
 # Serial monitor
 pio device monitor -b 115200
+
+## OTA upload (HTTP)
+
+When upgrading via OTA you can use a custom PlatformIO upload command that sends the firmware image over HTTP to the device. Example (replace `<device-ip>` with your device address):
+
+```bash
+PLATFORMIO_UPLOAD_PROTOCOL=custom PLATFORMIO_UPLOAD_PORT=<device-ip> PLATFORMIO_UPLOAD_COMMAND="curl --data-binary @\$SOURCE http://\$UPLOAD_PORT/ota" pio run -t upload
+```
+
+If you build for a specific environment, add `-e <env>` as usual (for example `-e esp32d_debug`).
 ```
 
 ## Default Runtime Access
 
-- AP hostname / SSID default: `AquariumLED`
+- AP hostname / SSID default: `Neritic`
 - AP setup page: `http://192.168.4.1`
 - REST base path: `/api/*`
 - WebSocket endpoint: `/ws`

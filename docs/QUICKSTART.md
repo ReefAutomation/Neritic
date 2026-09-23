@@ -26,7 +26,7 @@ pio device monitor -b 115200
 
 ## Initial web setup
 
-1. Join Wi-Fi network `AquariumLED`
+1. Join Wi-Fi network `Neritic`
 2. Browse to `http://192.168.4.1`
 3. Configure:
    - Home Wi-Fi SSID/password

@@ -1,10 +1,4 @@
 // Inputs, selects, sliders, color, text, time, number
-:root {
-  --primary-color: rgba(102, 204, 255, 0.2);
-  --accent-color: rgba(102, 204, 255, 0.8);
-  --shadow: rgba(102, 204, 255, 0.4);
-}
-
 .select-input:focus {
   border-color: var(--primary-color);
 }
