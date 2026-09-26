@@ -112,6 +112,7 @@ private:
   static esp_err_t hIndexJs(httpd_req_t *req);
   static esp_err_t hStyleCss(httpd_req_t *req);
   static esp_err_t hNeriticSvg(httpd_req_t *req);
+  static esp_err_t hNeriticLogoTitleSvg(httpd_req_t *req);
   static esp_err_t hRoot(httpd_req_t *req);
   static esp_err_t hWifiScan(httpd_req_t *req);
   static esp_err_t hWifiGet(httpd_req_t *req);

@@ -1,8 +1,15 @@
 @import url('https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap');
 :root {
-  --primary-color: #0099cc;
+  /* Brand colors (original hex values preserved for reference) */
+  --brand-primary: #0099cc;
+  --brand-accent: #00ccaa;
   --secondary-color: #66ccff;
-  --accent-color: #00ccaa;
+
+  /* Effective UI variables (inputs overrides were previously overriding these) */
+  --primary-color: rgba(102, 204, 255, 0.2);
+  --accent-color: rgba(102, 204, 255, 0.8);
+  --shadow: rgba(102, 204, 255, 0.4);
+
   --bg-dark: #0a1628;
   --bg-medium: #152538;
   --bg-light: #1e3447;
@@ -11,7 +18,7 @@
   --success: #00cc88;
   --warning: #ffaa00;
   --danger: #ff4466;
-  --shadow: rgba(0, 0, 0, 0.3);
+  
   --gradient-ocean: linear-gradient(135deg, #0a1628 0%, #1e3447 100%);
   --gradient-card: linear-gradient(135deg, #152538 0%, #1a2d40 100%);
 }

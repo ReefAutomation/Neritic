@@ -21,6 +21,7 @@ idf_component_register(
     EMBED_TXTFILES
         "../dist/index.html"
         "../dist/neritic.svg"
+        "../dist/neritic-logo-title.svg"
         "../dist/index.js.gz"
         "../dist/style.css.gz"
         "../.pio/.version"

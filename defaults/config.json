@@ -2,7 +2,7 @@
   "network": {
     "ssid": "",
     "password": "",
-    "hostname": "AquariumLED",
+    "hostname": "Neritic",
     "apPassword": ""
   },
   "led": {

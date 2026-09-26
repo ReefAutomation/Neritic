@@ -18,6 +18,9 @@ void networkSetup(Configuration &config);
 // Call in main loop - handles periodic STA reconnect
 void networkLoop(Configuration &config);
 
+// Apply a new hostname at runtime (updates AP SSID and STA hostname)
+void applyHostnameChange(const std::string &hostname);
+
 // Returns true if STA interface has an IP
 bool networkIsStaConnected();
 

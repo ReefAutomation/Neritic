@@ -1,4 +1,4 @@
-<img src="docs/images//neritic-logo-title.svg" alt="Neritic logo" width="240" style="vertical-align: middle; margin-right: 10px;">
+<img src="web/images/neritic-logo-title.svg" alt="Neritic logo" width="240" style="vertical-align: middle; margin-right: 10px;">
 
 ## Intelligent aquarium lighting
 
@@ -72,11 +72,21 @@ pio run -e esp32d_debug -t upload
 
 # Serial monitor
 pio device monitor -b 115200
+
+## OTA upload (HTTP)
+
+When upgrading via OTA you can use a custom PlatformIO upload command that sends the firmware image over HTTP to the device. Example (replace `<device-ip>` with your device address):
+
+```bash
+PLATFORMIO_UPLOAD_PROTOCOL=custom PLATFORMIO_UPLOAD_PORT=<device-ip> PLATFORMIO_UPLOAD_COMMAND="curl --data-binary @\$SOURCE http://\$UPLOAD_PORT/ota" pio run -t upload
+```
+
+If you build for a specific environment, add `-e <env>` as usual (for example `-e esp32d_debug`).
 ```
 
 ## Default Runtime Access
 
-- AP hostname / SSID default: `AquariumLED`
+- AP hostname / SSID default: `Neritic`
 - AP setup page: `http://192.168.4.1`
 - REST base path: `/api/*`
 - WebSocket endpoint: `/ws`

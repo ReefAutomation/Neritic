@@ -8,6 +8,11 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        main: './web/index.html',
+        neritic: '../web/images/neritic.svg',
+        'neritic-logo-title': '../web/images/neritic-logo-title.svg'
+      },
       output: {
         entryFileNames: 'index.js',
         chunkFileNames: 'index.js',

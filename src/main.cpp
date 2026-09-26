@@ -203,6 +203,14 @@ void main_task(void *pvParameters) {
       setPower(state.power);
     }
 
+    // Apply hostname changes immediately so AP SSID and STA hostname update
+    if (config.network.hostname != lastConfiguration.network.hostname) {
+      ESP_LOGI("main", "Applying hostname change: %s",
+               config.network.hostname.c_str());
+      applyHostnameChange(config.network.hostname);
+      lastConfiguration.network.hostname = config.network.hostname;
+    }
+
     // --- Apply transition if maxBrightness changed ---
     if (config.safety.maxBrightness != lastConfiguration.safety.maxBrightness) {
       uint8_t targetBrightness = state.brightness;

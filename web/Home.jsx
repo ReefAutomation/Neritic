@@ -4,6 +4,7 @@ import { PresetsCard } from './PresetsCard.jsx';
 import { LedBar } from './LedBar.jsx';
 import { StatusBar } from './StatusBar.jsx';
 import { apiUrl } from './baseUrl.js';
+import neriticLogoTitle from './images/neritic-logo-title.svg';
 import { sortTimers } from './util.js';
 
 function ScheduleTable({ timers = [], presets = [], state }) {
@@ -127,8 +128,7 @@ export function Home({
         {/* Header */}
         <header className="header">
           <h1 className="logo-title">
-            <img src="/neritic.svg" alt="Neritic" style={{ height: '1.1em', verticalAlign: 'middle', marginRight: 8 }} />
-            NERITIC
+            <img src={neriticLogoTitle} alt="Neritic" style={{ height: '1.6em', verticalAlign: 'middle', marginRight: 8 }} />
           </h1>
           <StatusBar
             setTab={setTab}
