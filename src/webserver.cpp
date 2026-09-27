@@ -119,26 +119,6 @@ static std::string urlDecode(const std::string &input) {
   return decoded;
 }
 
-// ── Parse URL-encoded form param
-// ───────────────────────────────────────────────
-static std::string formParam(const std::string &body, const std::string &key) {
-  std::string prefix = key + "=";
-  size_t pos = body.find(prefix);
-  if (pos == std::string::npos)
-    return "";
-  pos += prefix.size();
-  size_t end = body.find('&', pos);
-  std::string val = (end == std::string::npos) ? body.substr(pos)
-                                               : body.substr(pos, end - pos);
-  return urlDecode(val);
-}
-
-static cJSON *parseJsonBody(const std::string &body) {
-  if (body.empty())
-    return nullptr;
-  return cJSON_Parse(body.c_str());
-}
-
 static int jsonIntOr(const cJSON *obj, const char *key, int fallback) {
   if (!cJSON_IsObject(obj))
     return fallback;
@@ -169,6 +149,44 @@ static const char *jsonStringOr(const cJSON *obj, const char *key,
   if (cJSON_IsString(item) && item->valuestring)
     return item->valuestring;
   return fallback;
+}
+
+// Parse request body as JSON and return cJSON* (caller must cJSON_Delete)
+static cJSON *parseJsonBody(const std::string &body) {
+  if (body.empty())
+    return nullptr;
+  cJSON *doc = cJSON_Parse(body.c_str());
+  if (!doc) {
+    ESP_LOGW(TAG, "parseJsonBody: failed to parse JSON body: %s", body.c_str());
+    return nullptr;
+  }
+  return doc;
+}
+
+// Extract a form parameter from x-www-form-urlencoded body
+static std::string formParam(const std::string &body, const char *key) {
+  if (body.empty() || !key)
+    return std::string();
+  std::string needle = std::string(key) + "=";
+  size_t pos = 0;
+  while (pos < body.size()) {
+    size_t amp = body.find('&', pos);
+    size_t end = (amp == std::string::npos) ? body.size() : amp;
+    if (end > pos) {
+      size_t eq = body.find('=', pos);
+      if (eq != std::string::npos && eq < end) {
+        std::string k = body.substr(pos, eq - pos);
+        if (k == key) {
+          std::string v = body.substr(eq + 1, end - eq - 1);
+          return urlDecode(v);
+        }
+      }
+    }
+    if (amp == std::string::npos)
+      break;
+    pos = amp + 1;
+  }
+  return std::string();
 }
 
 // ── LiveLED timer callback (ISR-safe, just set flag) ─────────────────────────
@@ -431,6 +449,8 @@ void WebServerManager::broadcastText(const std::string &msg,
       continue;
     if (_wsBlocked.count(fds[i]))
       continue;
+    if (_suspendedClients.count(fds[i]))
+      continue;
     bool isOta = _otaClients.count(fds[i]) > 0;
     if (otaClientsOnly && !isOta)
       continue;
@@ -587,8 +607,35 @@ esp_err_t WebServerManager::wsHandler(httpd_req_t *req) {
     resp.payload = (uint8_t *)pong;
     resp.len = sizeof(pong) - 1;
     httpd_ws_send_frame(req, &resp);
+  } else if (msg.find("\"type\":\"client_pause\"") != std::string::npos) {
+    ESP_LOGD(TAG, "WS client pause fd=%d", fd);
+    mgr->_suspendedClients.insert(fd);
+  } else if (msg.find("\"type\":\"client_resume\"") != std::string::npos) {
+    ESP_LOGD(TAG, "WS client resume fd=%d", fd);
+    mgr->_suspendedClients.erase(fd);
   } else if (msg.find("\"type\":\"ota_client\"") != std::string::npos) {
     mgr->_otaClients.insert(fd);
+  } else if (msg.find("\"type\":\"claim_live\"") != std::string::npos) {
+    ESP_LOGD(TAG, "WS claim_live fd=%d", fd);
+    // Preempt previous active live fd if set
+    if (mgr->_activeLiveFd != -1 && mgr->_activeLiveFd != fd) {
+      int prev = mgr->_activeLiveFd;
+      // send preempt message to the previous fd, then close previous connection
+      const char preempt[] = "{\"type\":\"preempted\"}";
+      httpd_ws_frame_t resp = {};
+      resp.type = HTTPD_WS_TYPE_TEXT;
+      resp.payload = (uint8_t *)preempt;
+      resp.len = sizeof(preempt) - 1;
+      esp_err_t rc = httpd_ws_send_frame_async(mgr->_server, prev, &resp);
+      if (rc != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to send preempt to fd=%d rc=%d", prev, rc);
+      }
+      httpd_sess_trigger_close(mgr->_server, prev);
+    }
+    mgr->_activeLiveFd = fd;
+  } else if (msg.find("\"type\":\"release_live\"") != std::string::npos) {
+    ESP_LOGD(TAG, "WS release_live fd=%d", fd);
+    if (mgr->_activeLiveFd == fd) mgr->_activeLiveFd = -1;
   } else if (msg.find("\"type\":\"state\"") != std::string::npos) {
     mgr->_otaClients.erase(fd);
     std::string stateJson = mgr->getStateJSON();

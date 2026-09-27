@@ -2,6 +2,10 @@ import { getBaseUrl } from './baseUrl.js';
 
 let sharedConnection = null;
 
+// Per-connection visibility/focus handling is registered for each
+// consumer inside `createWebSocket` so that each browser/tab can
+// disconnect/reconnect independently without affecting others.
+
 export function initializeWebSocket(opts) {
   return createWebSocket(opts);
 }
@@ -20,6 +24,7 @@ function createSharedConnection(wsUrl) {
 
   let socket = null;
   let manualClose = false;
+  let suspended = false;
   let reconnectTimer = null;
   let heartbeatTimer = null;
   let reconnectAttempt = 0;
@@ -57,7 +62,7 @@ function createSharedConnection(wsUrl) {
   };
 
   const scheduleReconnect = () => {
-    if (manualClose || reconnectTimer) return;
+    if (manualClose || reconnectTimer || suspended) return;
     const delay = computeBackoffMs(reconnectAttempt++);
     reconnectTimer = globalThis.setTimeout(() => {
       reconnectTimer = null;
@@ -96,9 +101,10 @@ function createSharedConnection(wsUrl) {
   };
 
   const startHeartbeat = () => {
+    if (suspended) return;
     stopHeartbeat();
     heartbeatTimer = globalThis.setInterval(() => {
-      if (manualClose || socket?.readyState !== globalThis.WebSocket.OPEN) {
+      if (manualClose || suspended || socket?.readyState !== globalThis.WebSocket.OPEN) {
         return;
       }
 
@@ -122,8 +128,7 @@ function createSharedConnection(wsUrl) {
     socket.onopen = () => {
       reconnectAttempt = 0;
       lastPongMs = Date.now();
-
-      startHeartbeat();
+      if (!suspended) startHeartbeat();
       forEachListener('onOpen');
     };
 
@@ -157,6 +162,7 @@ function createSharedConnection(wsUrl) {
 
   const shutdown = (code, reason) => {
     manualClose = true;
+    suspended = false;
     stopHeartbeat();
     if (reconnectTimer) {
       globalThis.clearTimeout(reconnectTimer);
@@ -192,6 +198,33 @@ function createSharedConnection(wsUrl) {
     close(code, reason) {
       shutdown(code, reason);
     },
+    pause() {
+      suspended = true;
+      stopHeartbeat();
+      try {
+        socket?.send && socket.send('{"type":"client_pause"}');
+      } catch {
+        // noop
+      }
+      console.debug('[websocket] manager -> paused (suspended)');
+    },
+    resume() {
+      suspended = false;
+      try {
+        socket?.send && socket.send('{"type":"client_resume"}');
+      } catch {
+        // noop
+      }
+      console.debug('[websocket] manager -> resume from suspended');
+      if (!socket || socket.readyState !== globalThis.WebSocket.OPEN) {
+        // ensure we reconnect if the socket was closed
+        manualClose = false;
+        connect();
+      } else {
+        // restart heartbeat if already open
+        startHeartbeat();
+      }
+    },
     get readyState() {
       return socket ? socket.readyState : globalThis.WebSocket.CLOSED;
     },
@@ -220,12 +253,57 @@ export function createWebSocket({
   const listener = { onMessage, onBinary, onOpen, onClose, onError };
   sharedConnection.manager.addListener(listener);
 
+  // Per-consumer focus/visibility handlers: unsubscribe this listener when
+  // the page/tab is not visible or blurred, and re-subscribe on focus/visible.
+  const hasEvent = typeof globalThis.addEventListener === 'function';
+  const onVisibility = () => {
+    try {
+      if (globalThis.document && globalThis.document.hidden) {
+        sharedConnection.manager.removeListener(listener);
+      } else {
+        sharedConnection.manager.addListener(listener);
+      }
+    } catch (e) {
+      // noop
+    }
+  };
+  const onBlur = () => {
+    try {
+      sharedConnection.manager.removeListener(listener);
+    } catch (e) {
+      // noop
+    }
+  };
+  const onFocus = () => {
+    try {
+      sharedConnection.manager.addListener(listener);
+    } catch (e) {
+      // noop
+    }
+  };
+
+  if (hasEvent) {
+    globalThis.addEventListener('visibilitychange', onVisibility);
+    globalThis.addEventListener('blur', onBlur);
+    globalThis.addEventListener('focus', onFocus);
+  }
+
   return {
     send(data) {
       sharedConnection?.manager.send(data);
     },
     close() {
-      sharedConnection?.manager.removeListener(listener);
+      // cleanup listener and handlers
+      try {
+        sharedConnection?.manager.removeListener(listener);
+      } catch (e) {
+        // noop
+      }
+      if (hasEvent) {
+        globalThis.removeEventListener('visibilitychange', onVisibility);
+        globalThis.removeEventListener('blur', onBlur);
+        globalThis.removeEventListener('focus', onFocus);
+      }
     },
     get readyState() {
       return sharedConnection?.manager.readyState ?? globalThis.WebSocket.CLOSED;

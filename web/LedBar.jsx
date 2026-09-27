@@ -13,13 +13,74 @@ import {
 export const LedBar = forwardRef((_unused, ref) => {
   // Internal buffer ref
   const bufferRef = useRef(null);
+  const currentFrameRef = useRef(null);
+  const targetFrameRef = useRef(null);
+  const rafRef = useRef(null);
+  const lastUpdateMsRef = useRef(0);
   const canvasRef = useRef(null);
 
   // Expose updateBuffer method via ref
   useImperativeHandle(ref, () => ({
     updateBuffer: (newBuffer) => {
-      bufferRef.current = newBuffer;
-      drawBar();
+      const now = Date.now();
+      const prev = currentFrameRef.current;
+      const newArr = new Uint8Array(newBuffer);
+      // If no previous frame, just set and draw
+      if (!prev) {
+        currentFrameRef.current = newArr;
+        bufferRef.current = newArr.buffer;
+        lastUpdateMsRef.current = now;
+        drawBar();
+        return;
+      }
+
+      const delta = now - (lastUpdateMsRef.current || 0);
+      lastUpdateMsRef.current = now;
+
+      // If updates are frequent (live stream), apply immediately for low-latency
+      if (delta < 120) {
+        currentFrameRef.current = newArr;
+        bufferRef.current = newArr.buffer;
+        drawBar();
+        return;
+      }
+
+      // Otherwise treat as a snapshot and smoothly interpolate to it
+      targetFrameRef.current = newArr;
+      // Start animation loop
+      if (!rafRef.current) {
+        const step = () => {
+          const cur = currentFrameRef.current;
+          const tgt = targetFrameRef.current;
+          if (!cur || !tgt) {
+            rafRef.current = null;
+            return;
+          }
+          const len = Math.min(cur.length, tgt.length);
+          let done = true;
+          // simple linear interpolation towards target
+          for (let i = 0; i < len; i++) {
+            const c = cur[i];
+            const t = tgt[i];
+            if (c !== t) {
+              // move 30% of remaining distance per frame
+              const nc = c + Math.ceil((t - c) * 0.3);
+              cur[i] = nc;
+              done = false;
+            }
+          }
+          bufferRef.current = cur.buffer;
+          drawBar();
+          if (done) {
+            // finished
+            targetFrameRef.current = null;
+            rafRef.current = null;
+            return;
+          }
+          rafRef.current = requestAnimationFrame(step);
+        };
+        rafRef.current = requestAnimationFrame(step);
+      }
     },
   }));
 
