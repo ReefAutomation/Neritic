@@ -62,6 +62,8 @@ private:
   // WebSocket client state (keyed by socket fd)
   std::set<int> _otaClients;         // fds of OTA-subscribed WS clients
   std::map<int, bool> _wsHandshaked; // fd -> first-msg received?
+  std::set<int> _suspendedClients;   // fds of clients that requested pause (no live binary)
+  int _activeLiveFd = -1;            // fd of the client currently owning the live stream
   std::set<int> _wsBlocked;          // fds failed on send; ignore until gone
   std::map<int, uint8_t> _wsSendFailStreak; // fd -> consecutive send failures
 
