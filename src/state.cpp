@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "transition.h"
 #include "webserver.h"
+#include <algorithm>
 #include <inttypes.h>
 #include <stdint.h>
 
@@ -327,6 +328,13 @@ void setBrightness(uint8_t brightness) {
 void setEffect(uint8_t effect, const EffectParams &params) {
   state.effect = effect;
   state.params = params;
+  // Adopt colors supplied by the caller (e.g. web UI) into the global palette
+  if (!params.colors.empty()) {
+    size_t n = std::min<size_t>(params.colors.size(), color.size());
+    for (size_t i = 0; i < n; ++i)
+      color[i] = parse_hex_rgbw(params.colors[i].c_str());
+    colorCount = n;
+  }
   state.params.colors.clear();
   // Only push actual preset colors, not padded black entries
   size_t n = colorCount;
