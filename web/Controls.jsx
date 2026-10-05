@@ -390,6 +390,7 @@ export function ColorPickers({ colors, sendState }) {
 }
 
 export function Controls({ state, effects, sendState }) {
+  const isSolid = state.effect === 0;
   const sliderReleaseHandler = (extractValue, updateObj) => (e) => {
     sendState(
       typeof updateObj === 'function'
@@ -494,6 +495,7 @@ export function Controls({ state, effects, sendState }) {
           max="100"
           value={state.params?.speed}
           className="slider-input"
+          disabled={isSolid}
           onInput={(e) => {
             document.getElementById('speedValue').textContent =
               `${e.target.value}%`;
@@ -521,6 +523,7 @@ export function Controls({ state, effects, sendState }) {
           max="100"
           value={state.params?.intensity}
           className="slider-input"
+          disabled={isSolid}
           onInput={(e) => {
             document.getElementById('intensityValue').textContent =
               `${e.target.value}%`;

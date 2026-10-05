@@ -56,9 +56,53 @@
       "effect": 4,
       "enabled": true,
       "params": {
-        "speed": 20,
-        "intensity": 255,
-        "colors": ["#0A1832", "#FFFFFFFF"]
+        "speed": 30,
+        "intensity": 80,
+        "colors": ["#061A2D", "#1B6683", "#DDEEFF"]
+      }
+    },
+    {
+      "id": 6,
+      "name": "Kelp Forest",
+      "effect": 5,
+      "enabled": true,
+      "params": {
+        "speed": 22,
+        "intensity": 75,
+        "colors": ["#04251D", "#087F5B", "#42C99A", "#0A5261"]
+      }
+    },
+    {
+      "id": 7,
+      "name": "Coral Reef",
+      "effect": 6,
+      "enabled": true,
+      "params": {
+        "speed": 30,
+        "intensity": 68,
+        "colors": ["#FF542E", "#FF9C45", "#C83F9A", "#3447A5"]
+      }
+    },
+    {
+      "id": 8,
+      "name": "Bioluminescent Bay",
+      "effect": 7,
+      "enabled": true,
+      "params": {
+        "speed": 18,
+        "intensity": 80,
+        "colors": ["#031426", "#00E5D0"]
+      }
+    },
+    {
+      "id": 9,
+      "name": "Tidal Surge",
+      "effect": 8,
+      "enabled": true,
+      "params": {
+        "speed": 35,
+        "intensity": 65,
+        "colors": ["#063B52", "#00A8A8", "#76D7D0", "#D1C18A"]
       }
     }
   ]

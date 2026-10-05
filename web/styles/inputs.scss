@@ -83,6 +83,15 @@ select {
   -webkit-appearance: none;
   appearance: none;
 }
+.slider-input:disabled {
+  opacity: 0.4;
+}
+.slider-input:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+}
+.slider-input:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+}
 .slider-input::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;

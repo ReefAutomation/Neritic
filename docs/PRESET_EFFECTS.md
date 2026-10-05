@@ -17,7 +17,25 @@ Presets are stored in `defaults/presets.json` and exposed via `/api/presets`.
 | 2  | Daylight        | 0      | White daylight scene |
 | 3  | Sunset          | 2      | Orange/magenta dusk palette |
 | 4  | Moonlight       | 3      | Low-intensity cool tones |
-| 5  | Lightning Storm | 4      | Dark base with white flashes |
+| 5  | Lightning Storm | 4      | Diffuse blue lightning over deep-water glow |
+| 6  | Kelp Forest     | 5      | Swaying greens and teal |
+| 7  | Coral Reef      | 6      | Tropical palette with moving caustics |
+| 8  | Bioluminescent Bay | 7   | Pulsing cyan plankton over deep blue |
+| 9  | Tidal Surge     | 8      | Flowing coastal colors and foam highlights |
+
+## Effect IDs
+
+| ID | Effect |
+|----|--------|
+| 0  | Solid |
+| 1  | Sunrise |
+| 2  | Sunset |
+| 3  | Moonlight |
+| 4  | Lightning |
+| 5  | Kelp Forest |
+| 6  | Coral Reef |
+| 7  | Bioluminescence |
+| 8  | Tidal Surge |
 
 ## Updating a preset
 
