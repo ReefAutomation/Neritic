@@ -5,6 +5,7 @@
   "rebaseWhen": "behind-base-branch",
   "prHourlyLimit": 0,
   "prConcurrentLimit": 0,
+  "rangeStrategy": "bump",
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["security"],
