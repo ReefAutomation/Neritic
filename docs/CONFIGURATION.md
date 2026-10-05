@@ -71,7 +71,11 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
 - `dstEnabled`: daylight saving handling
 
 ### `transitionTimes`
-- `powerOn`: transition used on power-on
+- `powerOn`: transition duration used on power changes; power-on fades up the
+  center LED(s), then the end LEDs, then progressively lights the midpoints of
+  the remaining gaps until the strip is full. Power-off fades from the ends
+  inward. The same spatial transition applies when brightness changes to/from
+  0% or a preset changes to/from a fully black Off effect.
 - `schedule`: timer-driven transition
 - `manual`: user/API transition
 - `effect`: effect change transition
