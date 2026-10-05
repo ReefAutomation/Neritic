@@ -71,7 +71,16 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
 - `dstEnabled`: daylight saving handling
 
 ### `transitionTimes`
-- `powerOn`: transition used on power-on
+- `powerOn`: transition duration used on power changes; the total time spans
+  from the first LED turning on to the end of the brightness ramp. The cascade
+  is driven by the ramp's brightness value rather than a separate timer:
+  power-on lights the center LED(s) first, then the end LEDs, then
+  progressively the midpoints of the remaining gaps — each at a fixed 1%
+  brightness (no ramping). Once the ramp reaches a small floor (roughly 3%
+  for a 34-LED strip, scaled by LED count), every LED is on and the strip
+  ramps from that floor to the target brightness. Power-off reverses this: the
+  strip ramps down to the floor first, then the LEDs fade out one-by-one in
+  reverse order.
 - `schedule`: timer-driven transition
 - `manual`: user/API transition
 - `effect`: effect change transition

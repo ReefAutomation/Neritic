@@ -43,14 +43,23 @@ struct LEDConfig {
   bool relayActiveHigh; // true: HIGH=on, false: LOW=on
 };
 
-// Conversion helpers
+// Conversion helpers.
+// Anchored scale: 0% → 0, 1% → 1, 100% → 255. The range [1,100] maps
+// linearly onto [1,255].
 inline uint8_t percentToHex(uint8_t percent) {
-  if (percent > 100)
-    percent = 100;
-  return (uint8_t)((percent * 255 + 50) / 100); // round to nearest
+  if (percent >= 100)
+    return 255;
+  if (percent <= 1)
+    return percent;
+  return (uint8_t)(1 + (2 * (uint16_t)(percent - 1) * 254 + 99) / 198);
 }
+// Inverse of percentToHex: 0 → 0%, 1 → 1%, 255 → 100%.
 inline uint8_t hexToPercent(uint8_t hex) {
-  return (uint8_t)((hex * 100 + 127) / 255); // round to nearest
+  if (hex >= 255)
+    return 100;
+  if (hex <= 1)
+    return hex;
+  return (uint8_t)(1 + (2 * (uint16_t)(hex - 1) * 99 + 254) / 508);
 }
 
 struct TransitionTimesConfig {
