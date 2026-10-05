@@ -5,9 +5,12 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "state.h"
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 extern Configuration config;
@@ -27,6 +30,107 @@ static void blendFrames(const std::vector<uint32_t> &prevFrame,
   }
 }
 
+static void applyPowerWipe(std::vector<uint32_t> &frame, float progress,
+                           bool turningOn) {
+  if (frame.empty())
+    return;
+
+  const float center = (float(frame.size()) - 1.0f) * 0.5f;
+  const float maxDistance = center;
+  const float feather = fmaxf(1.0f, float(frame.size()) * 0.015f);
+  const float radius = (turningOn ? progress : 1.0f - progress) *
+                       (maxDistance + feather);
+
+  for (size_t i = 0; i < frame.size(); ++i) {
+    float coverage =
+        (radius - fabsf(float(i) - center)) / feather;
+    coverage = fmaxf(0.0f, fminf(1.0f, coverage));
+    coverage = coverage * coverage * (3.0f - 2.0f * coverage);
+
+    uint8_t r, g, b, w;
+    blend_rgbw_brightness(0, frame[i], coverage, 255, r, g, b, w);
+    frame[i] = pack_rgbw(r, g, b, w);
+  }
+}
+
+static void applyPowerOnWipe(std::vector<uint32_t> &frame, float progress) {
+  if (frame.empty())
+    return;
+
+  if (frame.size() > MAX_LED_COUNT) {
+    applyPowerWipe(frame, progress, true);
+    return;
+  }
+
+  const float center = (float(frame.size()) - 1.0f) * 0.5f;
+  std::array<uint16_t, MAX_LED_COUNT> activationStage;
+  activationStage.fill(std::numeric_limits<uint16_t>::max());
+  std::array<size_t, MAX_LED_COUNT> active;
+  size_t activeCount = 0;
+  auto activate = [&](size_t index, uint16_t stage) {
+    if (activationStage[index] != std::numeric_limits<uint16_t>::max())
+      return;
+    activationStage[index] = stage;
+    active[activeCount++] = index;
+  };
+
+  const size_t centerLeft = (frame.size() - 1) / 2;
+  const size_t centerRight = frame.size() / 2;
+  activate(centerLeft, 0);
+  activate(centerRight, 0);
+  activate(0, 1);
+  activate(frame.size() - 1, 1);
+
+  uint16_t stage = 2;
+  while (activeCount < frame.size()) {
+    std::sort(active.begin(), active.begin() + activeCount);
+    const size_t anchorsAtStart = activeCount;
+    for (size_t i = 1; i < anchorsAtStart; ++i) {
+      const size_t left = active[i - 1];
+      const size_t right = active[i];
+      if (right - left <= 1)
+        continue;
+
+      size_t midpoint = (left + right) / 2;
+      if (right <= size_t(center))
+        midpoint = (left + right + 1) / 2;
+      activate(midpoint, stage);
+    }
+    ++stage;
+  }
+  uint16_t stageCount = 0;
+  for (size_t i = 0; i < frame.size(); ++i)
+    stageCount = std::max(stageCount, uint16_t(activationStage[i] + 1));
+
+  for (size_t i = 0; i < frame.size(); ++i) {
+    const float phase = progress * stageCount - activationStage[i];
+    float coverage = fmaxf(0.0f, fminf(1.0f, phase));
+    coverage = coverage * coverage * (3.0f - 2.0f * coverage);
+
+    uint8_t r, g, b, w;
+    blend_rgbw_brightness(0, frame[i], coverage, 255, r, g, b, w);
+    frame[i] = pack_rgbw(r, g, b, w);
+  }
+}
+
+static bool frameIsBlack(const std::vector<uint32_t> &frame) {
+  for (uint32_t pixel : frame) {
+    if ((pixel & 0xFFFFFFFFU) != 0)
+      return false;
+  }
+  return true;
+}
+
+static void applyPowerIntro(std::vector<uint32_t> &frame, float wipeProgress,
+                            bool turningOn, bool turningOff) {
+  if (wipeProgress >= 1.0f && turningOn)
+    return;
+  if (turningOn)
+    applyPowerOnWipe(frame, wipeProgress);
+  else if (turningOff)
+    applyPowerWipe(frame, wipeProgress, false);
+}
+
 void TransitionEngine::blendTransitionFrames(
     const PendingTransitionState &pendingTransition, const SystemState &state,
     std::vector<uint32_t> &outFrame) {
@@ -36,16 +140,32 @@ void TransitionEngine::blendTransitionFrames(
       float(getDuration());
   if (progress > 1.0f)
     progress = 1.0f;
+  // The spatial power wipe is only an intro: it is an alpha mask over the
+  // regular transition frame and ends (mask fully open) after kMaxWipeMs.
+  constexpr uint32_t kMaxWipeMs = 1500;
+  const uint32_t wipeMs = getDuration() < kMaxWipeMs ? getDuration() : kMaxWipeMs;
+  float wipeProgress =
+      float((uint32_t)(esp_timer_get_time() / 1000ULL) - getStartTime()) /
+      float(wipeMs > 0 ? wipeMs : 1);
+  if (wipeProgress > 1.0f)
+    wipeProgress = 1.0f;
+  wipeProgress = wipeProgress * wipeProgress * (3.0f - 2.0f * wipeProgress);
   progress = progress * progress * (3.0f - 2.0f * progress); // smoothstep
   float colorFrac = getEffectTransitionFraction();
   float colorProgress = (progress < colorFrac) ? (progress / colorFrac) : 1.0f;
   bool brightnessOnly = (_startState.colors == _targetState.colors);
+  const bool turningOn =
+      _startState.brightness == 0 && _targetState.brightness > 0;
+  const bool turningOff =
+      _startState.brightness > 0 && _targetState.brightness == 0;
 
   // Power/brightness-only transitions must follow brightness over the full
   // duration. Do not use colorProgress blending here, otherwise output can
   // reach black early (around transitionTimes.effect window).
   if (brightnessOnly) {
     const bool isPowerOff = (_startState.brightness > 0 && _targetState.brightness == 0);
+    const bool preserveLightningFlashes =
+        state.effect == 4 && state.power && !isPowerOff;
     const uint16_t startB = (uint16_t)_startState.brightness;
     const uint16_t currB = (uint16_t)_currentState.brightness;
     uint16_t referenceB = 0;
@@ -77,12 +197,13 @@ void TransitionEngine::blendTransitionFrames(
                          count,
                          colors,
                          colorCount,
-                         (uint8_t)referenceB);
+                         (uint8_t)(preserveLightningFlashes ? currB
+                                                            : referenceB));
 
     // Some effects keep internal temporal buffers and may emit stale luminance.
     // Enforce deterministic transition luminance by scaling every brightness-only
     // transition frame to current/reference ratio.
-    if (referenceB > 0) {
+    if (referenceB > 0 && !preserveLightningFlashes) {
       for (size_t i = 0; i < count; ++i) {
         uint8_t r, g, b, w;
         unpack_rgbw(outFrame[i], r, g, b, w);
@@ -93,6 +214,7 @@ void TransitionEngine::blendTransitionFrames(
         outFrame[i] = pack_rgbw(r, g, b, w);
       }
     }
+    applyPowerIntro(outFrame, wipeProgress, turningOn, turningOff);
     return;
   }
 
@@ -127,6 +249,10 @@ void TransitionEngine::blendTransitionFrames(
                        nextBrightness);
 
   ::blendFrames(prevFrame, nextFrame, colorProgress, outFrame);
+  const bool toBlack = frameIsBlack(nextFrame) && !frameIsBlack(prevFrame);
+  const bool fromBlack = frameIsBlack(prevFrame) && !frameIsBlack(nextFrame);
+  applyPowerIntro(outFrame, wipeProgress, turningOn || fromBlack,
+                  turningOff || toBlack);
 }
 
 void TransitionEngine::abortTransition() {

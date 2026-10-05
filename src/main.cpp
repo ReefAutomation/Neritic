@@ -3,7 +3,7 @@
  * ESP32 Fish-Safe LED Controller with Scheduling
  *
  * Features:
- * - 6 Custom aquarium effects
+ * - 9 aquarium lighting effects
  * - Fish-safe transitions and brightness limits
  * - NTP time sync with sunrise/sunset calculation
  * - Advanced scheduling system with boot recovery
