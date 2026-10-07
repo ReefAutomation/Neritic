@@ -34,8 +34,7 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
     "ntpServer": "pool.ntp.org",
     "timezone": "America/Santiago",
     "latitude": 0.0,
-    "longitude": 0.0,
-    "dstEnabled": true
+    "longitude": 0.0
   },
   "transitionTimes": {
     "powerOn": 60000,
@@ -66,9 +65,8 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
 
 ### `time`
 - `ntpServer`: NTP host
-- `timezone`: IANA timezone string
+- `timezone`: IANA zone name from `defaults/timezones.json`; its POSIX rule (offset and DST) is applied automatically
 - `latitude`, `longitude`: used by sunrise/sunset logic
-- `dstEnabled`: daylight saving handling
 
 ### `transitionTimes`
 - `powerOn`: transition duration used on power changes; power-on fades up the

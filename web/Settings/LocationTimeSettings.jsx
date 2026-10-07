@@ -1,3 +1,12 @@
+function formatGmt(offset) {
+  const total = Math.round(offset * 60);
+  const sign = total < 0 ? '-' : '+';
+  const abs = Math.abs(total);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return `GMT ${sign}${h}${m ? ':' + String(m).padStart(2, '0') : ''}`;
+}
+
 export function LocationTimeSettings({ config, setConfig, timezones }) {
   return (
     <section className="card">
@@ -32,26 +41,11 @@ export function LocationTimeSettings({ config, setConfig, timezones }) {
             }
           >
             {timezones.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
+              <option key={tz.name} value={tz.name}>
+                {tz.name} ({formatGmt(tz.offset)})
               </option>
             ))}
           </select>
-        </div>
-        <div className="config-item">
-          <label>
-            <input
-              type="checkbox"
-              checked={!!config?.time?.dstEnabled}
-              onInput={(e) =>
-                setConfig((c) => ({
-                  ...c,
-                  time: { ...c.time, dstEnabled: e.target.checked },
-                }))
-              }
-            />{' '}
-            Summer Time (DST)
-          </label>
         </div>
         <div className="config-item">
           <label htmlFor="latitude-input">Latitude</label>
