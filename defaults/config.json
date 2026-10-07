@@ -21,8 +21,7 @@
     "ntpServer": "pool.ntp.org",  
     "timezone": "America/Santiago",
     "latitude": 0.0,
-    "longitude": 0.0,
-    "dstEnabled": true
+    "longitude": 0.0
   },
   "transitionTimes": {
     "powerOn": 60000,

@@ -1,0 +1,56 @@
+---
+name: Update timezones
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Regenerate defaults/timezones.json from latest tzdata
+        id: gen
+        run: |
+          pip install -U tzdata
+          python scripts/gen_timezones.py | tee out.txt
+          echo "version=$(sed -n 's/.*tzdata //p' out.txt)" >> "$GITHUB_OUTPUT"
+
+      # Merging this PR with a "fix:" title lets semantic-release publish a
+      # new firmware release that carries the updated rules.
+      - name: Open pull request when rules changed
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ steps.generate_token.outputs.token }}
+          branch: chore/update-timezones
+          add-paths: defaults/timezones.json
+          commit-message: "fix(timezones): update rules to tzdata ${{ steps.gen.outputs.version }}"
+          title: "fix(timezones): update rules to tzdata ${{ steps.gen.outputs.version }}"
+          body: |
+            Regenerated `defaults/timezones.json` from the IANA tz database
+            (`tzdata` ${{ steps.gen.outputs.version }}) using
+            `scripts/gen_timezones.py`. Merge to publish a release with the new
+            DST rules.
+          delete-branch: true

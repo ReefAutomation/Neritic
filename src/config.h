@@ -34,6 +34,11 @@
 enum TimerType { TIMER_REGULAR = 0, TIMER_SUNRISE = 1, TIMER_SUNSET = 2 };
 
 // Configuration Structures
+struct TimezoneInfo {
+  std::string name;
+  double offset; // current offset from UTC in hours, DST included
+};
+
 struct LEDConfig {
   uint8_t pin;
   uint16_t count;
@@ -87,7 +92,6 @@ struct TimeConfig {
   std::string timezone; // IANA timezone string, e.g. "America/Los_Angeles"
   double latitude;
   double longitude;
-  bool dstEnabled;
 };
 
 struct EffectParams {
@@ -145,7 +149,7 @@ public:
   void updateLocationFromGPS(float lat, float lon, bool valid);
   int getTimezoneOffsetSeconds(); // Returns offset in seconds for current
                                   // timezone
-  std::vector<std::string> getSupportedTimezones();
+  std::vector<TimezoneInfo> getSupportedTimezones();
 
   bool saveToFile(const char *path, const cJSON *doc);
   bool loadFromFile(const char *path, cJSON **docOut); // <-- move to public

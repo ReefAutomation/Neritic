@@ -11,7 +11,9 @@ using std::vector;
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <mutex>
 #include <string>
+#include <time.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
@@ -252,7 +254,6 @@ std::string Configuration::toJsonString() {
   cJSON_AddStringToObject(timeObj, "timezone", time.timezone.c_str());
   cJSON_AddNumberToObject(timeObj, "latitude", time.latitude);
   cJSON_AddNumberToObject(timeObj, "longitude", time.longitude);
-  cJSON_AddBoolToObject(timeObj, "dstEnabled", time.dstEnabled);
 
   cJSON *netObj = cJSON_CreateObject();
   cJSON_AddItemToObject(doc, "network", netObj);
@@ -444,7 +445,6 @@ bool Configuration::load() {
     time.timezone = jsonStringOr(timeObj, "timezone", "UTC");
     time.latitude = jsonDoubleOr(timeObj, "latitude", 0.0);
     time.longitude = jsonDoubleOr(timeObj, "longitude", 0.0);
-    time.dstEnabled = jsonBoolOr(timeObj, "dstEnabled", false);
   }
 
   loadTimersFromJson(jsonObjectItem(doc, "timers"));
@@ -498,7 +498,6 @@ bool Configuration::save() {
   cJSON_AddStringToObject(timeObj, "timezone", time.timezone.c_str());
   cJSON_AddNumberToObject(timeObj, "latitude", time.latitude);
   cJSON_AddNumberToObject(timeObj, "longitude", time.longitude);
-  cJSON_AddBoolToObject(timeObj, "dstEnabled", time.dstEnabled);
 
   cJSON *timersArray = cJSON_CreateArray();
   cJSON_AddItemToObject(doc, "timers", timersArray);
@@ -597,8 +596,6 @@ void Configuration::partialUpdate(const cJSON *update) {
       time.latitude = jsonDoubleOr(timeObj, "latitude", time.latitude);
     if (jsonObjectItemConst(timeObj, "longitude"))
       time.longitude = jsonDoubleOr(timeObj, "longitude", time.longitude);
-    if (jsonObjectItemConst(timeObj, "dstEnabled"))
-      time.dstEnabled = jsonBoolOr(timeObj, "dstEnabled", time.dstEnabled);
   }
 
   const cJSON *timersArray = jsonObjectItemConst(update, "timers");
@@ -656,35 +653,62 @@ void Configuration::updateLocationFromGPS(float lat, float lon, bool valid) {
   time.longitude = lon;
 }
 
-int Configuration::getTimezoneOffsetSeconds() {
-  std::string tzContent((const char *)timezones_json, TIMEZONES_JSON_SIZE);
-  cJSON *tzDoc = cJSON_Parse(tzContent.c_str());
-  if (!cJSON_IsArray(tzDoc)) {
-    if (tzDoc)
-      cJSON_Delete(tzDoc);
-    return 0;
-  }
-
-  cJSON *tz = nullptr;
-  cJSON_ArrayForEach(tz, tzDoc) {
-    if (!cJSON_IsObject(tz))
-      continue;
-    const char *name = jsonStringOr(tz, "name", "");
-    if (time.timezone == name) {
-      double offset = jsonDoubleOr(tz, "offset", 0.0);
-      int offsetSeconds = (int)(offset * 3600);
-      if (time.dstEnabled)
-        offsetSeconds += 3600;
-      cJSON_Delete(tzDoc);
-      return offsetSeconds;
-    }
-  }
-  cJSON_Delete(tzDoc);
-  return 0;
+// Offset (seconds east of UTC) that a POSIX TZ rule yields at `now`,
+// including DST when the rule has it active at that instant.
+static int posixOffsetSeconds(const char *rule, time_t now) {
+  static std::mutex mtx;
+  std::lock_guard<std::mutex> lock(mtx);
+  const char *prev = getenv("TZ");
+  std::string saved = prev ? prev : "";
+  setenv("TZ", rule, 1);
+  tzset();
+  struct tm lt, gt;
+  localtime_r(&now, &lt);
+  gmtime_r(&now, &gt);
+  if (prev)
+    setenv("TZ", saved.c_str(), 1);
+  else
+    unsetenv("TZ");
+  tzset();
+  int dayDiff = lt.tm_year != gt.tm_year ? (lt.tm_year > gt.tm_year ? 1 : -1)
+                                         : lt.tm_yday - gt.tm_yday;
+  return dayDiff * 86400 + (lt.tm_hour - gt.tm_hour) * 3600 +
+         (lt.tm_min - gt.tm_min) * 60 + (lt.tm_sec - gt.tm_sec);
 }
 
-std::vector<std::string> Configuration::getSupportedTimezones() {
-  std::vector<std::string> timezones;
+static std::string findPosixRule(const std::string &zone) {
+  std::string tzContent((const char *)timezones_json, TIMEZONES_JSON_SIZE);
+  cJSON *tzDoc = cJSON_Parse(tzContent.c_str());
+  std::string rule = "UTC0";
+  cJSON *tz = nullptr;
+  cJSON_ArrayForEach(tz, tzDoc) {
+    if (cJSON_IsObject(tz) && zone == jsonStringOr(tz, "name", "")) {
+      rule = jsonStringOr(tz, "tz", "UTC0");
+      break;
+    }
+  }
+  if (tzDoc)
+    cJSON_Delete(tzDoc);
+  return rule;
+}
+
+int Configuration::getTimezoneOffsetSeconds() {
+  // The zone table is embedded JSON; cache the rule for the selected zone.
+  static std::string cachedZone;
+  static std::string cachedRule;
+  if (cachedRule.empty() || cachedZone != time.timezone) {
+    cachedRule = findPosixRule(time.timezone);
+    cachedZone = time.timezone;
+  }
+  time_t now;
+  ::time(&now);
+  return posixOffsetSeconds(cachedRule.c_str(), now);
+}
+
+std::vector<TimezoneInfo> Configuration::getSupportedTimezones() {
+  std::vector<TimezoneInfo> timezones;
+  time_t now;
+  ::time(&now);
   std::string tzContent((const char *)timezones_json, TIMEZONES_JSON_SIZE);
   cJSON *tzDoc = cJSON_Parse(tzContent.c_str());
   if (!cJSON_IsArray(tzDoc)) {
@@ -699,7 +723,8 @@ std::vector<std::string> Configuration::getSupportedTimezones() {
       continue;
     const char *n = jsonStringOr(tz, "name", nullptr);
     if (n)
-      timezones.push_back(n);
+      timezones.push_back(
+          {n, posixOffsetSeconds(jsonStringOr(tz, "tz", "UTC0"), now) / 3600.0});
   }
   cJSON_Delete(tzDoc);
   return timezones;
