@@ -1097,10 +1097,15 @@ esp_err_t WebServerManager::hTimerPost(httpd_req_t *req) {
 esp_err_t WebServerManager::hTimezones(httpd_req_t *req) {
   WebServerManager *mgr = fromReq(req);
   setCors(req);
-  std::vector<std::string> tzList = mgr->_config->getSupportedTimezones();
+  std::vector<Configuration::TimezoneOption> tzList =
+      mgr->_config->getSupportedTimezones();
   cJSON *arr = cJSON_CreateArray();
-  for (const auto &tz : tzList)
-    cJSON_AddItemToArray(arr, cJSON_CreateString(tz.c_str()));
+  for (const auto &tz : tzList) {
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddStringToObject(item, "name", tz.name.c_str());
+    cJSON_AddStringToObject(item, "gmt", tz.gmt.c_str());
+    cJSON_AddItemToArray(arr, item);
+  }
   char *printed = cJSON_PrintUnformatted(arr);
   std::string json = printed ? printed : "[]";
   if (printed)

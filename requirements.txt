@@ -1,2 +1,8 @@
 platformio==6.2.0
 intelhex==2.3.0
+# Canonical IANA timezone database for scripts/gen_timezones.py. Pinned so
+# generation never depends on the host's (possibly stale) /usr/share/zoneinfo;
+# bump the pin to move the repo onto a newer IANA release. Install this into the
+# interpreter that runs the build (PlatformIO's environment), or the build fails
+# instead of embedding stale rules.
+tzdata==2026.5

@@ -41,3 +41,19 @@
   border-radius: 6px;
   margin-top: 8px;
 }
+
+@media (max-width: 768px) {
+  // Two presets per row: one column per preset made the card several screens
+  // tall on a phone.
+  .preset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .preset-card {
+    padding: 10px 8px;
+  }
+  .preset-name {
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+  }
+}

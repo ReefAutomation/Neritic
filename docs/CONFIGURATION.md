@@ -34,8 +34,7 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
     "ntpServer": "pool.ntp.org",
     "timezone": "America/Santiago",
     "latitude": 0.0,
-    "longitude": 0.0,
-    "dstEnabled": true
+    "longitude": 0.0
   },
   "transitionTimes": {
     "powerOn": 60000,
@@ -66,9 +65,26 @@ Neritic stores runtime settings as JSON. Most users should configure via web UI,
 
 ### `time`
 - `ntpServer`: NTP host
-- `timezone`: IANA timezone string
+- `timezone`: IANA zone name from `defaults/timezones.json`; its POSIX rule (offset and DST) is applied automatically
 - `latitude`, `longitude`: used by sunrise/sunset logic
-- `dstEnabled`: daylight saving handling
+
+Daylight saving is always applied automatically from the selected zone's rules
+(`tz` in `defaults/timezones.json`); there is no setting to disable it.
+
+The timezone database is `defaults/timezones.json`. It is a build artifact:
+`scripts/gen_timezones.py` generates every entry's `offset` and `tz` field from
+the IANA database (pinned in `requirements.txt`), driven by the `ZONE_NAMES`
+list in that script — the only hand-maintained input. PlatformIO runs that same
+script as a pre-build step, so the file is regenerated before the firmware
+embeds it and does not need to exist beforehand; run
+`python scripts/gen_timezones.py` to regenerate it by hand, or
+`python scripts/gen_timezones.py --validate` to check the committed copy.
+
+Generation requires `pip install -r requirements.txt` in the environment that
+runs the build; without it the build fails rather than embedding stale rules.
+The firmware ships the embedded copy as a bootstrap fallback and fetches a fresh
+copy from GitHub once the network is up, so rule changes take effect without a
+firmware update (see `.github/workflows/timezones.yml`).
 
 ### `transitionTimes`
 - `powerOn`: transition duration used on power changes; the total time spans

@@ -1,3 +1,5 @@
+import { formatTimezoneOption } from '../util.js';
+
 export function LocationTimeSettings({ config, setConfig, timezones }) {
   return (
     <section className="card">
@@ -32,26 +34,11 @@ export function LocationTimeSettings({ config, setConfig, timezones }) {
             }
           >
             {timezones.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
+              <option key={tz.name} value={tz.name}>
+                {formatTimezoneOption(tz)}
               </option>
             ))}
           </select>
-        </div>
-        <div className="config-item">
-          <label>
-            <input
-              type="checkbox"
-              checked={!!config?.time?.dstEnabled}
-              onInput={(e) =>
-                setConfig((c) => ({
-                  ...c,
-                  time: { ...c.time, dstEnabled: e.target.checked },
-                }))
-              }
-            />{' '}
-            Summer Time (DST)
-          </label>
         </div>
         <div className="config-item">
           <label htmlFor="latitude-input">Latitude</label>

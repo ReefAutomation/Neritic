@@ -1,4 +1,7 @@
-#define DEEPGLOW_REPO_URL "https://github.com/ReefAutomation/Neritic"
+#define NERITIC_REPO_URL "https://github.com/ReefAutomation/Neritic"
+#define NERITIC_TZ_URL                                                    \
+  "https://raw.githubusercontent.com/ReefAutomation/Neritic/main/"         \
+  "defaults/timezones.json"
 
 #include "ota.h"
 #include "config.h"
@@ -144,7 +147,7 @@ static std::string httpsGet(const char *url, int *httpStatusOut = nullptr) {
 // ── Manifest helpers
 // ───────────────────────────────────────────────────────────
 std::string fetchRemoteManifestJson() {
-  const char *url = DEEPGLOW_REPO_URL "/releases/latest/download/manifest.json";
+  const char *url = NERITIC_REPO_URL "/releases/latest/download/manifest.json";
   std::string manifest;
   const int maxAttempts = 4;
   for (int attempt = 0; attempt < maxAttempts; ++attempt) {
@@ -167,6 +170,14 @@ std::string fetchRemoteManifestJson() {
     }
   }
   return "";
+}
+
+std::string fetchRemoteTimezonesJson() {
+  int httpCode = -1;
+  std::string data = httpsGet(NERITIC_TZ_URL, &httpCode);
+  if (data.empty())
+    ESP_LOGW(TAG, "Timezone data fetch failed (HTTP %d)", httpCode);
+  return data;
 }
 
 std::string getLatestFirmwareUrl(std::string &latestVersion) {

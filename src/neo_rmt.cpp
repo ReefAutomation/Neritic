@@ -17,9 +17,9 @@ enum class LedBackend {
 };
 
 static LedBackend resolvePreferredBackend() {
-#if defined(DEEPGLOW_LED_BACKEND_SPI)
+#if defined(NERITIC_LED_BACKEND_SPI)
   return LedBackend::Spi;
-#elif defined(DEEPGLOW_LED_BACKEND_RMT)
+#elif defined(NERITIC_LED_BACKEND_RMT)
   return LedBackend::Rmt;
 #elif CONFIG_IDF_TARGET_ESP32
   return LedBackend::Spi;
@@ -31,7 +31,7 @@ static LedBackend resolvePreferredBackend() {
 }
 
 static bool isBackendForced() {
-#if defined(DEEPGLOW_LED_BACKEND_SPI) || defined(DEEPGLOW_LED_BACKEND_RMT)
+#if defined(NERITIC_LED_BACKEND_SPI) || defined(NERITIC_LED_BACKEND_RMT)
   return true;
 #else
   return false;

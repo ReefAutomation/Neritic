@@ -1,32 +1,387 @@
 [
-  { "name": "Africa/Johannesburg", "offset": 2, "dst": false },
-  { "name": "America/Chicago", "offset": -6, "dst": true },
-  { "name": "America/Denver", "offset": -7, "dst": true },
-  { "name": "America/Los_Angeles", "offset": -8, "dst": true },
-  { "name": "America/Mexico_City", "offset": -6, "dst": true },
-  { "name": "America/New_York", "offset": -5, "dst": true },
-  { "name": "America/Santiago", "offset": -4, "dst": true },
-  { "name": "America/Sao_Paulo", "offset": -3, "dst": true },
-  { "name": "America/Toronto", "offset": -5, "dst": true },
-  { "name": "Asia/Bangkok", "offset": 7, "dst": false },
-  { "name": "Asia/Dubai", "offset": 4, "dst": false },
-  { "name": "Asia/Hong_Kong", "offset": 8, "dst": false },
-  { "name": "Asia/Jakarta", "offset": 7, "dst": false },
-  { "name": "Asia/Kolkata", "offset": 5.5, "dst": false },
-  { "name": "Asia/Seoul", "offset": 9, "dst": false },
-  { "name": "Asia/Shanghai", "offset": 8, "dst": false },
-  { "name": "Asia/Singapore", "offset": 8, "dst": false },
-  { "name": "Asia/Tokyo", "offset": 9, "dst": false },
-  { "name": "Australia/Sydney", "offset": 10, "dst": true },
-  { "name": "Europe/Athens", "offset": 2, "dst": true },
-  { "name": "Europe/Berlin", "offset": 1, "dst": true },
-  { "name": "Europe/Istanbul", "offset": 3, "dst": false },
-  { "name": "Europe/London", "offset": 0, "dst": true },
-  { "name": "Europe/Madrid", "offset": 1, "dst": true },
-  { "name": "Europe/Moscow", "offset": 3, "dst": false },
-  { "name": "Europe/Paris", "offset": 1, "dst": true },
-  { "name": "Europe/Rome", "offset": 1, "dst": true },
-  { "name": "Europe/Warsaw", "offset": 1, "dst": true },
-  { "name": "Etc/UTC", "offset": 0, "dst": false },
-  { "name": "Pacific/Auckland", "offset": 12, "dst": true }
+  {
+    "name": "Africa/Accra",
+    "offset": 0,
+    "tz": "GMT0"
+  },
+  {
+    "name": "Africa/Algiers",
+    "offset": 1,
+    "tz": "CET-1"
+  },
+  {
+    "name": "Africa/Cairo",
+    "offset": 2,
+    "tz": "EET-2EEST,M4.5.5/0,M10.5.5/0"
+  },
+  {
+    "name": "Africa/Johannesburg",
+    "offset": 2,
+    "tz": "SAST-2"
+  },
+  {
+    "name": "Africa/Lagos",
+    "offset": 1,
+    "tz": "WAT-1"
+  },
+  {
+    "name": "Africa/Nairobi",
+    "offset": 3,
+    "tz": "EAT-3"
+  },
+  {
+    "name": "America/Anchorage",
+    "offset": -9,
+    "tz": "AKST9AKDT,M3.2.0/2,M11.1.0/2"
+  },
+  {
+    "name": "America/Argentina/Buenos_Aires",
+    "offset": -3,
+    "tz": "<-03>3"
+  },
+  {
+    "name": "America/Asuncion",
+    "offset": -3,
+    "tz": "<-03>3"
+  },
+  {
+    "name": "America/Bogota",
+    "offset": -5,
+    "tz": "<-05>5"
+  },
+  {
+    "name": "America/Caracas",
+    "offset": -4,
+    "tz": "<-04>4"
+  },
+  {
+    "name": "America/Chicago",
+    "offset": -6,
+    "tz": "CST6CDT,M3.2.0/2,M11.1.0/2"
+  },
+  {
+    "name": "America/Denver",
+    "offset": -7,
+    "tz": "MST7MDT,M3.2.0/2,M11.1.0/2"
+  },
+  {
+    "name": "America/Halifax",
+    "offset": -4,
+    "tz": "AST4ADT,M3.2.0/2,M11.1.0/2"
+  },
+  {
+    "name": "America/Havana",
+    "offset": -5,
+    "tz": "CST5CDT,M3.2.0/0,M11.1.0/1"
+  },
+  {
+    "name": "America/Lima",
+    "offset": -5,
+    "tz": "<-05>5"
+  },
+  {
+    "name": "America/Los_Angeles",
+    "offset": -8,
+    "tz": "PST8PDT,M3.2.0/2,M11.1.0/2"
+  },
+  {
+    "name": "America/Mexico_City",
+    "offset": -6,
+    "tz": "CST6"
+  },
+  {
+    "name": "America/Montevideo",
+    "offset": -3,
+    "tz": "<-03>3"
+  },
+  {
+    "name": "America/New_York",
+    "offset": -5,
+    "tz": "EST5EDT,M3.2.0/2,M11.1.0/2"
+  },
+  {
+    "name": "America/Panama",
+    "offset": -5,
+    "tz": "EST5"
+  },
+  {
+    "name": "America/Phoenix",
+    "offset": -7,
+    "tz": "MST7"
+  },
+  {
+    "name": "America/Santiago",
+    "offset": -4,
+    "tz": "<-04>4<-03>,M9.1.0/0,M4.1.0/0"
+  },
+  {
+    "name": "America/Sao_Paulo",
+    "offset": -3,
+    "tz": "<-03>3"
+  },
+  {
+    "name": "America/Toronto",
+    "offset": -5,
+    "tz": "EST5EDT,M3.2.0/2,M11.1.0/2"
+  },
+  {
+    "name": "America/Vancouver",
+    "offset": -7,
+    "tz": "MST7"
+  },
+  {
+    "name": "Asia/Bangkok",
+    "offset": 7,
+    "tz": "<+07>-7"
+  },
+  {
+    "name": "Asia/Dhaka",
+    "offset": 6,
+    "tz": "<+06>-6"
+  },
+  {
+    "name": "Asia/Dubai",
+    "offset": 4,
+    "tz": "<+04>-4"
+  },
+  {
+    "name": "Asia/Ho_Chi_Minh",
+    "offset": 7,
+    "tz": "<+07>-7"
+  },
+  {
+    "name": "Asia/Hong_Kong",
+    "offset": 8,
+    "tz": "HKT-8"
+  },
+  {
+    "name": "Asia/Jakarta",
+    "offset": 7,
+    "tz": "WIB-7"
+  },
+  {
+    "name": "Asia/Jerusalem",
+    "offset": 2,
+    "tz": "IST-2IDT,M3.5.5/2,M10.5.0/2"
+  },
+  {
+    "name": "Asia/Karachi",
+    "offset": 5,
+    "tz": "PKT-5"
+  },
+  {
+    "name": "Asia/Kathmandu",
+    "offset": 5.75,
+    "tz": "<+0545>-5:45"
+  },
+  {
+    "name": "Asia/Kolkata",
+    "offset": 5.5,
+    "tz": "IST-5:30"
+  },
+  {
+    "name": "Asia/Kuala_Lumpur",
+    "offset": 8,
+    "tz": "<+08>-8"
+  },
+  {
+    "name": "Asia/Manila",
+    "offset": 8,
+    "tz": "PST-8"
+  },
+  {
+    "name": "Asia/Riyadh",
+    "offset": 3,
+    "tz": "<+03>-3"
+  },
+  {
+    "name": "Asia/Seoul",
+    "offset": 9,
+    "tz": "KST-9"
+  },
+  {
+    "name": "Asia/Shanghai",
+    "offset": 8,
+    "tz": "CST-8"
+  },
+  {
+    "name": "Asia/Singapore",
+    "offset": 8,
+    "tz": "<+08>-8"
+  },
+  {
+    "name": "Asia/Taipei",
+    "offset": 8,
+    "tz": "CST-8"
+  },
+  {
+    "name": "Asia/Tehran",
+    "offset": 3.5,
+    "tz": "<+0330>-3:30"
+  },
+  {
+    "name": "Asia/Tokyo",
+    "offset": 9,
+    "tz": "JST-9"
+  },
+  {
+    "name": "Australia/Adelaide",
+    "offset": 9.5,
+    "tz": "ACST-9:30ACDT,M10.1.0/2,M4.1.0/3"
+  },
+  {
+    "name": "Australia/Brisbane",
+    "offset": 10,
+    "tz": "AEST-10"
+  },
+  {
+    "name": "Australia/Melbourne",
+    "offset": 10,
+    "tz": "AEST-10AEDT,M10.1.0/2,M4.1.0/3"
+  },
+  {
+    "name": "Australia/Perth",
+    "offset": 8,
+    "tz": "AWST-8"
+  },
+  {
+    "name": "Australia/Sydney",
+    "offset": 10,
+    "tz": "AEST-10AEDT,M10.1.0/2,M4.1.0/3"
+  },
+  {
+    "name": "Etc/UTC",
+    "offset": 0,
+    "tz": "UTC0"
+  },
+  {
+    "name": "Europe/Amsterdam",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Athens",
+    "offset": 2,
+    "tz": "EET-2EEST,M3.5.0/3,M10.5.0/4"
+  },
+  {
+    "name": "Europe/Berlin",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Brussels",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Bucharest",
+    "offset": 2,
+    "tz": "EET-2EEST,M3.5.0/3,M10.5.0/4"
+  },
+  {
+    "name": "Europe/Budapest",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Copenhagen",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Dublin",
+    "offset": 0,
+    "tz": "GMT0IST,M3.5.0/1,M10.5.0/2"
+  },
+  {
+    "name": "Europe/Helsinki",
+    "offset": 2,
+    "tz": "EET-2EEST,M3.5.0/3,M10.5.0/4"
+  },
+  {
+    "name": "Europe/Istanbul",
+    "offset": 3,
+    "tz": "<+03>-3"
+  },
+  {
+    "name": "Europe/Kyiv",
+    "offset": 2,
+    "tz": "EET-2EEST,M3.5.0/3,M10.5.0/4"
+  },
+  {
+    "name": "Europe/Lisbon",
+    "offset": 0,
+    "tz": "WET0WEST,M3.5.0/1,M10.5.0/2"
+  },
+  {
+    "name": "Europe/London",
+    "offset": 0,
+    "tz": "GMT0BST,M3.5.0/1,M10.5.0/2"
+  },
+  {
+    "name": "Europe/Madrid",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Moscow",
+    "offset": 3,
+    "tz": "MSK-3"
+  },
+  {
+    "name": "Europe/Oslo",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Paris",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Prague",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Rome",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Stockholm",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Vienna",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Warsaw",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Europe/Zurich",
+    "offset": 1,
+    "tz": "CET-1CEST,M3.5.0/2,M10.5.0/3"
+  },
+  {
+    "name": "Pacific/Auckland",
+    "offset": 12,
+    "tz": "NZST-12NZDT,M9.5.0/2,M4.1.0/3"
+  },
+  {
+    "name": "Pacific/Fiji",
+    "offset": 12,
+    "tz": "<+12>-12"
+  },
+  {
+    "name": "Pacific/Honolulu",
+    "offset": -10,
+    "tz": "HST10"
+  }
 ]

@@ -29,37 +29,57 @@ tr:hover {
 }
 
 @media (max-width: 768px) {
-  .schedule-table {
+  // Read-only schedule on Home: only four short columns, so it stays a table
+  // and just gets tighter spacing.
+  .schedule-table-inner th,
+  .schedule-table-inner td {
+    padding: 8px 6px;
+    font-size: 0.85rem;
+  }
+
+  // Schedule editor on Config: one card per timer, each field labelled with its
+  // column name and laid out two per row instead of one long column.
+  .schedule-table.schedule-editor {
     overflow-x: visible;
   }
 
-  .schedule-table table,
-  .schedule-table thead,
-  .schedule-table tbody,
-  .schedule-table tr,
-  .schedule-table td {
+  .schedule-table.schedule-editor table,
+  .schedule-table.schedule-editor thead,
+  .schedule-table.schedule-editor tbody,
+  .schedule-table.schedule-editor tr,
+  .schedule-table.schedule-editor td {
     display: block;
     width: 100%;
   }
 
-  .schedule-table thead {
+  .schedule-table.schedule-editor thead {
     display: none;
   }
 
-  .schedule-table tr {
+  .schedule-table.schedule-editor tbody {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .schedule-table.schedule-editor tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
     background: var(--bg-light);
     border: 1px solid rgba(102, 204, 255, 0.15);
     border-radius: 10px;
     padding: 10px;
-    margin-bottom: 12px;
+    box-sizing: border-box;
   }
 
-  .schedule-table td {
+  .schedule-table.schedule-editor td {
     border-bottom: none;
-    padding: 8px 0;
+    padding: 0;
+    min-width: 0;
   }
 
-  .schedule-table td::before {
+  .schedule-table.schedule-editor td::before {
     display: block;
     margin-bottom: 6px;
     color: var(--secondary-color);
@@ -67,46 +87,70 @@ tr:hover {
     font-weight: 600;
   }
 
-  .schedule-table td:nth-child(1)::before {
+  .schedule-table.schedule-editor td:nth-child(1)::before {
     content: 'Enabled';
   }
 
-  .schedule-table td:nth-child(2)::before {
+  .schedule-table.schedule-editor td:nth-child(2)::before {
     content: 'Type';
   }
 
-  .schedule-table td:nth-child(3)::before {
+  .schedule-table.schedule-editor td:nth-child(3)::before {
     content: 'Time';
   }
 
-  .schedule-table td:nth-child(4)::before {
+  .schedule-table.schedule-editor td:nth-child(4)::before {
     content: 'Preset';
   }
 
-  .schedule-table td:nth-child(5)::before {
+  .schedule-table.schedule-editor td:nth-child(5)::before {
     content: 'Brightness (%)';
   }
 
-  .schedule-table td:nth-child(6)::before {
+  .schedule-table.schedule-editor td:nth-child(6)::before {
     content: 'Actions';
   }
 
-  .schedule-table td:nth-child(2) label {
+  .schedule-table.schedule-editor td:nth-child(2) label {
     display: block;
     margin-right: 0 !important;
     margin-bottom: 4px;
   }
 
-  .schedule-table td input[type='time'],
-  .schedule-table td select,
-  .schedule-table td input[type='number'],
-  .schedule-table td button {
+  .schedule-table.schedule-editor td input[type='time'],
+  .schedule-table.schedule-editor td select,
+  .schedule-table.schedule-editor td input[type='number'],
+  .schedule-table.schedule-editor td button {
     width: 100% !important;
     max-width: 100%;
     box-sizing: border-box;
   }
 
-  .schedule-table > .btn {
+  // A native time control keeps its own compact size; stretching it across the
+  // whole cell makes it look oversized on a phone.
+  .schedule-table.schedule-editor td input[type='time'] {
+    width: auto !important;
+    max-width: 160px;
+  }
+
+  // Compact fields: the default control size is meant for full-width forms, and
+  // six of them per timer made each card very tall.
+  .schedule-table.schedule-editor td select,
+  .schedule-table.schedule-editor td input[type='number'],
+  .schedule-table.schedule-editor td input[type='time'] {
+    font-size: 0.95rem;
+    padding: 8px 12px;
+    margin: 0;
+    min-width: 0;
+    box-shadow: none;
+  }
+
+  .schedule-table.schedule-editor td select {
+    // Keep room for the dropdown arrow.
+    padding: 8px 28px 8px 12px !important;
+  }
+
+  .schedule-table.schedule-editor > .btn {
     width: 100%;
     margin-right: 0 !important;
   }

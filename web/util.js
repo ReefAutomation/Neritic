@@ -42,6 +42,14 @@ export function sortTimers(timers) {
   });
 }
 
+// Label for a timezone option: the device-supplied GMT offset, e.g.
+// "America/Santiago (GMT -3)". The offset is empty until the device has
+// synchronized its clock, in which case only the zone name is shown — the
+// frontend never derives it itself.
+export function formatTimezoneOption(timezone) {
+  return timezone.gmt ? `${timezone.name} (${timezone.gmt})` : timezone.name;
+}
+
 export function rgbwHexToPreview(hex) {
   // Accepts #RRGGBB or #RRGGBBWW
   if (!hex || typeof hex !== 'string') return '#000';

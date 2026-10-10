@@ -33,6 +33,10 @@
 BusManager busManager;
 WebServerManager *webServerPtr = nullptr;
 
+// How often the cached GMT offsets served to the web UI are recomputed. Short
+// enough that a DST transition shows up promptly, long enough to be free.
+static constexpr uint64_t TIMEZONE_OPTIONS_REFRESH_MS = 3600ULL * 1000ULL;
+
 // Track last configuration for change detection
 Configuration lastConfiguration;
 
@@ -54,6 +58,13 @@ std::vector<Timer> lastTimers;
 
 // Track last scheduled preset applied by timer
 int8_t lastScheduledPreset = -1;
+
+// Set by the web config handler when the timezone/DST changes; the main task
+// applies it on its own thread so tzset() never races localtime_r().
+volatile bool timezoneDirty = false;
+
+// Set when the cached timezone list (or its GMT offsets) needs rebuilding.
+volatile bool timezoneOptionsDirty = true;
 
 extern TransitionEngine transition;
 
@@ -101,6 +112,14 @@ void main_task(void *pvParameters) {
     config.setDefaults();
     config.save();
   }
+
+  // Apply the configured timezone to the C library now, so local time is
+  // correct as soon as NTP synchronizes (DST handled from POSIX rules).
+  config.applyTimezone();
+
+  // Publish the timezone names to the web UI immediately; the GMT offsets are
+  // filled in once the clock is valid (see the main loop).
+  config.refreshTimezoneOptions(false);
 
 #ifdef ONBOARD_STATUS_LED
   turnOffStatusLed();
@@ -180,6 +199,12 @@ void main_task(void *pvParameters) {
     if (ntpServerChanged) {
       scheduler.updateNTP();
       lastConfiguration.time.ntpServer = config.time.ntpServer;
+    }
+    bool timezoneChanged =
+        config.time.timezone != lastConfiguration.time.timezone;
+    if (timezoneChanged) {
+      timezoneDirty = true;
+      lastConfiguration.time.timezone = config.time.timezone;
     }
     bool ledChanged = config.led.pin != lastConfiguration.led.pin ||
                       config.led.count != lastConfiguration.led.count ||
@@ -285,6 +310,17 @@ void main_task(void *pvParameters) {
     ESP_LOGI("main", "Skipping time sync (AP mode)");
   }
 
+  // Refresh the timezone data asset once the network is up, then re-apply so
+  // updated DST rules take effect without a firmware reflash.
+  if (networkIsStaConnected()) {
+    std::string tzData = fetchRemoteTimezonesJson();
+    if (!tzData.empty() && config.saveTimezoneData(tzData)) {
+      config.applyTimezone();
+      timezoneOptionsDirty = true;
+      ESP_LOGI("main", "Timezone data refreshed from GitHub");
+    }
+  }
+
   transition.forceCurrentBrightness(state.brightness);
   setEffect(state.effect, state.params);
   setBrightness(state.brightness);
@@ -293,6 +329,7 @@ void main_task(void *pvParameters) {
   // --- Main loop ---
   int lastCheckedMinute = -1;
   uint64_t lastFrame = 0;
+  uint64_t lastTimezoneOptionsRefresh = 0;
   std::string lastPreset;
   bool lastPower = false;
   uint8_t lastBrightness = 0;
@@ -302,6 +339,24 @@ void main_task(void *pvParameters) {
       handleArduinoOTA();
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
+    }
+    if (timezoneDirty) {
+      config.applyTimezone();
+      timezoneOptionsDirty = true;
+      timezoneDirty = false;
+    }
+
+    // Keep the cached timezone list (names + GMT offsets) current. The offsets
+    // depend on the current date and on the configured zone, and the rebuild
+    // juggles the process-wide TZ, so it happens here in the main task — the
+    // HTTP task only ever reads the cached list.
+    uint64_t nowMs = esp_timer_get_time() / 1000;
+    if (scheduler.isTimeValid() &&
+        (timezoneOptionsDirty ||
+         nowMs - lastTimezoneOptionsRefresh >= TIMEZONE_OPTIONS_REFRESH_MS)) {
+      config.refreshTimezoneOptions(true);
+      timezoneOptionsDirty = false;
+      lastTimezoneOptionsRefresh = nowMs;
     }
     if (scheduler.isTimeValid()) {
       checkAndApplyScheduleAfterBoot();
