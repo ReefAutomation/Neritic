@@ -29,7 +29,7 @@ export function Schedule({ config, setConfig, presets, sunTimes }) {
   return (
     <section class="card">
       <h2>Schedule</h2>
-      <div class="schedule-table">
+      <div class="schedule-table schedule-editor">
         <table>
           <thead>
             <tr>

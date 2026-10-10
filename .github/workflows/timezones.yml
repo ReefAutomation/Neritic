@@ -1,0 +1,105 @@
+---
+name: Timezone data refresh
+
+# Regenerates defaults/timezones.json from the pinned IANA database — the
+# tzdata loop for this project. The generator rewrites every entry's offset and
+# POSIX `tz` rule from IANA and re-validates the result, so a rule change lands
+# as a reviewable PR instead of a hand-edited string. Devices fetch the file at
+# runtime from the `main` branch, so merging rolls out DST-rule changes without
+# a firmware rebuild.
+#
+# We intentionally do NOT cut a GitHub release here: OTA depends on
+# releases/latest/download/manifest.json, and any new release (even a
+# data-only one) would become "latest" and break the firmware manifest.
+
+on:
+  schedule:
+    # Weekly, Monday 03:17 UTC.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # Rules are generated from the pinned wheel rather than the runner's
+      # tzdata, so the result depends on a known IANA release, not the image's.
+      - name: Install pinned IANA tzdata
+        run: python -m pip install -r requirements.txt
+
+      - name: Regenerate timezones.json from IANA
+        id: gen
+        run: |
+          set +e
+          python scripts/gen_timezones.py > tzdata-log.txt 2> tzdata-errors.txt
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          cat tzdata-log.txt
+          cat tzdata-errors.txt >&2 || true
+
+      - name: Report generation failure
+        if: steps.gen.outputs.exit != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="tzdata: timezone rules could not be regenerated from IANA"
+          # Reuse an existing open issue so repeated weekly runs don't spam;
+          # leave the step un-swallowed so a failure is visible (red run /
+          # email) rather than silently losing the notification.
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file tzdata-errors.txt
+          else
+            gh issue create --title "$TITLE" --body-file tzdata-errors.txt
+          fi
+
+      - name: Detect content change
+        id: diff
+        if: steps.gen.outputs.exit == '0'
+        run: |
+          # The generator prints this line first; it names the database the
+          # proposed rules were produced from.
+          IANA=$(awk -F': ' '/^iana-version: /{print $2; exit}' tzdata-log.txt)
+          echo "iana=$IANA" >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- defaults/timezones.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open pull request with regenerated rules
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: 'chore(tzdata): regenerate timezones.json from IANA'
+          title: 'chore(tzdata): regenerate timezones.json from IANA'
+          body: |
+            Automated regeneration of `defaults/timezones.json` by
+            `scripts/gen_timezones.py`, built from the pinned IANA database
+            (`${{ steps.diff.outputs.iana }}`).
+
+            The `offset` and `tz` fields of every entry are generated from
+            IANA; only the set of zone names is hand-maintained. Before this
+            PR was opened the generator re-checked the proposed rules hour by
+            hour against IANA, so the diff is limited to rules that actually
+            changed, plus formatting.
+
+            Devices fetch this file at runtime from the `main` branch, so
+            merging this PR rolls out the change without a firmware release.
+            The next firmware build embeds the merged file as its bootstrap
+            fallback.
+          branch: chore/tzdata-update
+          delete-branch: true

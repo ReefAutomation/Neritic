@@ -117,7 +117,21 @@ Base URL: `http://<device-ip>`
   - Resets config and reboots.
 
 - `GET /api/timezones`
-  - Returns supported timezone list.
+  - Returns the supported timezone list, each entry carrying the GMT offset the
+    device currently has in effect for that zone:
+
+    ```json
+    [
+      { "name": "America/Santiago", "gmt": "GMT -3" },
+      { "name": "Europe/Berlin", "gmt": "GMT +2" }
+    ]
+    ```
+
+  - `gmt` is empty until the device has synchronized its clock, since the
+    offset depends on the current date; daylight saving is applied
+    automatically from the zone's rules.
+  - The list is loaded from the runtime timezone data (`/data/timezones.json`
+    on the filesystem) when present, otherwise from the embedded bootstrap list.
 
 ## WebSocket
 

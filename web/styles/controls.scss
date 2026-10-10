@@ -23,6 +23,18 @@
   gap: 8px;
 }
 
+// A field must not size itself to its content: the timezone list is much longer
+// than every other option, which made that one combo wider than the rest. Every
+// field in a settings grid shares one width instead.
+.config-grid select,
+.config-grid .select-input,
+.config-grid .text-input,
+.config-grid input[type='number'] {
+  width: 100%;
+  max-width: 340px;
+  box-sizing: border-box;
+}
+
 .config-action-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

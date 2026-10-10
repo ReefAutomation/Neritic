@@ -13,6 +13,15 @@ static const char *TAG = "scheduler";
 
 static unsigned long getEpochTime() { return (unsigned long)time(NULL); }
 
+// Local time info for the configured timezone (applied via Configuration::
+// applyTimezone, which sets TZ and calls tzset).
+static struct tm getLocalTm() {
+  time_t now = time(NULL);
+  struct tm tmv;
+  localtime_r(&now, &tmv);
+  return tmv;
+}
+
 Scheduler::Scheduler(Configuration *config) {
   _config = config;
   Scheduler::_instance = this;
@@ -77,15 +86,11 @@ bool Scheduler::isTimeValid() {
 }
 
 uint8_t Scheduler::getCurrentHour() {
-  long tzOffset = _config ? _config->getTimezoneOffsetSeconds() : 0;
-  unsigned long epoch = getEpochTime() + (unsigned long)tzOffset;
-  return (epoch / 3600) % 24;
+  return (uint8_t)getLocalTm().tm_hour;
 }
 
 uint8_t Scheduler::getCurrentMinute() {
-  long tzOffset = _config ? _config->getTimezoneOffsetSeconds() : 0;
-  unsigned long epoch = getEpochTime() + (unsigned long)tzOffset;
-  return (epoch / 60) % 60;
+  return (uint8_t)getLocalTm().tm_min;
 }
 
 int Scheduler::getCurrentTimeInMinutes() {
@@ -93,11 +98,10 @@ int Scheduler::getCurrentTimeInMinutes() {
 }
 
 std::string Scheduler::getCurrentTime() {
-  long tzOffset = _config ? _config->getTimezoneOffsetSeconds() : 0;
-  unsigned long epoch = getEpochTime() + (unsigned long)tzOffset;
+  struct tm tmv = getLocalTm();
   char buf[9];
-  snprintf(buf, sizeof(buf), "%02d:%02d:%02d", (int)((epoch / 3600) % 24),
-           (int)((epoch / 60) % 60), (int)(epoch % 60));
+  snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmv.tm_hour, tmv.tm_min,
+           tmv.tm_sec);
   return std::string(buf);
 }
 

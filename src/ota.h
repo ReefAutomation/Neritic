@@ -22,6 +22,9 @@ esp_err_t handleOtaUpload(httpd_req_t *req);
 // Fetch manifest JSON from GitHub (empty string on failure)
 std::string fetchRemoteManifestJson();
 
+// Fetch the timezones.json data asset from GitHub (empty string on failure)
+std::string fetchRemoteTimezonesJson();
+
 // Fetch latest firmware URL for this env (OTA_ENV) (empty string on failure)
 std::string getLatestFirmwareUrl(std::string &latestVersion);
 

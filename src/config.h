@@ -20,6 +20,7 @@
 // File Paths
 #define CONFIG_FILE "/config.json"
 #define PRESET_FILE "/presets.json"
+#define TIMEZONES_FILE "/timezones.json"
 
 // Onboard LED Configuration
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
@@ -34,6 +35,11 @@
 enum TimerType { TIMER_REGULAR = 0, TIMER_SUNRISE = 1, TIMER_SUNSET = 2 };
 
 // Configuration Structures
+struct TimezoneInfo {
+  std::string name;
+  double offset; // current offset from UTC in hours, DST included
+};
+
 struct LEDConfig {
   uint8_t pin;
   uint16_t count;
@@ -87,7 +93,6 @@ struct TimeConfig {
   std::string timezone; // IANA timezone string, e.g. "America/Los_Angeles"
   double latitude;
   double longitude;
-  bool dstEnabled;
 };
 
 struct EffectParams {
@@ -143,9 +148,35 @@ public:
 
   // GPS and timezone helpers
   void updateLocationFromGPS(float lat, float lon, bool valid);
-  int getTimezoneOffsetSeconds(); // Returns offset in seconds for current
-                                  // timezone
-  std::vector<std::string> getSupportedTimezones();
+
+  // Apply the configured timezone to the C library (TZ env + tzset). Daylight
+  // saving is always applied automatically from the zone's POSIX rules.
+  void applyTimezone();
+
+  // Resolve the POSIX TZ string for an IANA timezone name; empty if unknown.
+  std::string getTimezonePosix(const std::string &name);
+
+  // Persist runtime-fetched timezone data to the filesystem. On failure the
+  // data is discarded and the embedded fallback keeps being used.
+  bool saveTimezoneData(const std::string &content);
+
+  // A timezone offered by the web UI: the IANA name plus the GMT offset
+  // currently in effect in that zone, e.g. "GMT -3" / "GMT +5:30".
+  struct TimezoneOption {
+    std::string name;
+    std::string gmt; // empty until the clock is synchronized
+  };
+
+  // Cached timezone list for /api/timezones. Always (re)builds the names; fills
+  // in each zone's GMT offset only when `clockValid`, since the offset depends
+  // on the current date (daylight saving) and is meaningless for an unsynced
+  // clock. Juggles the process-wide TZ, so it must run in the main task, never
+  // in the HTTP task.
+  void refreshTimezoneOptions(bool clockValid);
+
+  // Copy of the cached list, so a request can iterate it while the main task
+  // rebuilds the cache.
+  std::vector<TimezoneOption> getSupportedTimezones() const;
 
   bool saveToFile(const char *path, const cJSON *doc);
   bool loadFromFile(const char *path, cJSON **docOut); // <-- move to public

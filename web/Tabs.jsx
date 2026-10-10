@@ -52,9 +52,9 @@ export function useTabs() {
     if (globalThis.location.hash === `#${TABS.HOME}`) return TABS.HOME;
     let saved;
     try {
-      saved = localStorage.getItem('deepglow_tab');
+      saved = localStorage.getItem('neritic_tab');
     } catch (e) {
-      console.error('Error accessing localStorage for deepglow_tab:', e);
+      console.error('Error accessing localStorage for neritic_tab:', e);
     }
     if (saved === TABS.CONFIG || saved === TABS.HOME) return saved;
     return TABS.HOME;
@@ -75,10 +75,10 @@ export function useTabs() {
   useEffect(() => {
     try {
       if (tab === TABS.CONFIG) {
-        localStorage.setItem('deepglow_tab', TABS.CONFIG);
+        localStorage.setItem('neritic_tab', TABS.CONFIG);
         globalThis.location.hash = `#${TABS.CONFIG}`;
       } else {
-        localStorage.setItem('deepglow_tab', TABS.HOME);
+        localStorage.setItem('neritic_tab', TABS.HOME);
         globalThis.location.hash = `#${TABS.HOME}`;
       }
     } catch {}

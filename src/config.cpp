@@ -9,10 +9,15 @@ using std::vector;
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <errno.h>
+#include <mutex>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <mutex>
 #include <string>
+#include <time.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 #include <vector>
 #include "assets.h"
@@ -23,6 +28,12 @@ static const char *TAG = "config";
 #define CONFIG_BACKUP_FILE "/config.json.bak"
 
 static bool s_fs_mounted = false;
+
+// Timezone list served to the web UI. Process-global (it is derived from the
+// timezone data, not from per-instance state) and guarded, because the main
+// task rebuilds it while the HTTP task reads it.
+static std::vector<Configuration::TimezoneOption> s_timezoneOptions;
+static std::mutex s_timezoneOptionsMutex;
 
 static bool ensureFilesystemMounted() {
   if (esp_littlefs_mounted("spiffs")) {
@@ -170,6 +181,62 @@ static bool jsonBoolOr(const cJSON *obj, const char *key, bool fallback) {
   return fallback;
 }
 
+// Build a DST-less POSIX TZ string from a standard-time UTC offset in hours.
+// POSIX offsets are inverted: "UTC-5:30" means UTC+5:30, "UTC5" means UTC-5.
+static std::string posixStdOnly(double offsetHours) {
+  int totalMin =
+      (int)(offsetHours * 60.0 + (offsetHours >= 0 ? 0.5 : -0.5));
+  if (totalMin == 0)
+    return "UTC0";
+  int h = abs(totalMin) / 60;
+  int m = abs(totalMin) % 60;
+  char sign = totalMin > 0 ? '-' : '+';
+  char buf[32];
+  if (m)
+    snprintf(buf, sizeof(buf), "UTC%c%d:%02d", sign, h, m);
+  else
+    snprintf(buf, sizeof(buf), "UTC%c%d", sign, h);
+  return std::string(buf);
+}
+
+// Load the timezone database as a parsed JSON array. Prefer the runtime
+// data fetched to the filesystem; fall back to the embedded bootstrap list.
+// Returns null (and logs) on failure.
+static cJSON *loadTimezoneDoc() {
+  if (ensureFilesystemMounted()) {
+    std::string content;
+    if (readFileToString(fsPath(TIMEZONES_FILE), content)) {
+      cJSON *doc = cJSON_Parse(content.c_str());
+      if (cJSON_IsArray(doc))
+        return doc;
+      if (doc)
+        cJSON_Delete(doc);
+    }
+  }
+  std::string embedded((const char *)timezones_json, TIMEZONES_JSON_SIZE);
+  cJSON *doc = cJSON_Parse(embedded.c_str());
+  if (!cJSON_IsArray(doc)) {
+    if (doc)
+      cJSON_Delete(doc);
+    ESP_LOGE(TAG, "Embedded timezone data is not a JSON array");
+    return nullptr;
+  }
+  return doc;
+}
+
+// True if the parsed timezone array contains an entry for `name`. An empty
+// name is treated as present so callers can skip the check.
+static bool timezoneDocHas(cJSON *doc, const char *name) {
+  if (!name || !*name)
+    return true;
+  cJSON *tz = nullptr;
+  cJSON_ArrayForEach(tz, doc) {
+    if (cJSON_IsObject(tz) && strcmp(jsonStringOr(tz, "name", ""), name) == 0)
+      return true;
+  }
+  return false;
+}
+
 static void mergeJson(cJSON *dst, const cJSON *src) {
   if (!cJSON_IsObject(dst) || !cJSON_IsObject(src))
     return;
@@ -252,7 +319,6 @@ std::string Configuration::toJsonString() {
   cJSON_AddStringToObject(timeObj, "timezone", time.timezone.c_str());
   cJSON_AddNumberToObject(timeObj, "latitude", time.latitude);
   cJSON_AddNumberToObject(timeObj, "longitude", time.longitude);
-  cJSON_AddBoolToObject(timeObj, "dstEnabled", time.dstEnabled);
 
   cJSON *netObj = cJSON_CreateObject();
   cJSON_AddItemToObject(doc, "network", netObj);
@@ -444,7 +510,6 @@ bool Configuration::load() {
     time.timezone = jsonStringOr(timeObj, "timezone", "UTC");
     time.latitude = jsonDoubleOr(timeObj, "latitude", 0.0);
     time.longitude = jsonDoubleOr(timeObj, "longitude", 0.0);
-    time.dstEnabled = jsonBoolOr(timeObj, "dstEnabled", false);
   }
 
   loadTimersFromJson(jsonObjectItem(doc, "timers"));
@@ -498,7 +563,6 @@ bool Configuration::save() {
   cJSON_AddStringToObject(timeObj, "timezone", time.timezone.c_str());
   cJSON_AddNumberToObject(timeObj, "latitude", time.latitude);
   cJSON_AddNumberToObject(timeObj, "longitude", time.longitude);
-  cJSON_AddBoolToObject(timeObj, "dstEnabled", time.dstEnabled);
 
   cJSON *timersArray = cJSON_CreateArray();
   cJSON_AddItemToObject(doc, "timers", timersArray);
@@ -597,8 +661,6 @@ void Configuration::partialUpdate(const cJSON *update) {
       time.latitude = jsonDoubleOr(timeObj, "latitude", time.latitude);
     if (jsonObjectItemConst(timeObj, "longitude"))
       time.longitude = jsonDoubleOr(timeObj, "longitude", time.longitude);
-    if (jsonObjectItemConst(timeObj, "dstEnabled"))
-      time.dstEnabled = jsonBoolOr(timeObj, "dstEnabled", time.dstEnabled);
   }
 
   const cJSON *timersArray = jsonObjectItemConst(update, "timers");
@@ -656,51 +718,163 @@ void Configuration::updateLocationFromGPS(float lat, float lon, bool valid) {
   time.longitude = lon;
 }
 
-int Configuration::getTimezoneOffsetSeconds() {
-  std::string tzContent((const char *)timezones_json, TIMEZONES_JSON_SIZE);
-  cJSON *tzDoc = cJSON_Parse(tzContent.c_str());
-  if (!cJSON_IsArray(tzDoc)) {
-    if (tzDoc)
-      cJSON_Delete(tzDoc);
-    return 0;
-  }
+// POSIX TZ string for one parsed timezone entry. With DST enabled the entry's
+// own rules are used; otherwise (or for an entry without POSIX rules, i.e. the
+// older schema) it is derived from the standard offset so a zone never silently
+// falls back to UTC.
+static std::string posixForEntry(const cJSON *tz) {
+  const char *posix = jsonStringOr(tz, "tz", "");
+  if (posix && *posix)
+    return posix;
+  return posixStdOnly(jsonDoubleOr(tz, "offset", 0.0));
+}
 
+std::string Configuration::getTimezonePosix(const std::string &name) {
+  cJSON *tzDoc = loadTimezoneDoc();
+  if (!tzDoc)
+    return "";
+
+  std::string result;
   cJSON *tz = nullptr;
   cJSON_ArrayForEach(tz, tzDoc) {
     if (!cJSON_IsObject(tz))
       continue;
-    const char *name = jsonStringOr(tz, "name", "");
-    if (time.timezone == name) {
-      double offset = jsonDoubleOr(tz, "offset", 0.0);
-      int offsetSeconds = (int)(offset * 3600);
-      if (time.dstEnabled)
-        offsetSeconds += 3600;
-      cJSON_Delete(tzDoc);
-      return offsetSeconds;
-    }
+    const char *n = jsonStringOr(tz, "name", "");
+    if (name != n)
+      continue;
+    result = posixForEntry(tz);
+    break;
   }
   cJSON_Delete(tzDoc);
-  return 0;
+  return result;
 }
 
-std::vector<std::string> Configuration::getSupportedTimezones() {
-  std::vector<std::string> timezones;
-  std::string tzContent((const char *)timezones_json, TIMEZONES_JSON_SIZE);
-  cJSON *tzDoc = cJSON_Parse(tzContent.c_str());
-  if (!cJSON_IsArray(tzDoc)) {
-    if (tzDoc)
-      cJSON_Delete(tzDoc);
-    return timezones;
+// Format an offset in seconds east of UTC the way the UI shows it, e.g.
+// "GMT -3", "GMT +5:30", "GMT +0".
+static std::string formatGmtOffset(int offsetSeconds) {
+  int total = offsetSeconds;
+  char sign = total < 0 ? '-' : '+';
+  if (total < 0)
+    total = -total;
+  int hours = total / 3600;
+  int minutes = (total % 3600) / 60;
+  char buf[24];
+  if (minutes)
+    snprintf(buf, sizeof(buf), "GMT %c%d:%02d", sign, hours, minutes);
+  else
+    snprintf(buf, sizeof(buf), "GMT %c%d", sign, hours);
+  return std::string(buf);
+}
+
+// Offset in seconds east of UTC that a POSIX TZ string is in effect at `now`.
+// Reads the wall clock under that zone, then re-reads it as if it were UTC;
+// the difference is the offset, which keeps any DST delta correct.
+static bool posixOffsetNow(const char *posix, time_t now, int *out) {
+  setenv("TZ", posix, 1);
+  tzset();
+
+  struct tm wall;
+  if (localtime_r(&now, &wall) == nullptr)
+    return false;
+  wall.tm_isdst = 0; // interpreted against UTC0 below, which has no DST
+
+  setenv("TZ", "UTC0", 1);
+  tzset();
+  time_t wallAsUtc = mktime(&wall);
+  if (wallAsUtc == (time_t)-1)
+    return false;
+
+  *out = (int)(wallAsUtc - now);
+  return true;
+}
+
+void Configuration::refreshTimezoneOptions(bool clockValid) {
+  cJSON *tzDoc = loadTimezoneDoc();
+  if (!tzDoc) {
+    std::lock_guard<std::mutex> lock(s_timezoneOptionsMutex);
+    s_timezoneOptions.clear();
+    return;
   }
 
+  time_t now = ::time(nullptr);
+  std::vector<TimezoneOption> options;
   cJSON *tz = nullptr;
   cJSON_ArrayForEach(tz, tzDoc) {
     if (!cJSON_IsObject(tz))
       continue;
     const char *n = jsonStringOr(tz, "name", nullptr);
-    if (n)
-      timezones.push_back(n);
+    if (!n)
+      continue;
+
+    TimezoneOption option;
+    option.name = n;
+
+    if (clockValid) {
+      std::string posix = posixForEntry(tz);
+      int offsetSeconds = 0;
+      if (!posix.empty() && posixOffsetNow(posix.c_str(), now, &offsetSeconds))
+        option.gmt = formatGmtOffset(offsetSeconds);
+    }
+    options.push_back(option);
   }
   cJSON_Delete(tzDoc);
-  return timezones;
+
+  if (clockValid) {
+    // posixOffsetNow() left TZ on UTC0/the last zone; put the C library back on
+    // the configured zone.
+    applyTimezone();
+    ESP_LOGI(TAG, "Timezone offsets refreshed (%u zones)",
+             (unsigned)options.size());
+  }
+
+  std::lock_guard<std::mutex> lock(s_timezoneOptionsMutex);
+  s_timezoneOptions = options;
+}
+
+std::vector<Configuration::TimezoneOption>
+Configuration::getSupportedTimezones() const {
+  std::lock_guard<std::mutex> lock(s_timezoneOptionsMutex);
+  return s_timezoneOptions;
+}
+
+void Configuration::applyTimezone() {
+  std::string posix = getTimezonePosix(time.timezone);
+  if (posix.empty()) {
+    ESP_LOGW(TAG, "Unknown timezone '%s'; falling back to UTC",
+             time.timezone.c_str());
+    posix = "UTC0";
+  }
+  setenv("TZ", posix.c_str(), 1);
+  tzset();
+  ESP_LOGI(TAG, "Timezone applied: %s -> %s", time.timezone.c_str(),
+           posix.c_str());
+}
+
+bool Configuration::saveTimezoneData(const std::string &content) {
+  if (!ensureFilesystemMounted())
+    return false;
+
+  cJSON *doc = cJSON_Parse(content.c_str());
+  if (!cJSON_IsArray(doc)) {
+    if (doc)
+      cJSON_Delete(doc);
+    ESP_LOGW(TAG, "Ignoring invalid runtime timezone data");
+    return false;
+  }
+  // Never replace good data with a set that lacks the configured zone, which
+  // would silently push the device to UTC.
+  if (!timezoneDocHas(doc, time.timezone.c_str())) {
+    ESP_LOGW(TAG,
+             "Runtime timezone data missing configured zone '%s'; keeping "
+             "existing data",
+             time.timezone.c_str());
+    cJSON_Delete(doc);
+    return false;
+  }
+  cJSON_Delete(doc);
+
+  bool ok = writeStringToFile(fsPath(TIMEZONES_FILE), content);
+  if (!ok)
+    ESP_LOGW(TAG, "Failed to persist runtime timezone data");
+  return ok;
 }
