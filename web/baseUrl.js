@@ -17,12 +17,16 @@ export function getBaseUrl() {
       // dispatching an event that the app listens for and shows the UI.
       try {
         // Avoid showing the popup more than once per session.
-        const alreadyShown = sessionStorage.getItem('neritic:base-prompt-shown');
+        const alreadyShown = sessionStorage.getItem(
+          'neritic:base-prompt-shown'
+        );
         if (!alreadyShown) {
-          globalThis.window?.dispatchEvent(new CustomEvent('neritic:request-base-url'));
+          globalThis.window?.dispatchEvent(
+            new CustomEvent('neritic:request-base-url')
+          );
           sessionStorage.setItem('neritic:base-prompt-shown', '1');
         }
-      } catch (err) {
+      } catch {
         /* ignore */
       }
       // Re-read after any external setter may have run.
@@ -50,11 +54,13 @@ export function setBaseUrl(url) {
     localStorage.setItem('BASE_URL', url);
     // Notify any embedders that a BASE_URL was set.
     try {
-      globalThis.window?.dispatchEvent(new CustomEvent('neritic:base-url-set', { detail: { url } }));
-    } catch (e) {
+      globalThis.window?.dispatchEvent(
+        new CustomEvent('neritic:base-url-set', { detail: { url } })
+      );
+    } catch {
       /* ignore */
     }
-  } catch (e) {
+  } catch {
     /* ignore storage errors */
   }
 }

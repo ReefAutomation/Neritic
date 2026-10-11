@@ -1,0 +1,11 @@
+# Do NOT add Cross-Origin-Opener-Policy here. The device web UI opens this page
+# as a popup and receives the result over window.opener via postMessage; any COOP
+# value other than unsafe-none drops the popup into its own browsing context
+# group, which nulls window.opener and silently breaks that reply.
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: geolocation=(self), camera=(), microphone=(), usb=()
+  Cross-Origin-Opener-Policy: unsafe-none
+  Cross-Origin-Resource-Policy: same-origin

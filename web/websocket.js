@@ -104,7 +104,11 @@ function createSharedConnection(wsUrl) {
     if (suspended) return;
     stopHeartbeat();
     heartbeatTimer = globalThis.setInterval(() => {
-      if (manualClose || suspended || socket?.readyState !== globalThis.WebSocket.OPEN) {
+      if (
+        manualClose ||
+        suspended ||
+        socket?.readyState !== globalThis.WebSocket.OPEN
+      ) {
         return;
       }
 
@@ -263,21 +267,21 @@ export function createWebSocket({
       } else {
         sharedConnection.manager.addListener(listener);
       }
-    } catch (e) {
+    } catch {
       // noop
     }
   };
   const onBlur = () => {
     try {
       sharedConnection.manager.removeListener(listener);
-    } catch (e) {
+    } catch {
       // noop
     }
   };
   const onFocus = () => {
     try {
       sharedConnection.manager.addListener(listener);
-    } catch (e) {
+    } catch {
       // noop
     }
   };
@@ -296,7 +300,7 @@ export function createWebSocket({
       // cleanup listener and handlers
       try {
         sharedConnection?.manager.removeListener(listener);
-      } catch (e) {
+      } catch {
         // noop
       }
       if (hasEvent) {
@@ -306,7 +310,9 @@ export function createWebSocket({
       }
     },
     get readyState() {
-      return sharedConnection?.manager.readyState ?? globalThis.WebSocket.CLOSED;
+      return (
+        sharedConnection?.manager.readyState ?? globalThis.WebSocket.CLOSED
+      );
     },
   };
 }

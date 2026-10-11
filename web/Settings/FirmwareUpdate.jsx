@@ -115,13 +115,15 @@ export function FirmwareUpdate({
     if (!otaInstallToastId) return;
     if (otaProgress > 0 || localOtaProgress > 0 || otaProgress < -1) {
       if (typeof hideToast === 'function') hideToast(otaInstallToastId);
-      setTimeout(() => setOtaInstallToastId(null), 16);
+      const timer = setTimeout(() => setOtaInstallToastId(null), 16);
+      return () => clearTimeout(timer);
     }
   }, [otaProgress, localOtaProgress, otaInstallToastId, hideToast]);
 
   useEffect(() => {
     if (otaProgress < -1) {
-      setTimeout(() => setRemoteStartPending(false), 16);
+      const timer = setTimeout(() => setRemoteStartPending(false), 16);
+      return () => clearTimeout(timer);
     }
   }, [otaProgress]);
 

@@ -1,6 +1,83 @@
+import { useEffect, useRef } from 'preact/hooks';
 import { formatTimezoneOption } from '../util.js';
 
-export function LocationTimeSettings({ config, setConfig, timezones }) {
+// The locate helper is a standalone static page (see the locate/ folder in this
+// repo) that runs the browser's Geolocation API and posts { lat, lon } back to
+// whichever page opened it. Update LOCATE_URL when it is deployed elsewhere.
+const LOCATE_URL = 'https://locate.lonecesito.cl/';
+const LOCATE_ORIGIN = new URL(LOCATE_URL).origin;
+
+export function LocationTimeSettings({ config, setConfig, timezones, showToast }) {
+  const popupRef = useRef(null);
+
+  // One listener for the lifetime of the component. It only accepts a reply from
+  // the locate page's own origin, and only writes the config once the values
+  // have been checked against the valid latitude/longitude ranges.
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.origin !== LOCATE_ORIGIN) return;
+
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+
+      const { lat, lon } = data;
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon) ||
+        lat < -90 ||
+        lat > 90 ||
+        lon < -180 ||
+        lon > 180
+      ) {
+        showToast(
+          'The locate page returned coordinates outside the valid latitude/longitude range.',
+          { type: 'error' }
+        );
+        return;
+      }
+
+      setConfig((c) => ({
+        ...c,
+        time: { ...c.time, latitude: lat, longitude: lon },
+      }));
+      showToast('Coordinates received from the locate page.', {
+        type: 'success',
+      });
+
+      if (popupRef.current && !popupRef.current.closed) {
+        popupRef.current.close();
+      }
+      popupRef.current = null;
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [setConfig, showToast]);
+
+  const handleGetFromGps = () => {
+    const width = 460;
+    const height = 640;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+
+    const popup = window.open(
+      LOCATE_URL,
+      'neritic_locate',
+      `width=${width},height=${height},left=${left},top=${top},resizable,scrollbars`
+    );
+
+    if (!popup) {
+      showToast(
+        'The browser blocked the popup window. Allow popups for this page, then try again.',
+        { type: 'error' }
+      );
+      return;
+    }
+
+    popupRef.current = popup;
+    popup.focus();
+  };
+
   return (
     <section className="card">
       <h2>Location & Time</h2>
@@ -84,44 +161,7 @@ export function LocationTimeSettings({ config, setConfig, timezones }) {
           marginTop: '0.5em',
         }}
       >
-        <button
-          type="button"
-          className="btn btn-info"
-          onClick={() => {
-            // Open GPS popup and listen for message
-            const w = 500,
-              h = 500;
-            const left = window.screenX + (window.outerWidth - w) / 2;
-            const top = window.screenY + (window.outerHeight - h) / 2;
-            const popup = window.open(
-              'https://locate.wled.me',
-              'wled_gps',
-              `width=${w},height=${h},left=${left},top=${top},resizable,scrollbars`
-            );
-            if (popup) popup.focus();
-            function handleMessage(event) {
-              if (event.origin !== 'https://locate.wled.me') return;
-              if (
-                event.data &&
-                typeof event.data === 'object' &&
-                'lat' in event.data &&
-                'lon' in event.data
-              ) {
-                setConfig((c) => ({
-                  ...c,
-                  time: {
-                    ...c.time,
-                    latitude: event.data.lat,
-                    longitude: event.data.lon,
-                  },
-                }));
-                if (popup && !popup.closed) popup.close();
-                window.removeEventListener('message', handleMessage);
-              }
-            }
-            window.addEventListener('message', handleMessage);
-          }}
-        >
+        <button type="button" className="btn btn-info" onClick={handleGetFromGps}>
           Get from GPS
         </button>
       </div>

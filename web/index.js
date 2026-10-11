@@ -14,7 +14,8 @@ window.addEventListener('neritic:request-base-url', () => {
     // Use a non-blocking DOM prompt so webviews that block window.prompt still work.
     const modal = document.createElement('div');
     modal.id = 'neritic-base-modal';
-    modal.style = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);z-index:9999;';
+    modal.style =
+      'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);z-index:9999;';
     modal.innerHTML = `
       <div style="background:var(--bg-light);padding:18px;border-radius:8px;max-width:440px;width:90%;box-shadow:0 6px 20px rgba(0,0,0,0.6);">
         <div style="margin-bottom:8px;font-weight:600;color:var(--text-primary)">Enter device BASE_URL</div>
@@ -57,24 +58,24 @@ window.addEventListener('neritic:request-base-url', () => {
     cancel.addEventListener('click', () => closeModal());
 
     // Close modal if an external embedder sets the base URL
-    const onSet = (e) => {
+    const onSet = () => {
       closeModal();
     };
     window.addEventListener('neritic:base-url-set', onSet, { once: true });
-  } catch (e) {
+  } catch {
     // Ignore any DOM errors — embedder should implement its own handler.
   }
 });
 
 // When a BASE_URL is set (either by the modal or an embedder), reload
 // so the app picks up the new URL immediately.
-window.addEventListener('neritic:base-url-set', (e) => {
+window.addEventListener('neritic:base-url-set', () => {
   try {
     // small delay to ensure storage is flushed in some environments
     setTimeout(() => {
       location.reload();
     }, 50);
-  } catch (err) {
+  } catch {
     /* ignore */
   }
 });
