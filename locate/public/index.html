@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Neritic — Location &amp; Timezone</title>
+    <meta
+      name="description"
+      content="Detect your latitude, longitude and timezone in the browser, then copy the result into your Neritic controller configuration. Nothing is uploaded."
+    />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="locate.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <img class="logo" src="neritic.svg" alt="Neritic" width="900" height="190" />
+        <p class="tagline">Location &amp; timezone helper</p>
+      </header>
+
+      <main class="stack">
+        <section class="card" id="coords-card" aria-labelledby="coords-title">
+          <div class="card-head">
+            <h2 id="coords-title">Coordinates</h2>
+            <span class="badge" id="coords-badge">Not detected</span>
+          </div>
+          <p class="card-hint" id="coords-hint">Used by Neritic's sunrise and sunset timers.</p>
+
+          <dl class="readout">
+            <div><dt>Latitude</dt><dd id="rd-lat">—</dd></div>
+            <div><dt>Longitude</dt><dd id="rd-lon">—</dd></div>
+            <div><dt>Accuracy</dt><dd id="rd-accuracy">—</dd></div>
+            <div><dt>Altitude</dt><dd id="rd-altitude">—</dd></div>
+          </dl>
+
+          <div class="actions">
+            <button type="button" class="btn btn-ghost" id="send" hidden disabled>
+              Send to the device
+            </button>
+            <button type="button" class="btn btn-primary" id="detect">Detect my location</button>
+          </div>
+          <p class="status" id="coords-status" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="card" id="tz-card" aria-labelledby="tz-title">
+          <div class="card-head">
+            <h2 id="tz-title">Timezone</h2>
+            <span class="badge" id="tz-badge">Checking…</span>
+          </div>
+          <p class="card-hint">
+            Stored as an IANA name — Neritic applies the zone's daylight-saving rule on the device,
+            so it has to come from the built-in list.
+          </p>
+
+          <dl class="readout">
+            <div><dt>Reported by your browser</dt><dd id="rd-detected">—</dd></div>
+            <div><dt>Preview (your browser's clock)</dt><dd id="rd-preview">—</dd></div>
+          </dl>
+
+          <div class="field">
+            <label for="tz-select">Zone written to the configuration</label>
+            <select id="tz-select" disabled>
+              <option value="">Loading supported zones…</option>
+            </select>
+          </div>
+          <p class="status" id="tz-status" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="card" id="out-card" aria-labelledby="out-title">
+          <div class="card-head">
+            <h2 id="out-title">Configuration snippet</h2>
+          </div>
+          <p class="card-hint">
+            Merges into the <code>time</code> section of your config — via the
+            <strong>Time</strong> panel of the device web UI or <code>POST /api/config</code>.
+          </p>
+
+          <pre class="snippet" id="snippet" tabindex="0"></pre>
+
+          <div class="actions">
+            <button type="button" class="btn btn-primary" id="copy-json">Copy JSON</button>
+          </div>
+          <p class="status" id="out-status" role="status" aria-live="polite"></p>
+        </section>
+      </main>
+
+      <footer class="foot">
+        <p>
+          Read in this tab only — nothing is uploaded and no third-party assets are loaded.
+          Browsers only offer location on a secure origin, which is how this page is served.
+        </p>
+      </footer>
+    </div>
+
+    <script src="locate.js" defer></script>
+  </body>
+</html>

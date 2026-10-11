@@ -203,6 +203,7 @@ export function Config({
             setConfig={wrappedSetConfig}
             timezones={timezones}
             onFieldChange={handleFieldChange}
+            showToast={showToast}
           />
           <FirmwareUpdate
             showToast={showToast}

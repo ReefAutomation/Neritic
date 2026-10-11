@@ -1,0 +1,7 @@
+{
+  "name": "neritic-locate",
+  "compatibility_date": "2026-10-10",
+  "assets": {
+    "directory": "./public"
+  }
+}
