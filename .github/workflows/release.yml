@@ -19,6 +19,7 @@ jobs:
     outputs:
       should_run: ${{ steps.release_meta.outputs.should_run }}
       release_tag: ${{ steps.release_meta.outputs.release_tag }}
+      release_notes: ${{ steps.release_meta.outputs.release_notes }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -38,9 +39,13 @@ jobs:
         uses: cycjimmy/semantic-release-action@v6
         with:
           semantic_version: 24
+          # Pin the preset to 9.x: preset v10 requires conventional-changelog-writer@9,
+          # but @semantic-release/release-notes-generator (semantic-release 24) pins writer ^8.
           extra_plugins: |
-            conventional-changelog-conventionalcommits
+            conventional-changelog-conventionalcommits@9.3.1
             @semantic-release/commit-analyzer
+            @semantic-release/release-notes-generator
+            @semantic-release/changelog@7.0.0
             @semantic-release/exec
             @semantic-release/git
         env:
@@ -52,6 +57,8 @@ jobs:
 
       - name: Resolve release metadata
         id: release_meta
+        env:
+          NEW_RELEASE_NOTES: ${{ steps.semantic.outputs.new_release_notes }}
         run: |
           TAG="${{ steps.semantic.outputs.new_release_git_tag }}"
           if [[ -z "$TAG" ]]; then
@@ -63,6 +70,11 @@ jobs:
           fi
           echo "should_run=true" >> "$GITHUB_OUTPUT"
           echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "release_notes<<RELEASE_NOTES_EOF"
+            printf '%s\n' "$NEW_RELEASE_NOTES"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     needs: [release]
@@ -162,6 +174,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.manifest.outputs.release_tag }}
+          body: ${{ needs.release.outputs.release_notes }}
           files: |
             .pio/build/**/*.bin.gz
             manifest.json
