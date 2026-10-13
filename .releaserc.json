@@ -14,7 +14,7 @@
         "preset": "conventionalcommits",
         "linkCompare": false,
         "presetConfig": {
-          "ignoreCommits": "^(🤖|chore\\(release\\))",
+          "ignoreCommits": "^(🤖|chore\\(release\\)|chore\\(deps\\))",
           "types": [
             { "type": "feat", "section": "Features" },
             { "type": "feature", "section": "Features" },
