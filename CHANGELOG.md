@@ -1,3 +1,13 @@
+## 2.1.0 (2026-10-15)
+
+### Features
+
+* **ios:** add native controller app ([7948e67](https://github.com/ReefAutomation/Neritic/commit/7948e6784a6ecc88fa740b76f423b0299097feed))
+
+### Bug Fixes
+
+* emit canonical v-prefixed firmware version ([a72bb39](https://github.com/ReefAutomation/Neritic/commit/a72bb3946e8db6940a3f7feb731354c3d217a6d4))
+
 ## 2.0.0 (2026-10-13)
 
 ### ⚠ BREAKING CHANGES
