@@ -72,9 +72,9 @@ jobs:
             fi
             TAG="$VERSION"
           fi
-          echo "should_run=true" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
           {
+            echo "should_run=true"
+            echo "release_tag=$TAG"
             echo "release_notes<<RELEASE_NOTES_EOF"
             printf '%s\n' "$NEW_RELEASE_NOTES"
             echo "RELEASE_NOTES_EOF"
@@ -120,12 +120,12 @@ jobs:
         id: collect_envs
         run: |
           find . -name 'built_envs_*.txt' -exec cat {} \; | sort | uniq | tr '\n' ' ' > all_envs.txt
-          echo "ENVS=$(cat all_envs.txt)" >> $GITHUB_ENV
+          echo "ENVS=$(cat all_envs.txt)" >> "$GITHUB_ENV"
 
       - name: Set manifest environment variables
         run: |
-          echo "FIRMWARE_TYPE=Neritic" >> $GITHUB_ENV
-          echo "FIRMWARE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/" >> $GITHUB_ENV
+          echo "FIRMWARE_TYPE=Neritic" >> "$GITHUB_ENV"
+          echo "FIRMWARE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/" >> "$GITHUB_ENV"
 
       - name: Generate manifest.json for OTA
         run: |

@@ -33,7 +33,7 @@ jobs:
         id: cache-key
         run: |
           KEY="${{ runner.os }}-deps-${{ hashFiles('package.json','package-lock.json','requirements.txt') }}"
-          echo "cache-key=$KEY" >> $GITHUB_OUTPUT
+          echo "cache-key=$KEY" >> "$GITHUB_OUTPUT"
           echo "Computed cache-key: $KEY"
 
       - name: Restore cache (deps)
