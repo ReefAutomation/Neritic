@@ -11,6 +11,10 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  # Required by the cache-cleanup job in the reusable ci-workflow.yml: without
+  # it here, this workflow's permission block caps the called workflow at
+  # `actions: none` and the cleanup fails.
+  actions: write
 
 jobs:
   release:

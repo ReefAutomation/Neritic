@@ -215,3 +215,54 @@ jobs:
           path: |
               .pio/build/${{ matrix.env }}/*.bin.gz
               built_envs_${{ matrix.env }}.txt
+
+  # The deps cache is scoped to this run only: `deps` saves it, `web`/`firmware`
+  # restore it, and it is deleted once they are done, so a later run can never
+  # inherit a stale toolchain or dependency tree. Depending on every consumer is
+  # deliberate — the deletion must not race the restores above.
+  cache-cleanup:
+    name: Clear deps cache
+    needs: [deps, web, firmware]
+    if: ${{ always() && needs.deps.outputs.cache-key != '' }}
+    runs-on: ubuntu-latest
+    # Deleting an Actions cache requires the `actions: write` scope, and a
+    # caller workflow that grants nothing would cap this job at
+    # `actions: none`, failing the cleanup with a permissions error.
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the cache entry saved by this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # This job checks nothing out, so there is no remote for gh to infer
+          # the target repository from — without this it fails with
+          # "failed to run git: fatal: not a git repository".
+          GH_REPO: ${{ github.repository }}
+          CACHE_KEY: ${{ needs.deps.outputs.cache-key }}
+        run: |
+          # Every gh call is checked. An unchecked failure here is invisible:
+          # `gh cache list` then yields no ids, which is indistinguishable from
+          # "the key does not exist", and that let a repo-context error pass as
+          # a successful, empty cleanup.
+          if ! ids=$(gh cache list --key "$CACHE_KEY" --limit 100 --json id --jq '.[].id'); then
+            echo "::error::gh cache list failed for key $CACHE_KEY"
+            exit 1
+          fi
+          # An empty result here is legitimate: `gh cache list` succeeded, so the
+          # deps job simply never got as far as saving one.
+          if [[ -z "$ids" ]]; then
+            echo "No cache entry exists for key $CACHE_KEY"
+            exit 0
+          fi
+          while read -r id; do
+            echo "Deleting cache $id ($CACHE_KEY)"
+            gh cache delete "$id"
+          done <<< "$ids"
+          # Assert the post-condition rather than trusting the delete calls: this
+          # job exists to guarantee the entry is gone.
+          remaining=$(gh cache list --key "$CACHE_KEY" --limit 100 --json id --jq '.[].id')
+          if [[ -n "$remaining" ]]; then
+            echo "::error::cache key $CACHE_KEY still present after delete (ids: $remaining)"
+            exit 1
+          fi
+          echo "Deleted every cache entry for key $CACHE_KEY"

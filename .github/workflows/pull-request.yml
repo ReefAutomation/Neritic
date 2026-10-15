@@ -7,6 +7,13 @@ on:
     branches:
       - main
 
+# The reusable CI deletes its dependency cache when it ends, which needs
+# `actions: write`. A caller that declares no permissions caps the called
+# workflow at the repository defaults, so the scope is granted explicitly here.
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   build:
     if: ${{ github.actor == 'renovate[bot]' && github.event.pull_request.state != 'closed' }}
