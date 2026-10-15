@@ -153,7 +153,7 @@ private struct DeviceRow: View {
                     Text(address)
                 }
                 if let version = device.version {
-                    Text("v\(version)")
+                    Text(version)
                 }
                 if let environment = device.environment {
                     Text(environment)

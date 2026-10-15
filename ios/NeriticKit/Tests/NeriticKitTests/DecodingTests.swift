@@ -48,7 +48,7 @@ private enum Fixture {
     """.utf8)
 
     static let update = Data("""
-    {"current":"2.0.0","latest":[{"env":"esp32c6","version":"2.0.1",\
+    {"current":"v2.0.0","latest":[{"env":"esp32c6","version":"v2.0.1",\
     "url":"https://example.invalid/firmware.bin"}]}
     """.utf8)
 
@@ -167,8 +167,8 @@ struct DecodingTests {
     func updateDecodes() throws {
         let info = try decoder.decode(UpdateInfo.self, from: Fixture.update)
 
-        #expect(info.current == "2.0.0")
-        #expect(info.latestVersion(forEnvironment: "esp32c6") == "2.0.1")
+        #expect(info.current == "v2.0.0")
+        #expect(info.latestVersion(forEnvironment: "esp32c6") == "v2.0.1")
         #expect(info.latest?.first?.url == "https://example.invalid/firmware.bin")
     }
 

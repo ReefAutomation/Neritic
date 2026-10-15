@@ -18,11 +18,23 @@ Base URL: `http://<device-ip>`
 - `GET /api/version`
   - Returns firmware version:
   ```json
-  { "version": "1.0.0" }
+  { "version": "v1.0.0" }
   ```
+  - Version strings are canonical Git tag strings and always carry the `v`
+    prefix:
+    - `vX.Y.Z` — release build: HEAD is the released tag. A release never
+      carries a stamp, even with uncommitted changes in the tree.
+    - `vX.Y.Z-YYYYmmdd-HHMMSS` — test build: HEAD is not a released tag. The
+      stamp is UTC.
+    The same string is reported by `GET /api/update` as `current` and as the
+    `version` mDNS TXT record, so it compares directly with the `version` field
+    of the release manifest.
 
 - `GET /api/update`
-  - Returns current version and remote manifest information.
+  - Returns `current` (the version above) and the remote release manifest:
+  ```json
+  { "current": "v1.0.0", "latest": [ { "env": "esp32c6", "version": "v1.0.0", "url": "…" } ] }
+  ```
 
 - `POST /api/update`
   - Starts remote OTA process.

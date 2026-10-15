@@ -178,7 +178,7 @@ export function FirmwareUpdate({
           <>
             {currentVersion && (
               <div className="modal-version">
-                Current version: <span>{`v${currentVersion}`}</span>
+                Current version: <span>{currentVersion}</span>
               </div>
             )}
             <div className="modal-version">

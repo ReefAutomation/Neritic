@@ -151,6 +151,11 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref || github.sha }}
+          # Full history: scripts/gen_version.py certifies a release build by
+          # checking that HEAD is exactly a vX.Y.Z tag reachable from
+          # origin/main. A shallow clone cannot answer either question, which
+          # would stamp a released firmware as a test build.
+          fetch-depth: 0
 
       - name: Restore cache (deps)
         id: cache-restore
