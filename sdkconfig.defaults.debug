@@ -2,3 +2,10 @@ CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
 CONFIG_ESP_INT_WDT_TIMEOUT_MS=300
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=3584
+
+# Debug environments emit full DWARF debug information (-ggdb / -gdwarf) and
+# keep debug optimisation. Note -Og is deliberately retained here rather than
+# inheriting the size optimisation from sdkconfig.defaults.common: for this
+# project -Og produces a *smaller* image than -Os (by ~17 KB), because -Os
+# inflates the flash-mapped .flash_rodata_dummy reservation.
+CONFIG_COMPILER_OPTIMIZATION_DEBUG=y

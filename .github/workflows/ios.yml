@@ -1,0 +1,63 @@
+---
+name: iOS
+
+# Firmware and web CI live in ci-workflow.yml (invoked by pull-request.yml and
+# branch-push.yml). The iOS app is separate on purpose: it needs a macOS runner,
+# and running that on every firmware change would be wasteful. The path filter
+# keeps it scoped to ios/.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+
+jobs:
+  kit-tests:
+    name: NeriticKit tests
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios/NeriticKit
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Swift version
+        run: swift --version
+
+      # NeriticKit is a standalone package so the networking layer can be tested
+      # without building the app.
+      - name: Run tests
+        run: swift test
+
+  app-build:
+    name: Build app
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Signing is disabled: this validates that the app compiles and links,
+      # it does not produce a distributable build.
+      - name: Build
+        run: |
+          xcodebuild -project Neritic.xcodeproj \
+            -scheme Neritic \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

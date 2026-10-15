@@ -4,3 +4,14 @@ CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4m.csv"
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# The application slot is 1.5 MB and the image sits close to that ceiling, so
+# size optimisation is required. Without this, a stale (untracked) sdkconfig
+# keeps debug optimisation (-Og) enabled and the image overflows the slot.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# mDNS is used only to advertise the controller (_neritic._tcp) so clients can
+# discover it. The responder is required; the console CLI and the browser
+# (daemon/querier) halves of the component are not, and cost real flash.
+CONFIG_MDNS_ENABLE_CONSOLE_CLI=n
+CONFIG_MDNS_ENABLE_BROWSE=n

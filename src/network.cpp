@@ -1,10 +1,12 @@
 #include "network.h"
+#include "assets.h"
 #include "onboard_led.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "mdns.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/netdb.h"
@@ -33,6 +35,60 @@ static bool s_dns_task_started = false;
 #define AP_FALLBACK_DELAY_MS 120000
 
 static void dns_task(void *arg);
+
+// ── mDNS advertisement
+// ─────────────────────────────────────────────────────────────
+// Advertises `_neritic._tcp` so clients can discover the controller on the
+// LAN instead of requiring a manually entered IP address.
+#define MDNS_STR_HELPER(x) #x
+#define MDNS_STR(x) MDNS_STR_HELPER(x)
+
+static bool s_mdns_started = false;
+static bool s_mdns_service_added = false;
+static std::string s_mdns_hostname;
+
+static void startMdns(const std::string &hostname) {
+  if (hostname.empty())
+    return;
+
+  s_mdns_hostname = hostname;
+
+  if (!s_mdns_started) {
+    esp_err_t rc = mdns_init();
+    if (rc != ESP_OK) {
+      ESP_LOGW(TAG, "mdns_init failed: %s", esp_err_to_name(rc));
+      return;
+    }
+    s_mdns_started = true;
+  }
+
+  esp_err_t hostRc = mdns_hostname_set(hostname.c_str());
+  if (hostRc != ESP_OK)
+    ESP_LOGW(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(hostRc));
+
+  mdns_instance_name_set(hostname.c_str());
+
+  if (s_mdns_service_added)
+    return;
+
+  mdns_txt_item_t txt[] = {
+      {"version", (const char *)version},
+      {"model", "neritic"},
+      {"env", MDNS_STR(OTA_ENV)},
+      {"path", "/api/state"},
+  };
+
+  esp_err_t svcRc = mdns_service_add(nullptr, "_neritic", "_tcp", 80, txt,
+                                     sizeof(txt) / sizeof(txt[0]));
+  if (svcRc != ESP_OK) {
+    ESP_LOGW(TAG, "mdns_service_add failed: %s", esp_err_to_name(svcRc));
+    return;
+  }
+
+  s_mdns_service_added = true;
+  ESP_LOGI(TAG, "mDNS advertising _neritic._tcp on %s.local (port 80)",
+           hostname.c_str());
+}
 
 static void disable_wifi_power_save() {
   esp_err_t rc = esp_wifi_set_ps(WIFI_PS_NONE);
@@ -69,6 +125,8 @@ static void ensure_ap_enabled(const Configuration &config) {
   if (esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
     s_ap_ip = ip_info.ip.addr;
   }
+
+  startMdns(config.network.hostname);
 
   if (!s_dns_task_started) {
     xTaskCreate(dns_task, "dns_task", 4096, nullptr, 5, nullptr);
@@ -141,6 +199,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id,
       ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&ev->ip_info.ip));
       s_sta_connected = true;
       s_failure_streak_start_ms = 0;
+      startMdns(s_mdns_hostname);
     } else if (id == IP_EVENT_STA_LOST_IP) {
       s_sta_connected = false;
       #ifdef ONBOARD_RGB_LED
@@ -261,6 +320,7 @@ void networkSetup(Configuration &config) {
     if (esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
       s_ap_ip = ip_info.ip.addr;
     }
+    startMdns(hostname);
     if (!s_dns_task_started) {
       xTaskCreate(dns_task, "dns_task", 4096, nullptr, 5, nullptr);
       s_dns_task_started = true;
@@ -280,6 +340,7 @@ void networkSetup(Configuration &config) {
   ESP_ERROR_CHECK(esp_wifi_start());
   disable_wifi_power_save();
   esp_netif_set_hostname(s_sta_netif, hostname.c_str());
+  startMdns(hostname);
   s_last_disconnect_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
   s_failure_streak_start_ms = s_last_disconnect_ms;
 }
@@ -356,6 +417,10 @@ void applyHostnameChange(const std::string &hostname) {
     else
       ESP_LOGW(TAG, "Failed to set STA hostname: %d", rc);
   }
+
+  // Keep the mDNS advertisement in sync with the new hostname
+  if (s_mdns_started)
+    startMdns(hostname);
 }
 
 // ── Status helpers

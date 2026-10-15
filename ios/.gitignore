@@ -1,0 +1,13 @@
+# Generated Xcode project — recreate with `xcodegen generate`
+Neritic.xcodeproj/
+Neritic.xcworkspace/
+xcuserdata/
+*.xcuserdatad/
+DerivedData/
+build/
+# Swift Package Manager build output
+NeriticKit/.build/
+.swiftpm/
+# XcodeGen writes the Info.plist at this path from project.yml
+Neritic/Info.plist
+.DS_Store

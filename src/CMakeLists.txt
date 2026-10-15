@@ -18,6 +18,7 @@ idf_component_register(
         esp_timer
         esp_driver_rmt
         led_strip
+        mdns
     EMBED_TXTFILES
         "../dist/index.html"
         "../dist/favicon.svg"

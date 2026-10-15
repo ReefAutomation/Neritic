@@ -1,0 +1,82 @@
+# XcodeGen project definition.
+#
+# The .xcodeproj is generated, not committed:
+#   cd ios && xcodegen generate
+#
+# NeriticKit is a local Swift package (see NeriticKit/Package.swift) so the
+# networking layer can be tested from the command line with `swift test`
+# without building the app.
+name: Neritic
+
+options:
+  bundleIdPrefix: com.reefautomation
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: '17.0'
+  groupSortPosition: top
+
+packages:
+  NeriticKit:
+    path: NeriticKit
+
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    MARKETING_VERSION: '1.0.0'
+    CURRENT_PROJECT_VERSION: '1'
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  Neritic:
+    type: application
+    platform: iOS
+    sources:
+      - path: Neritic
+    dependencies:
+      - package: NeriticKit
+        product: NeriticKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.reefautomation.neritic
+        PRODUCT_NAME: Neritic
+        TARGETED_DEVICE_FAMILY: '1,2'
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Neritic/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Neritic/Info.plist
+      properties:
+        CFBundleDisplayName: Neritic
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Required because the Info.plist is declared here rather than generated
+        # automatically: without it the asset-catalog icon is compiled but never
+        # referenced, and the app ships with the default blank icon.
+        CFBundleIconName: AppIcon
+        UILaunchScreen:
+          UIColorName: ''
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIUserInterfaceStyle: Automatic
+        # Reaching a controller on the LAN triggers the iOS local-network
+        # permission prompt; iOS refuses the connection without this string.
+        NSLocalNetworkUsageDescription: >-
+          Neritic connects to your lighting controller on your local network to
+          control it and show the live light output.
+        # Browsing for the controller's advertised _neritic._tcp service.
+        NSBonjourServices:
+          - _neritic._tcp
+        # The controller serves plain HTTP on the LAN. This scopes the exemption
+        # to local networking only, rather than disabling App Transport Security
+        # wholesale (which App Review scrutinises).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
