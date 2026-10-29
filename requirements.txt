@@ -5,4 +5,4 @@ intelhex==2.3.0
 # bump the pin to move the repo onto a newer IANA release. Install this into the
 # interpreter that runs the build (PlatformIO's environment), or the build fails
 # instead of embedding stale rules.
-tzdata==2026.5
+tzdata==2026.6
